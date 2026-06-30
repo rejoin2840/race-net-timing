@@ -1,0 +1,42 @@
+{
+  "event": "StubHub Monterey SportsCar Championship",
+  "track": "WeatherTech Raceway Laguna Seca",
+  "date": "2026-05-01",
+  "entries": {
+    "5":  {"class":"GTP",    "team":"JDC-Miller MotorSports",                             "drivers":["Tijmen van der Helm","Laurin Heinrich"]},
+    "6":  {"class":"GTP",    "team":"Porsche Penske Motorsport",                          "drivers":["Laurens Vanthoor","Kevin Estre"]},
+    "7":  {"class":"GTP",    "team":"Porsche Penske Motorsport",                          "drivers":["Felipe Nasr","Julien Andlauer"]},
+    "10": {"class":"GTP",    "team":"Cadillac Wayne Taylor Racing",                       "drivers":["Ricky Taylor","Filipe Albuquerque"]},
+    "23": {"class":"GTP",    "team":"Aston Martin Thor Team",                             "drivers":["Ross Gunn","Roman De Angelis"]},
+    "24": {"class":"GTP",    "team":"BMW M Team WRT",                                     "drivers":["Sheldon van der Linde","Dries Vanthoor"]},
+    "25": {"class":"GTP",    "team":"BMW M Team WRT",                                     "drivers":["Philipp Eng","Marco Wittmann"]},
+    "31": {"class":"GTP",    "team":"Cadillac Whelen",                                    "drivers":["Jack Aitken","Earl Bamber"]},
+    "40": {"class":"GTP",    "team":"Cadillac Wayne Taylor Racing",                       "drivers":["Jordan Taylor","Louis Deletraz"]},
+    "60": {"class":"GTP",    "team":"Acura Meyer Shank Racing w/Curb Agajanian",          "drivers":["Tom Blomqvist","Colin Braun"]},
+    "93": {"class":"GTP",    "team":"Acura Meyer Shank Racing w/Curb Agajanian",          "drivers":["Renger van der Zande","Nick Yelloly"]},
+
+    "1":  {"class":"GTDPRO", "team":"Paul Miller Racing",                                 "drivers":["Connor De Phillippi","Neil Verhagen"]},
+    "3":  {"class":"GTDPRO", "team":"Corvette Racing by Pratt Miller Motorsports",        "drivers":["Antonio Garcia","Alexander Sims"]},
+    "4":  {"class":"GTDPRO", "team":"Corvette Racing by Pratt Miller Motorsports",        "drivers":["Tommy Milner","Nicky Catsburg"]},
+    "9":  {"class":"GTDPRO", "team":"Pfaff Motorsports",                                  "drivers":["Andrea Caldarelli","Sandy Mitchell"]},
+    "14": {"class":"GTDPRO", "team":"Vasser Sullivan Racing",                             "drivers":["Jack Hawksworth","Ben Barnicoat"]},
+    "59": {"class":"GTDPRO", "team":"RLL Team McLaren",                                   "drivers":["Max Esterson","Nikita Johnson"]},
+    "64": {"class":"GTDPRO", "team":"Ford Racing",                                        "drivers":["Ben Barker","Dennis Olsen"]},
+    "65": {"class":"GTDPRO", "team":"Ford Racing",                                        "drivers":["Christopher Mies","Frederic Vervisch"]},
+    "77": {"class":"GTDPRO", "team":"AO Racing",                                          "drivers":["Nick Tandy","Harry King"]},
+
+    "12": {"class":"GTD",    "team":"Vasser Sullivan Racing",                             "drivers":["Aaron Telitz","Benjamin Pedersen"]},
+    "13": {"class":"GTD",    "team":"13 Autosport",                                       "drivers":["Orey Fidani","Matthew Bell"]},
+    "16": {"class":"GTD",    "team":"Myers Riley Motorsports",                            "drivers":["Sheena Monk","Felipe Fraga"]},
+    "19": {"class":"GTD",    "team":"van der Steur Racing",                               "drivers":["Rory van der Steur","Scott Andrews"]},
+    "27": {"class":"GTD",    "team":"Heart of Racing Team",                               "drivers":["Dudu Barrichello","Tom Gamble"]},
+    "34": {"class":"GTD",    "team":"Conquest Racing",                                    "drivers":["Albert Costa","Lorenzo Patrese"]},
+    "45": {"class":"GTD",    "team":"Wayne Taylor Racing",                                "drivers":["Danny Formal","Trent Hindman"]},
+    "57": {"class":"GTD",    "team":"WINWARD Racing",                                     "drivers":["Russell Ward","Philip Ellis"]},
+    "66": {"class":"GTD",    "team":"Gradient Racing",                                    "drivers":["Jake Walker","Corey Lewis"]},
+    "70": {"class":"GTD",    "team":"Inception Racing",                                   "drivers":["Brendan Iribe","Frederik Schandorff"]},
+    "81": {"class":"GTD",    "team":"DragonSpeed",                                        "drivers":["Henrik Hedman","Giacomo Altoè"]},
+    "96": {"class":"GTD",    "team":"Turner Motorsport",                                  "drivers":["Patrick Gallagher","Robby Foley"]},
+    "120":{"class":"GTD",    "team":"Wright Motorsports",                                 "drivers":["Adam Adelson","Callum Ilott"]}
+  }
+}

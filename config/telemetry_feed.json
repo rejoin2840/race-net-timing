@@ -1,0 +1,7 @@
+{
+  "_README": "Real IMSA AppSync Events telemetry feed config, captured 2026-06-30 from a www.imsa.com HAR. api_key is the PUBLIC AppSync api-key the site ships to every visitor (not a secret). If the key rotates, re-capture per config/telemetry_feed.example.json _README.",
+  "realtime_url": "wss://wzidxebhlbgqpm7kt22wkx2pri.appsync-realtime-api.us-east-1.amazonaws.com/event/realtime",
+  "api_host": "wzidxebhlbgqpm7kt22wkx2pri.appsync-api.us-east-1.amazonaws.com",
+  "api_key": "da2-zjztqnoq7zfsxjenuhapcprllu",
+  "channels": ["telemetry/message", "telemetry/session"]
+}

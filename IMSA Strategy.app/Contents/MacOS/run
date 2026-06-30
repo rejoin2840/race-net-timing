@@ -1,0 +1,24 @@
+#!/bin/bash
+# Double-click launcher for the IMSA net-position strategy dashboard.
+# Created locally (no download quarantine) so Gatekeeper won't block it.
+# If you move the project folder, update ROOT below.
+
+ROOT="/Users/paulkassan/Claude projects/race-net-timing"
+PY="$ROOT/venv/bin/python"
+APP="$ROOT/src/dashboard_calm.py"
+
+mkdir -p "$ROOT/logs"
+
+if [ ! -x "$PY" ]; then
+    osascript -e 'display alert "IMSA Strategy" message "Python venv not found. Expected at ~/Claude projects/race-net-timing/venv. Re-create it or update ROOT in the launcher."'
+    exit 1
+fi
+
+# Launch the dashboard; log output so failures are diagnosable without a terminal.
+# Force arm64: the Python is a universal binary and LaunchServices may otherwise
+# start it as x86_64, which can't load the arm64-only PyQt6 libraries.
+# Detect Apple Silicon by HARDWARE (uname -m lies under x86_64 emulation, which is
+# exactly the case Finder/LaunchServices triggers here).
+ARCHFLAG=""
+if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then ARCHFLAG="arch -arm64"; fi
+exec $ARCHFLAG "$PY" "$APP" >> "$ROOT/logs/dashboard.log" 2>&1

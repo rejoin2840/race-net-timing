@@ -1,0 +1,7 @@
+{
+  "_README": "Connection details for the IMSA live telemetry feed (imsa.com/telemetry), which is an AWS AppSync EVENTS API channel subscription over a websocket. Copy this file to config/telemetry_feed.json and fill in the real values captured from the page. HOW TO CAPTURE (no code): open imsa.com/telemetry in Chrome, DevTools -> Network, filter 'WS', reload. Click the connection to 'appsync-realtime-api...amazonaws.com/event/realtime'. (1) Headers -> Sec-WebSocket-Protocol contains 'header-<base64url>' -> base64url-decode it to get {host, x-api-key}: host = api_host, x-api-key = api_key. (2) Messages -> the 'subscribe' frames each carry a 'channel' (e.g. telemetry/message, telemetry/session) -> list them in 'channels'. realtime_url is the wss URL you connected to (ending /event/realtime); if omitted it is derived from api_host.",
+  "realtime_url": "",
+  "api_host": "EXAMPLEID.appsync-api.us-east-1.amazonaws.com",
+  "api_key": "da2-REPLACE_WITH_REAL_KEY",
+  "channels": ["telemetry/message", "telemetry/session"]
+}

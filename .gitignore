@@ -1,0 +1,19 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# Runtime data / logs (regenerated; large, machine-local)
+logs/
+*.db
+*.db-shm
+*.db-wal
+*.zip
+
+# Keep static config that lives under data/
+!data/entries_*.json
