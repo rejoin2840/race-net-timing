@@ -7,10 +7,11 @@
 - Tinkering hobbyist with technical depth
 
 ## My Preferences
-- Show planning and reasoning before executing changes
-- Explain decisions in non-technical terms when possible
-- Tell me when you're using a subagent or tool and why
+- Show planning and reasoning before executing (keep it brief)
+- Explain decisions in 1-2 sentences (non-technical when possible)
+- Tell me which subagent/tool and why (concise)
 - Optimize for accuracy over speed (this is for race strategy, precision matters)
+- **Save tokens**: Use bullet points, short sentences, avoid verbose explanations
 
 ## Subagents & Tool Usage (IMPORTANT)
 - **Default behavior**: Use subagents and Claude tools to improve efficiency and output quality
@@ -20,18 +21,18 @@
 - **Before you start**: Recommend a model for the main plan and explain why, then recommend models for any subagents
 
 ## Model Selection Guidelines
-- **Main plan**: Tell me which Claude model you recommend (Opus/Sonnet/Haiku) and justify it based on task complexity
+- **Main plan**: Recommend which model (Opus/Sonnet/Haiku) with 1-line justification
 - **Subagents**: Choose the most cost-efficient model that still accomplishes the task well
   - Haiku: Data processing, exploration, simple analysis
   - Sonnet: Complex reasoning, multi-step planning
   - Opus: Only if the main task demands maximum reasoning capability
-- **Your reasoning**: Explain the cost/capability trade-off for each model choice
+- **Keep it brief**: One sentence explaining why—cost/capability trade-off in shorthand
 
 ## How I Like to Work
-1. **Model recommendation**: Tell me which model(s) you'll use and why
-2. **Explain the plan**: Show what you're doing, which subagents you'll delegate to, and their models
+1. **Model pick**: Recommend model(s) + 1-line reason
+2. **Plan (bullets)**: Concise bullet points—what, which subagents, their models
 3. **Execute**: Make the changes
-4. **Summarize**: Tell me what changed, what we learned, and why this approach was efficient
+4. **Summary (brief)**: What changed, key learnings (1-2 sentences each)
 5. **Concise**: Outside of what I requested you to explain or summarize, Output strictly tool calls and code. Zero conversational text, zero pleasantries, unless explicitly requested.
 
 ## Important Notes
