@@ -54,6 +54,23 @@ def _load_entries() -> dict:
 
 _ENTRIES: dict = _load_entries()
 
+
+# ── F1 team table (car# → TLA/team/colour) — scripted off FastF1, see
+# src/build_f1_team_table.py. Falls back to the driver-identity generic path
+# below when a car isn't in the table (e.g. a mid-season reserve driver).
+def _load_f1_teams() -> dict:
+    out = {}
+    data_dir = pathlib.Path(__file__).parent.parent / "data"
+    for f in sorted(data_dir.glob("f1_*.json")):
+        try:
+            doc = json.loads(f.read_text())
+            out.update(doc.get("drivers", {}))
+        except Exception:
+            pass
+    return out
+
+_F1_TEAMS: dict = _load_f1_teams()
+
 # ── calm palette (nudged ~8% brighter; row LINE more visible per feel-test) ───
 BG      = "#10141A"
 RAIL    = "#0D1117"
@@ -77,8 +94,22 @@ SPINE = dict(series_profiles.IMSA.spine)
 MONO = "Menlo"
 SANS = "Helvetica Neue"
 
+OVERRIDE = "#FFD166"   # F1 2026 manual-override/boost active — distinct from every other cue
 
-def _spine(cls: str) -> str:
+# FIA-standard tyre-compound colours (F1 only; NULL for IMSA — no chip painted).
+# Third element: use dark text on the chip (light backgrounds only).
+TIRE_STYLE = {
+    "SOFT":         ("S", "#F2444A", False),
+    "MEDIUM":       ("M", "#F4C445", True),
+    "HARD":         ("H", "#F5F5F5", True),
+    "INTERMEDIATE": ("I", "#3FAE4E", False),
+    "WET":          ("W", "#3B82F6", False),
+}
+
+
+def _spine(cls: str, profile=None) -> str:
+    if profile is not None:
+        return profile.spine_of(cls)
     return SPINE.get(cls, "#5F6B7A")
 
 
@@ -175,7 +206,8 @@ def _pit_cell(ca, current_lap, in_box: bool):
     return ("", MUTE)
 
 
-def _row_vm(r, ca, current_lap, cycle_active=True, since=None, allow_net=True) -> dict:
+def _row_vm(r, ca, current_lap, cycle_active=True, since=None, allow_net=True,
+           profile=None) -> dict:
     """Flatten a Row (+ its CarAnalysis) into the text/colour view-model the
     custom-painted RowWidget consumes.
 
@@ -231,13 +263,41 @@ def _row_vm(r, ca, current_lap, cycle_active=True, since=None, allow_net=True) -
     since_text = _since_short(since) if since is not None else ""
     since_tone = TONE_HEX.get(since.tone, MUTE) if since is not None else MUTE
 
+    # identity slot: "driver"-identity series (F1) lead with the TLA in team colour and
+    # push the full team name to the dim slot — the IMSA "team · driver" reading flipped
+    # to match how F1 boards are actually read. Falls back to the generic team/driver
+    # text when the car isn't in the scripted table (e.g. a mid-season reserve driver).
+    team_text, driver_text = r.team, r.driver
+    team_color = MUTE if dim else DIM
+    driver_color = FAINT if dim else MUTE
+    if profile is not None and profile.identity == "driver":
+        info = _F1_TEAMS.get(r.car)
+        if info:
+            team_text = info.get("tla") or r.team
+            team_color = MUTE if dim else info.get("color", DIM)
+            driver_text = info.get("team") or r.driver
+
+    # tyre chip — letter + age, FIA compound colour. NULL for IMSA (no chip painted).
+    tire_letter, tire_color, tire_dark, tire_age_text = "", MUTE, False, ""
+    if ca is not None and ca.tire_compound:
+        tire_letter, tire_color, tire_dark = TIRE_STYLE.get(
+            ca.tire_compound.upper(), ("?", MUTE, False))
+        if ca.tire_age is not None:
+            tire_age_text = str(ca.tire_age)
+
+    # override/boost — reserved slot, only lights when the feed actually populates it
+    # (2026 field names are provisional; see series_profiles.py docstring).
+    override_on = bool(ca is not None and ca.override_state)
+
     return {
         "net": net, "has_penalty": r.has_penalty,          # net drives the breath (filters pit-shuffle)
         "pos_text": pos_text, "pos_color": pos_color,
         "net_text": net_text, "net_color": net_color,
         "car_num": f"#{r.car}", "num_color": DIM if dim else TXT,
-        "team": r.team, "team_color": MUTE if dim else DIM,
-        "driver": r.driver, "driver_color": FAINT if dim else MUTE,
+        "team": team_text, "team_color": team_color,
+        "driver": driver_text, "driver_color": driver_color,
+        "tire_letter": tire_letter, "tire_color": tire_color, "tire_dark": tire_dark,
+        "tire_age_text": tire_age_text, "override_on": override_on,
         "stops_text": (str(ca.stops) if ca is not None else ""),
         "stint_text": stint_text, "stint_color": stint_color,
         "gap_text": gap_text, "gap_color": gap_color,
@@ -290,6 +350,7 @@ class RowWidget(QWidget):
         self.f_stint = QFont(MONO, 11)
         self.f_gap   = QFont(MONO, 13)
         self.f_call  = QFont(SANS, 11)
+        self.f_tire  = QFont(SANS, 9, QFont.Weight.Bold)
 
         self._anim = QPropertyAnimation(self, b"breath")
         self._anim.setDuration(2400)
@@ -390,12 +451,41 @@ class RowWidget(QWidget):
             p.setFont(self.f_stint); p.setPen(QColor(vm["stint_color"]))
             p.drawText(QRect(c["stint_l"], 0, c["stint_r"] - c["stint_l"], H), R | VC, vm["stint_text"])
 
-        # CAR identity:  #num (bold) · team (medium) · driver (dim), elided to fit
+        # CAR identity:  #num (bold) · [tyre] [override] · team (medium) · driver (dim)
         x = c["car_x"]
         fm_num = QFontMetrics(self.f_num)
         p.setFont(self.f_num); p.setPen(QColor(vm["num_color"]))
         p.drawText(QRect(x, 0, car_r - x, H), L | VC, vm["car_num"])
         x += fm_num.horizontalAdvance(vm["car_num"]) + 10
+
+        # TYRE chip — compound letter in a small rounded box + stint age. F1 only;
+        # blank (no chip) whenever tire_compound is NULL, e.g. every IMSA row.
+        if vm["tire_letter"] and x < car_r:
+            chip_w = 18
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(vm["tire_color"]))
+            p.drawRoundedRect(QRect(x, (H - 16) // 2, chip_w, 16), 3, 3)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QColor("#10141A" if vm["tire_dark"] else "#F5F7FA"))
+            p.setFont(self.f_tire)
+            p.drawText(QRect(x, 0, chip_w, H), Qt.AlignmentFlag.AlignCenter, vm["tire_letter"])
+            x += chip_w + 3
+            if vm["tire_age_text"]:
+                p.setFont(self.f_stint); p.setPen(QColor(FAINT))
+                age_w = QFontMetrics(self.f_stint).horizontalAdvance(vm["tire_age_text"])
+                p.drawText(QRect(x, 0, age_w + 2, H), L | VC, vm["tire_age_text"])
+                x += age_w + 10
+            else:
+                x += 7
+
+        # OVERRIDE/boost — reserved slot (2026 field, provisional): lights only when the
+        # feed actually populates override_state, blank otherwise on every other row.
+        if vm["override_on"] and x < car_r:
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(OVERRIDE))
+            p.drawEllipse(x, H // 2 - 3, 6, 6)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            x += 6 + 8
 
         if vm["team"] and x < car_r:
             fm_t = QFontMetrics(self.f_team)
@@ -421,6 +511,12 @@ class ColumnHeader(QWidget):
         self.setFixedHeight(24)
         self.f = QFont(SANS, 9, QFont.Weight.Medium)
         self.f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.3)
+        self.profile = None      # set via set_profile() once the active session is known
+
+    def set_profile(self, profile):
+        if profile is not self.profile:
+            self.profile = profile
+            self.update()
 
     def paintEvent(self, _e):
         p = QPainter(self)
@@ -433,7 +529,10 @@ class ColumnHeader(QWidget):
         c = _columns(W)
         p.drawText(QRect(c["pos_x"], 0, 40, H), L | VC, "POS")
         p.drawText(QRect(c["net_x"], 0, 46, H), L | VC, "NET")
-        p.drawText(QRect(c["car_x"], 0, c["car_r"] - c["car_x"], H), L | VC, "TEAM · DRIVER")
+        # driver identity (F1) leads with TLA, so the label flips to match
+        identity_label = ("DRIVER · TEAM" if self.profile is not None
+                          and self.profile.identity == "driver" else "TEAM · DRIVER")
+        p.drawText(QRect(c["car_x"], 0, c["car_r"] - c["car_x"], H), L | VC, identity_label)
         p.drawText(QRect(c["stops_l"], 0, c["stops_r"] - c["stops_l"], H), R | VC, "STOPS")
         p.drawText(QRect(c["stint_l"], 0, c["stint_r"] - c["stint_l"], H), R | VC, "PIT")
         p.drawText(QRect(c["gap_l"], 0, c["gap_r"] - c["gap_l"], H), R | VC, "GAP")
@@ -441,12 +540,12 @@ class ColumnHeader(QWidget):
 
 
 class ClassHeader(QFrame):
-    def __init__(self, cls: str, count: int):
+    def __init__(self, cls: str, count: int, profile=None):
         super().__init__()
         self.setFixedHeight(34)
         lay = QHBoxLayout(self); lay.setContentsMargins(16, 12, 16, 4); lay.setSpacing(9)
         spine = QFrame(); spine.setFixedSize(3, 14)
-        spine.setStyleSheet(f"background:{_spine(cls)};")
+        spine.setStyleSheet(f"background:{_spine(cls, profile)};")
         name = QLabel(cls)
         f = QFont(SANS, 12, QFont.Weight.Medium); f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.6)
         name.setFont(f); name.setStyleSheet(f"color:{TXT};")
@@ -731,6 +830,7 @@ class CalmDashboard(QMainWindow):
         self.poller = dash.Poller(force_oid=force_oid)
         self._rows: dict[str, RowWidget] = {}
         self._collapsed: dict[str, bool] = {}      # per-class accordion state (default collapsed)
+        self._profile = series_profiles.IMSA       # active series' palette; set for real in refresh()
         self._last = None                          # cached (rows, camap) for re-render on toggle
         # ── catch-up ("while you were away") state ──
         self._snap_now = None                      # latest Snapshot (refreshed each tick)
@@ -827,7 +927,8 @@ class CalmDashboard(QMainWindow):
         # left column = fixed ColumnHeader stacked above the scrolling list
         leftcol = QWidget(); leftcol.setStyleSheet(f"background:{BG};")
         leftv = QVBoxLayout(leftcol); leftv.setContentsMargins(0, 0, 0, 0); leftv.setSpacing(0)
-        leftv.addWidget(ColumnHeader()); leftv.addWidget(self.scroll, 1)
+        self.colheader = ColumnHeader()
+        leftv.addWidget(self.colheader); leftv.addWidget(self.scroll, 1)
 
         self.rail = QFrame(); self.rail.setFixedWidth(238)
         self.rail.setStyleSheet(f"background:{RAIL};")
@@ -847,6 +948,8 @@ class CalmDashboard(QMainWindow):
             self.sub.setText("waiting for data")
             return
         ctx, cars, rc, _age, trend = res
+        self._profile = ctx.profile          # active series' palette/single-class-ness
+        self.colheader.set_profile(self._profile)
         # freeze the diff-relevant slice every tick so a mark (manual or on blur) and the
         # return brief always have current data to compare against
         self._snap_now = catchup.snapshot(ctx, cars)
@@ -1107,14 +1210,20 @@ class CalmDashboard(QMainWindow):
             active = getattr(self, "_cycle_active", {}).get(cls, True)
             allow = r.car in getattr(self, "_budget_net", set())
             vm = _row_vm(r, ca, getattr(self, "_current_lap", 0),
-                         cycle_active=active, since=badges.get(r.car), allow_net=allow)
+                         cycle_active=active, since=badges.get(r.car), allow_net=allow,
+                         profile=self._profile)
             rw.update_row(vm)
             return rw
 
+        single_class = self._profile.single_class
         for cls, cars in groups:
             # TRACK-led board: show in real on-track order (gaps then climb down the list)
             cars.sort(key=lambda r: (r.trk if r.trk else 99))
-            self.listl.addWidget(ClassHeader(cls, str(len(cars))))
+            if not single_class:
+                # a single-class series (F1) has exactly one group — the "F1 · 20 cars"
+                # header is pure redundancy on a board that's already flat; the field
+                # header (event name) already tells you what you're looking at.
+                self.listl.addWidget(ClassHeader(cls, str(len(cars)), self._profile))
             collapsed = self._collapsed.get(cls, True)
 
             for r in cars[:self.TOP_N]:
@@ -1223,7 +1332,7 @@ class CalmDashboard(QMainWindow):
                 text = " ".join(cars)
                 if cextra > 0:
                     text += f" +{cextra}"
-                dl = QLabel(f'<span style="color:{_spine(cls)};">{cls}</span>  {text}')
+                dl = QLabel(f'<span style="color:{_spine(cls, self._profile)};">{cls}</span>  {text}')
                 dl.setTextFormat(Qt.TextFormat.RichText)
                 dl.setWordWrap(True); dl.setFont(QFont(MONO, 11))
                 self.raill.addWidget(dl)
@@ -1286,7 +1395,7 @@ class CalmDashboard(QMainWindow):
             for gap, cls, a, c, closing in battles[:6]:
                 arrow = f' <span style="color:{AMBER};">▼</span>' if closing else ""
                 lab = QLabel(
-                    f'<span style="color:{_spine(cls)};">{cls}</span>  '
+                    f'<span style="color:{_spine(cls, self._profile)};">{cls}</span>  '
                     f'#{a} <span style="color:{MUTE};">▸</span> #{c}  '
                     f'<span style="color:{TXT};">{gap/1000:.1f}s</span>{arrow}')
                 lab.setTextFormat(Qt.TextFormat.RichText); lab.setFont(QFont(MONO, 11))

@@ -163,6 +163,10 @@ class CarAnalysis:
     fuel_due:         Optional[str] = None        # 'due' from stint estimate (pit window open + ~1 lap fuel left); drives rail roster only
     # tire degradation
     deg_ms_per_lap:   Optional[float] = None      # lap-time loss per lap this stint (None = not significant)
+    # F1 tyres / 2026 energy state (Phase 1 schema; NULL for IMSA)
+    tire_compound:    Optional[str] = None         # SOFT/MEDIUM/HARD/INTERMEDIATE/WET
+    tire_age:         Optional[int] = None         # laps on the current tyre set
+    override_state:   Optional[str] = None         # 2026 manual-override/boost state, live-only
     # penalties (parsed from race control)
     penalty_s:        float = 0.0                 # pending in-race seconds → carried into NET
     penalty_post_s:   float = 0.0                 # post-race time penalty → projected finish only
@@ -616,6 +620,7 @@ def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAn
                   s.laps, s.gap_ms, s.elapsed_ms, s.last_lap_ms, s.best_lap_ms, s.pits,
                   s.last_pit_lap, s.track_status, s.is_running,
                   s.fuel_pct, s.fuel_flag,
+                  s.tire_compound, s.tire_age, s.override_state,
                   e.name AS driver, e.team AS team
              FROM standings_current s
              LEFT JOIN session_entry e
@@ -636,6 +641,9 @@ def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAn
         )
         ca.fuel_pct  = r["fuel_pct"]
         ca.fuel_flag = r["fuel_flag"]
+        ca.tire_compound  = r["tire_compound"]
+        ca.tire_age       = r["tire_age"]
+        ca.override_state = r["override_state"]
         # NOTE: fuel_due is NOT derived from the VFT flag. That telemetry is replay-only
         # (the live Al Kamel feed carries no VFT) and proved unreliable — cars read
         # near-empty for laps after refuelling, lighting "DUE" on the whole field. fuel_due

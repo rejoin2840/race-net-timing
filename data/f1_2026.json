@@ -1,0 +1,117 @@
+{
+  "season": 2026,
+  "as_of": "Austrian Grand Prix \u2014 Race",
+  "generated": "2026-07-01T00:38:50",
+  "drivers": {
+    "63": {
+      "tla": "RUS",
+      "team": "Mercedes",
+      "color": "#00D7B6"
+    },
+    "3": {
+      "tla": "VER",
+      "team": "Red Bull Racing",
+      "color": "#4781D7"
+    },
+    "12": {
+      "tla": "ANT",
+      "team": "Mercedes",
+      "color": "#00D7B6"
+    },
+    "81": {
+      "tla": "PIA",
+      "team": "McLaren",
+      "color": "#F47600"
+    },
+    "44": {
+      "tla": "HAM",
+      "team": "Ferrari",
+      "color": "#ED1131"
+    },
+    "6": {
+      "tla": "HAD",
+      "team": "Red Bull Racing",
+      "color": "#4781D7"
+    },
+    "1": {
+      "tla": "NOR",
+      "team": "McLaren",
+      "color": "#F47600"
+    },
+    "16": {
+      "tla": "LEC",
+      "team": "Ferrari",
+      "color": "#ED1131"
+    },
+    "30": {
+      "tla": "LAW",
+      "team": "Racing Bulls",
+      "color": "#6C98FF"
+    },
+    "41": {
+      "tla": "LIN",
+      "team": "Racing Bulls",
+      "color": "#6C98FF"
+    },
+    "5": {
+      "tla": "BOR",
+      "team": "Audi",
+      "color": "#F50537"
+    },
+    "27": {
+      "tla": "HUL",
+      "team": "Audi",
+      "color": "#F50537"
+    },
+    "10": {
+      "tla": "GAS",
+      "team": "Alpine",
+      "color": "#00A1E8"
+    },
+    "87": {
+      "tla": "BEA",
+      "team": "Haas F1 Team",
+      "color": "#9C9FA2"
+    },
+    "43": {
+      "tla": "COL",
+      "team": "Alpine",
+      "color": "#00A1E8"
+    },
+    "31": {
+      "tla": "OCO",
+      "team": "Haas F1 Team",
+      "color": "#9C9FA2"
+    },
+    "23": {
+      "tla": "ALB",
+      "team": "Williams",
+      "color": "#1868DB"
+    },
+    "14": {
+      "tla": "ALO",
+      "team": "Aston Martin",
+      "color": "#229971"
+    },
+    "18": {
+      "tla": "STR",
+      "team": "Aston Martin",
+      "color": "#229971"
+    },
+    "55": {
+      "tla": "SAI",
+      "team": "Williams",
+      "color": "#1868DB"
+    },
+    "11": {
+      "tla": "PER",
+      "team": "Cadillac",
+      "color": "#909090"
+    },
+    "77": {
+      "tla": "BOT",
+      "team": "Cadillac",
+      "color": "#909090"
+    }
+  }
+}
