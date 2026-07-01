@@ -26,17 +26,20 @@ from PyQt6.QtCore import (Qt, QTimer, QPropertyAnimation, pyqtProperty,
 from PyQt6.QtGui import QColor, QFont, QPainter, QFontMetrics
 from PyQt6.QtWidgets import (QApplication, QFrame, QGraphicsOpacityEffect,
                              QHBoxLayout, QLabel, QMainWindow, QPushButton,
-                             QScrollArea, QVBoxLayout, QWidget)
+                             QScrollArea, QStackedWidget, QVBoxLayout, QWidget)
 
 import json
 import pathlib
+import sqlite3
 
 import calculator
 import config
 import race_control
 import catchup
 import series_profiles
+import quali
 import dashboard as dash   # reuse Poller, Row, _build_rows, FLAG_STYLE, CLASS_ORDER
+import dashboard_quali as dq   # F1 knockout-qualifying cut-line panel (Phase 2b)
 
 # ── static entry-list fallback (team/driver names when feed is silent) ────────
 def _load_entries() -> dict:
@@ -935,11 +938,61 @@ class CalmDashboard(QMainWindow):
         self.raill = QVBoxLayout(self.rail); self.raill.setContentsMargins(15, 13, 15, 13); self.raill.setSpacing(0)
 
         body.addWidget(leftcol, 1); body.addWidget(self.rail)
-        root.addLayout(body, 1)
+        self.race_body = QWidget(); self.race_body.setLayout(body)
+
+        # F1 knockout-qualifying swaps in here in place of the race body (see
+        # refresh()) — a session either has race-shaped standings or quali
+        # segment data, never both, so a stacked page is a clean either/or.
+        self.quali_panel = dq.QualiListPanel()
+        self.stack = QStackedWidget()
+        self.stack.addWidget(self.race_body)
+        self.stack.addWidget(self.quali_panel)
+        root.addWidget(self.stack, 1)
         self.setCentralWidget(central)
 
     def _timing_stub(self):
         self.sub.setText("Timing view — coming next")
+
+    # ---- F1 knockout qualifying (Q1/Q2/Q3) ----
+    def _is_quali_session(self) -> bool:
+        """A session either has race-shaped standings or quali segment data,
+        never both — quali_status having a row for this oid is the signal."""
+        oid, conn = self.poller.last_oid, self.poller.conn
+        if not oid or conn is None:
+            return False
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM quali_status WHERE session_oid=? LIMIT 1", (oid,)
+            ).fetchone()
+        except sqlite3.Error:
+            return False   # older DB without the quali tables — definitely not quali
+        return row is not None
+
+    def _refresh_quali(self):
+        self.stack.setCurrentWidget(self.quali_panel)
+        qctx, qcars = quali.analyse(self.poller.conn, self.poller.last_oid)
+        self._render_header_quali(qctx)
+        self.quali_panel.render(qctx, qcars)
+
+    def _render_header_quali(self, qctx):
+        neutral = "#3A4150"
+        if qctx is None:
+            self.flag.setText("  Q  ")
+            self.flag.setStyleSheet(f"background:{neutral}; color:#FFFFFF; border-radius:5px;")
+            self.sub.setText("waiting for data")
+            return
+        self.flag.setText(f"  {qctx.segment}  ")
+        self.flag.setStyleSheet(f"background:{neutral}; color:#FFFFFF; border-radius:5px;")
+        self.event.setText(qctx.event)
+        self.eventsub.setText("Qualifying")
+        remaining = max(0, qctx.segment_total_s - qctx.segment_elapsed_s)
+        if qctx.is_finished:
+            self.clock.setText("—")
+            self.sub.setText("SEGMENT COMPLETE")
+        else:
+            self.clock.setText(f"{remaining // 60}:{remaining % 60:02d}")
+            self.sub.setText(f"CUT: TOP {qctx.advance_n}" if qctx.advance_n is not None
+                             else f"{qctx.entries} CARS")
 
     # ---- refresh ----
     def refresh(self):
@@ -947,7 +1000,13 @@ class CalmDashboard(QMainWindow):
         if res is None:
             self.sub.setText("waiting for data")
             return
+
+        if self._is_quali_session():
+            self._refresh_quali()
+            return
+
         ctx, cars, rc, _age, trend = res
+        self.stack.setCurrentWidget(self.race_body)
         self._profile = ctx.profile          # active series' palette/single-class-ness
         self.colheader.set_profile(self._profile)
         # freeze the diff-relevant slice every tick so a mark (manual or on blur) and the

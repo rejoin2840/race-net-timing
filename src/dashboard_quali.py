@@ -1,11 +1,11 @@
 """
 dashboard_quali.py — F1 knockout-qualifying (Q1/Q2/Q3) cut-line board.
 
-Standalone window with its own DB poll — not yet wired into CalmDashboard's
-race-board surface switcher. That integration (swap the main list for this
-board when the active session is a live/replay qualifying segment) is a
-fast-follow once this MVP is proven; kept separate here so the already-working,
-already-verified race board carries zero risk from this pass.
+QualiListPanel is the reusable piece: a scrollable ranked list + cut line, with
+a render(ctx, cars) method. It's embedded directly in CalmDashboard's body (see
+dashboard_calm.CalmDashboard — swapped in via a QStackedWidget whenever the
+active session is a qualifying segment) AND wrapped standalone by QualiBoard
+below for launching against a replay DB on its own.
 
 Qualifying's shape — rank by best lap THIS SEGMENT, with a hard cut line — has
 nothing in common with RowWidget's race-shaped columns (pit/net/gap-to-class-
@@ -13,7 +13,7 @@ leader), so this gets its own simple row painter rather than reusing RowWidget.
 Palette, fonts, and the F1 team table are reused from dashboard_calm rather
 than duplicated.
 
-Run:
+Run standalone:
   QT_QPA_PLATFORM=offscreen honoured for headless screenshots.
   ./venv/bin/python src/dashboard_quali.py --db data/f1_quali_replay.db --oid <oid>
 """
@@ -125,34 +125,15 @@ class CutLine(QFrame):
         lay.addWidget(line1, 1); lay.addWidget(lab); lay.addWidget(line2, 1)
 
 
-class QualiBoard(QMainWindow):
-    def __init__(self, db_path: str, oid: str):
+class QualiListPanel(QWidget):
+    """The reusable piece: scrollable ranked list + cut line. render(ctx, cars)
+    is the only entry point a host window needs — it owns no DB/poll state of
+    its own, so it slots into any refresh loop (standalone or embedded)."""
+    def __init__(self):
         super().__init__()
-        self.setWindowTitle("F1 Qualifying — Cut Line")
-        self.resize(780, 860)
-        self.db_path = db_path
-        self.oid = oid
         self._rows: dict[str, QualiRow] = {}
-        self._build_ui()
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.refresh)
-        self.timer.start(2000)
-        self.refresh()
-
-    def _build_ui(self):
-        central = QWidget(); central.setStyleSheet(f"background:{dc.BG};")
-        root = QVBoxLayout(central); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
-
-        header = QFrame(); header.setFixedHeight(70)
-        header.setStyleSheet(f"background:{dc.BG}; border-bottom:1px solid {dc.HEAD};")
-        hl = QVBoxLayout(header); hl.setContentsMargins(18, 10, 18, 10); hl.setSpacing(2)
-        self.event_lbl = QLabel(""); self.event_lbl.setFont(QFont(dc.SANS, 13))
-        self.event_lbl.setStyleSheet(f"color:{dc.TXT};")
-        self.segment_lbl = QLabel("")
-        self.segment_lbl.setFont(QFont(dc.MONO, 20, QFont.Weight.Medium))
-        self.segment_lbl.setStyleSheet(f"color:{dc.TXT};")
-        hl.addWidget(self.event_lbl); hl.addWidget(self.segment_lbl)
-        root.addWidget(header)
+        self.setStyleSheet(f"background:{dc.BG};")
+        lay = QVBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
 
         self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -162,31 +143,16 @@ class QualiBoard(QMainWindow):
         self.listl.setContentsMargins(0, 4, 0, 14); self.listl.setSpacing(0)
         self.listl.addStretch(1)
         self.scroll.setWidget(self.listw)
-        root.addWidget(self.scroll, 1)
-        self.setCentralWidget(central)
+        lay.addWidget(self.scroll, 1)
 
-    def refresh(self):
-        try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-        except Exception:
-            return
-        ctx, cars = quali.analyse(conn, self.oid)
-        conn.close()
-        if ctx is None:
-            self.segment_lbl.setText("waiting for data")
-            return
-
-        self.event_lbl.setText(ctx.event)
-        remaining = max(0, ctx.segment_total_s - ctx.segment_elapsed_s)
-        clock = f"{remaining // 60}:{remaining % 60:02d}"
-        status = "  ·  SEGMENT COMPLETE" if ctx.is_finished else f"   {clock} remaining"
-        self.segment_lbl.setText(f"{ctx.segment}{status}")
-
+    def render(self, ctx, cars: list) -> None:
         while self.listl.count():
             it = self.listl.takeAt(0)
             if it.widget():
                 it.widget().setParent(None)
+        if ctx is None:
+            self.listl.addStretch(1)
+            return
 
         leader_ms = cars[0].best_lap_ms if cars and cars[0].best_lap_ms else None
         cut_drawn = False
@@ -213,6 +179,62 @@ class QualiBoard(QMainWindow):
             rw.update_row(vm)
             self.listl.addWidget(rw)
         self.listl.addStretch(1)
+
+
+class QualiBoard(QMainWindow):
+    """Standalone window: header (event/segment/clock) + a QualiListPanel, with
+    its own DB poll. Used for launching the cut-line view directly against a
+    replay DB; CalmDashboard embeds QualiListPanel itself instead of this class."""
+    def __init__(self, db_path: str, oid: str):
+        super().__init__()
+        self.setWindowTitle("F1 Qualifying — Cut Line")
+        self.resize(780, 860)
+        self.db_path = db_path
+        self.oid = oid
+        self._build_ui()
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.refresh)
+        self.timer.start(2000)
+        self.refresh()
+
+    def _build_ui(self):
+        central = QWidget(); central.setStyleSheet(f"background:{dc.BG};")
+        root = QVBoxLayout(central); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
+
+        header = QFrame(); header.setFixedHeight(70)
+        header.setStyleSheet(f"background:{dc.BG}; border-bottom:1px solid {dc.HEAD};")
+        hl = QVBoxLayout(header); hl.setContentsMargins(18, 10, 18, 10); hl.setSpacing(2)
+        self.event_lbl = QLabel(""); self.event_lbl.setFont(QFont(dc.SANS, 13))
+        self.event_lbl.setStyleSheet(f"color:{dc.TXT};")
+        self.segment_lbl = QLabel("")
+        self.segment_lbl.setFont(QFont(dc.MONO, 20, QFont.Weight.Medium))
+        self.segment_lbl.setStyleSheet(f"color:{dc.TXT};")
+        hl.addWidget(self.event_lbl); hl.addWidget(self.segment_lbl)
+        root.addWidget(header)
+
+        self.panel = QualiListPanel()
+        root.addWidget(self.panel, 1)
+        self.setCentralWidget(central)
+
+    def refresh(self):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+        except Exception:
+            return
+        ctx, cars = quali.analyse(conn, self.oid)
+        conn.close()
+        if ctx is None:
+            self.segment_lbl.setText("waiting for data")
+            self.panel.render(None, [])
+            return
+
+        self.event_lbl.setText(ctx.event)
+        remaining = max(0, ctx.segment_total_s - ctx.segment_elapsed_s)
+        clock = f"{remaining // 60}:{remaining % 60:02d}"
+        status = "  ·  SEGMENT COMPLETE" if ctx.is_finished else f"   {clock} remaining"
+        self.segment_lbl.setText(f"{ctx.segment}{status}")
+        self.panel.render(ctx, cars)
 
 
 def main():
