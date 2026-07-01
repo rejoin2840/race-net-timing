@@ -1126,7 +1126,12 @@ class CalmDashboard(QMainWindow):
                 self.clock.setText("—")
             self.sub.setText(f"LAP {ctx.current_lap}")
 
-    TOP_N = 5
+    TOP_N = 5                  # per-class row cap before the "+N more" accordion (multi-class)
+    TOP_N_SINGLE_CLASS = 30    # F1-style single-class grid: show the whole field by default
+
+    @property
+    def _top_n(self) -> int:
+        return self.TOP_N_SINGLE_CLASS if self._profile.single_class else self.TOP_N
 
     def _toggle_class(self, cls):
         self._collapsed[cls] = not self._collapsed.get(cls, True)
@@ -1226,11 +1231,12 @@ class CalmDashboard(QMainWindow):
                 self.listl.addWidget(ClassHeader(cls, str(len(cars)), self._profile))
             collapsed = self._collapsed.get(cls, True)
 
-            for r in cars[:self.TOP_N]:
+            top_n = self._top_n
+            for r in cars[:top_n]:
                 rw = _row_widget(r, cls); rw.setParent(self.listw)
                 self.listl.addWidget(rw)
 
-            extra = cars[self.TOP_N:]
+            extra = cars[top_n:]
             if extra:
                 # the collapsible rows live in a height-clamped PERSISTENT holder so
                 # expand/collapse can be animated; rows are reused (breath state stays warm)
