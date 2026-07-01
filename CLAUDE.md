@@ -32,6 +32,7 @@
 2. **Explain the plan**: Show what you're doing, which subagents you'll delegate to, and their models
 3. **Execute**: Make the changes
 4. **Summarize**: Tell me what changed, what we learned, and why this approach was efficient
+5. **Concise**: Outside of what I requested you to explain or summarize, Output strictly tool calls and code. Zero conversational text, zero pleasantries, unless explicitly requested.
 
 ## Important Notes
 - Real-time accuracy is critical (predictions must be reliable)
