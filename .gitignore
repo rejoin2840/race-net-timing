@@ -15,5 +15,8 @@ logs/
 *.db-wal
 *.zip
 
+# FastF1 API cache (large, machine-local)
+data/fastf1_cache/
+
 # Keep static config that lives under data/
 !data/entries_*.json

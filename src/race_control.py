@@ -46,11 +46,11 @@ def classify(message) -> tuple:
     if "rescinded" in low:
         return (ALERT, "rescinded")
 
-    # reviews resolve to CONTEXT before the penalty parser runs — "...REVIEWED
-    # POST-RACE" would otherwise trip parse()'s post-race branch and look like a
-    # served penalty when it's only a notice that stewards are looking at it.
-    # ("REVIEWED, NO ACTION" lands here too — the closed review is worth a dim glance.)
-    if "review" in low or "reviewed" in low:
+    # reviews / investigations resolve to CONTEXT before the penalty parser
+    # runs — "...REVIEWED POST-RACE" would otherwise trip parse()'s post-race
+    # branch and look like a served penalty when it's only a notice that stewards
+    # are looking at it. F1 uses "UNDER INVESTIGATION" where IMSA says "REVIEW".
+    if "review" in low or "reviewed" in low or "investigation" in low:
         return (CONTEXT, "review")
 
     # consequential penalties: parse() first (scoring-consistent), then a rail-level
@@ -68,6 +68,17 @@ def classify(message) -> tuple:
         return (ALERT, "retired")
     if "checkered" in low or "chequered" in low:
         return (ALERT, "flag")
+
+    # F1: SC/VSC deployment is a major race event, VSC ending is situational context
+    if "safety car deployed" in low:
+        return (ALERT, "flag")
+    if "safety car ending" in low or "safety car in this lap" in low:
+        return (CONTEXT, "flag")
+
+    # F1: lap time deleted is a track-limits consequence — not a scoring penalty,
+    # but a strategist wants to see it (marks which drivers are pushing the limits)
+    if "deleted" in low and "track limits" in low:
+        return (CONTEXT, "warning")
 
     # resolutions ("car returned / continued / ...CONT") are not news → drop
     if "returned" in low or "continued" in low or low.endswith(" cont"):

@@ -115,6 +115,9 @@ CREATE TABLE IF NOT EXISTS standings_current (
     last_pit_lap      INTEGER,  -- car's own lap on which it last pitted (live-observed)
     fuel_pct          REAL,     -- virtual fuel tank %, real telemetry (None if no data)
     fuel_flag         TEXT,     -- IMSA low-fuel warning: '' / 'yellow' / 'red'
+    tire_compound     TEXT,     -- F1 tyre compound this stint (SOFT/MEDIUM/HARD/INTERMEDIATE/WET); NULL for IMSA
+    tire_age          INTEGER,  -- F1 laps on the current tyre set; NULL for IMSA
+    override_state    TEXT,     -- F1 2026 energy state (override/boost); live-only, NULL in replay/IMSA
     is_running        INTEGER,
     updated_at        TEXT,
     PRIMARY KEY (session_oid, car_number)
@@ -366,6 +369,16 @@ class RaceDB:
         if "fuel_flag" not in cols:
             self.conn.execute(
                 "ALTER TABLE standings_current ADD COLUMN fuel_flag TEXT")
+        # F1 tyre + 2026 energy telemetry (NULL for IMSA / historical replay)
+        if "tire_compound" not in cols:
+            self.conn.execute(
+                "ALTER TABLE standings_current ADD COLUMN tire_compound TEXT")
+        if "tire_age" not in cols:
+            self.conn.execute(
+                "ALTER TABLE standings_current ADD COLUMN tire_age INTEGER")
+        if "override_state" not in cols:
+            self.conn.execute(
+                "ALTER TABLE standings_current ADD COLUMN override_state TEXT")
 
     def _seed_trackers(self) -> None:
         """Reload diff trackers from persisted state so a reconnect resumes cleanly."""
@@ -504,8 +517,9 @@ class RaceDB:
                  (session_oid, car_number, overall_position, pos_in_class, car_class,
                   laps, laps_behind, gap_ms, elapsed_ms, last_lap_ms, best_lap_ms,
                   best_lap_num, track_status, pits, last_pit_lap, last_pit_hour_ms,
-                  fuel_pct, fuel_flag, raw_data, is_running, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  fuel_pct, fuel_flag, tire_compound, tire_age, override_state,
+                  raw_data, is_running, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(session_oid, car_number) DO UPDATE SET
                  overall_position=excluded.overall_position,
                  pos_in_class=excluded.pos_in_class, car_class=excluded.car_class,
@@ -516,6 +530,8 @@ class RaceDB:
                  pits=excluded.pits, last_pit_lap=excluded.last_pit_lap,
                  last_pit_hour_ms=excluded.last_pit_hour_ms,
                  fuel_pct=excluded.fuel_pct, fuel_flag=excluded.fuel_flag,
+                 tire_compound=excluded.tire_compound, tire_age=excluded.tire_age,
+                 override_state=excluded.override_state,
                  raw_data=excluded.raw_data,
                  is_running=excluded.is_running, updated_at=excluded.updated_at""",
             (self.session_oid, car, d.get("overall_position"), d.get("pos_in_class"),
@@ -524,7 +540,9 @@ class RaceDB:
              last_lap, best_lap, _scalar(standing.get("bestLapNumber")),
              d.get("track_status"), self._pit_count.get(car, 0),
              self._last_pit_lap.get(car), self._last_pit_hour.get(car),
-             standing.get("fuelPct"), standing.get("fuelFlag"), raw_data,
+             standing.get("fuelPct"), standing.get("fuelFlag"),
+             standing.get("tireCompound"), standing.get("tireAge"),
+             standing.get("overrideState"), raw_data,
              1 if standing.get("isRunning") else 0, _now()),
         )
 

@@ -90,6 +90,7 @@ _PIT_SEQUENCE_STATES = ("BOX", "IN_LAP", "OUT_LAP", "PIT", "STOPPED")
 
 GREEN_FLAGS   = {"GF"}
 CAUTION_FLAGS = {"YF", "FCY", "CY", "SC", "VSC", "FCY1", "SCS"}
+VSC_FLAGS     = {"VSC"}
 RACE_EXCLUDE_TYPES = {"QUALIFYING_BEST_LAP", "QUALIFYING_AVG_LAP", "PRACTICE", "WARM_UP"}
 
 
@@ -823,7 +824,12 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
             continue
         pit_pen = (ca.next_stop_ms or ctx.green_typical_ms)
         if ctx.under_caution:
-            pit_pen *= CAUTION_PENALTY_FACTOR
+            # VSC preserves gaps (cars slow ~40%); pitting is cheaper than green
+            # but not as cheap as a full SC where the field bunches completely.
+            if ctx.flag in VSC_FLAGS:
+                pit_pen *= (1.0 + CAUTION_PENALTY_FACTOR) / 2
+            else:
+                pit_pen *= CAUTION_PENALTY_FACTOR
         new_gap = ca.class_gap_ms + pit_pen
         ahead = [o for o in cur_order
                  if o is not ca and o.class_gap_ms is not None
