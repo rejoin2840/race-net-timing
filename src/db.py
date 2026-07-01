@@ -219,12 +219,39 @@ CREATE TABLE IF NOT EXISTS predictions (
     PRIMARY KEY (session_oid, ts, car_number)
 );
 
+-- F1 knockout-qualifying (Q1/Q2/Q3) — separate from standings_current, which is
+-- race-shaped (pit stops, fuel, net position) and doesn't fit a "best lap this
+-- segment" ranking board. See src/quali.py for the read-side model.
+CREATE TABLE IF NOT EXISTS quali_standings (
+    session_oid   TEXT,
+    segment       TEXT,       -- 'Q1' / 'Q2' / 'Q3'
+    car_number    TEXT,
+    best_lap_ms   INTEGER,    -- best lap set so far IN THIS SEGMENT (not overall)
+    last_lap_ms   INTEGER,
+    laps          INTEGER,    -- timed laps completed this segment
+    rank          INTEGER,    -- live rank within segment (1 = provisional fastest)
+    updated_at    TEXT,
+    PRIMARY KEY (session_oid, segment, car_number)
+);
+
+CREATE TABLE IF NOT EXISTS quali_status (
+    session_oid        TEXT PRIMARY KEY,
+    segment             TEXT,     -- current live segment: 'Q1' / 'Q2' / 'Q3'
+    entries             INTEGER,  -- cars taking part this session — drives the cut-line formula
+    segment_elapsed_s   INTEGER,
+    segment_total_s     INTEGER,  -- nominal segment duration (18/15/12 min), for a countdown
+    is_finished         INTEGER,
+    updated_at          TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_lap_history_car
     ON lap_history (session_oid, car_number, lap_number DESC);
 CREATE INDEX IF NOT EXISTS idx_pit_events_car
     ON pit_events (session_oid, car_number, stop_number DESC);
 CREATE INDEX IF NOT EXISTS idx_predictions_car
     ON predictions (session_oid, car_number, ts);
+CREATE INDEX IF NOT EXISTS idx_quali_standings_seg
+    ON quali_standings (session_oid, segment, best_lap_ms);
 """
 
 
@@ -587,6 +614,41 @@ class RaceDB:
         self._record_pit(car, n, pit_lap, self._last_flag,
                          hour, _scalar(pit.get("lastPitTime")),
                          _scalar(pit.get("totalPitTime")))
+
+    # ── knockout qualifying (F1) ────────────────────────────────────────────
+    def write_quali_status(self, segment: str, entries: int, elapsed_s: int,
+                           total_s: int, is_finished: bool = False) -> None:
+        if not self.session_oid:
+            return
+        self.conn.execute(
+            """INSERT INTO quali_status
+                 (session_oid, segment, entries, segment_elapsed_s, segment_total_s,
+                  is_finished, updated_at)
+               VALUES (?,?,?,?,?,?,?)
+               ON CONFLICT(session_oid) DO UPDATE SET
+                 segment=excluded.segment, entries=excluded.entries,
+                 segment_elapsed_s=excluded.segment_elapsed_s,
+                 segment_total_s=excluded.segment_total_s,
+                 is_finished=excluded.is_finished, updated_at=excluded.updated_at""",
+            (self.session_oid, segment, entries, elapsed_s, total_s,
+             1 if is_finished else 0, _now()),
+        )
+
+    def write_quali_row(self, segment: str, car: str, best_lap_ms, last_lap_ms,
+                        laps: int, rank: int) -> None:
+        if not self.session_oid or not car:
+            return
+        self.conn.execute(
+            """INSERT INTO quali_standings
+                 (session_oid, segment, car_number, best_lap_ms, last_lap_ms,
+                  laps, rank, updated_at)
+               VALUES (?,?,?,?,?,?,?,?)
+               ON CONFLICT(session_oid, segment, car_number) DO UPDATE SET
+                 best_lap_ms=excluded.best_lap_ms, last_lap_ms=excluded.last_lap_ms,
+                 laps=excluded.laps, rank=excluded.rank, updated_at=excluded.updated_at""",
+            (self.session_oid, segment, car, best_lap_ms, last_lap_ms,
+             laps, rank, _now()),
+        )
 
     # ── lifecycle ────────────────────────────────────────────────────────────
     def commit(self) -> None:
