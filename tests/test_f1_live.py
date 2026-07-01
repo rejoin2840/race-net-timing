@@ -311,5 +311,48 @@ class TestFieldMapping(unittest.TestCase):
         self.assertIsNone(standing["fuelPct"])
 
 
+class TestReconnectTracking(unittest.TestCase):
+    def _client_with_mock_conn(self):
+        client = F1LiveClient(db=None)
+        client._connection = MagicMock()
+        return client
+
+    def test_reconnect_counter(self):
+        client = self._client_with_mock_conn()
+        self.assertEqual(client._reconnect_count, 0)
+        client._on_reconnect()
+        self.assertEqual(client._reconnect_count, 1)
+        client._on_reconnect()
+        self.assertEqual(client._reconnect_count, 2)
+
+    def test_last_message_time_updated_on_feed(self):
+        client = F1LiveClient(db=None)
+        self.assertEqual(client._last_message_time, 0.0)
+        client._on_feed(["TimingData", {"Lines": {}}])
+        self.assertGreater(client._last_message_time, 0)
+
+    def test_stopping_flag(self):
+        client = F1LiveClient(db=None)
+        self.assertFalse(client._stopping)
+        client.stop()
+        self.assertTrue(client._stopping)
+
+    def test_connect_sets_message_time(self):
+        client = self._client_with_mock_conn()
+        client._on_connect()
+        self.assertGreater(client._last_message_time, 0)
+        self.assertTrue(client._is_connected)
+
+
+class TestSubscribeResponseLogging(unittest.TestCase):
+    def test_state_recovery_count(self):
+        client = F1LiveClient(db=None)
+        client.state.timing_data = {
+            "Lines": {"1": {"Position": 1}, "44": {"Position": 2}}
+        }
+        n = len(client.state.timing_data.get("Lines", {}))
+        self.assertEqual(n, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

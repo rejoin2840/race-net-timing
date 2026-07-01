@@ -38,6 +38,7 @@ from db import RaceDB, DEFAULT_DB_PATH
 CONNECTION_URL = "wss://livetiming.formula1.com/signalrcore"
 NEGOTIATE_URL = "https://livetiming.formula1.com/signalrcore/negotiate"
 SNAPSHOT_EVERY = 10
+STALE_TIMEOUT = 60
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -214,8 +215,11 @@ class F1LiveClient:
         self._no_auth = no_auth
         self._connection = None
         self._is_connected = False
+        self._stopping = False
         self._cycle = 0
+        self._reconnect_count = 0
         self._last_snapshot = 0.0
+        self._last_message_time = 0.0
         self._lock = threading.Lock()
 
     # ── connection setup ──────────────────────────────────────────────────
@@ -273,6 +277,7 @@ class F1LiveClient:
 
     def _on_connect(self):
         self._is_connected = True
+        self._last_message_time = time.time()
         log.info("SignalR connected — subscribing to %d topics", len(TOPICS))
         self._connection.send(
             "Subscribe", [TOPICS], on_invocation=self._on_subscribe_result)
@@ -282,7 +287,15 @@ class F1LiveClient:
         log.warning("SignalR connection closed")
 
     def _on_reconnect(self):
-        log.info("SignalR reconnected — re-subscribing")
+        self._reconnect_count += 1
+        log.info("SignalR reconnected (attempt #%d) — refreshing cookies, "
+                 "re-subscribing", self._reconnect_count)
+        fresh_cookies = self._get_cookies()
+        if fresh_cookies and hasattr(self._connection, '_ws'):
+            try:
+                self._connection._ws.header = fresh_cookies
+            except Exception:
+                pass
         self._connection.send(
             "Subscribe", [TOPICS], on_invocation=self._on_subscribe_result)
 
@@ -294,8 +307,8 @@ class F1LiveClient:
         Contains the full current state for all topics.
         """
         if isinstance(msg, CompletionMessage) and msg.result:
-            log.info("Subscribe response: %d topics",
-                     len(msg.result) if isinstance(msg.result, dict) else 0)
+            n_topics = len(msg.result) if isinstance(msg.result, dict) else 0
+            log.info("Subscribe response: %d topics", n_topics)
             if isinstance(msg.result, dict):
                 for topic, data in msg.result.items():
                     self._dispatch(topic, data)
@@ -303,9 +316,15 @@ class F1LiveClient:
             for item in msg:
                 if isinstance(item, list) and len(item) >= 2:
                     self._dispatch(item[0], item[1])
+        n_drivers = len(self.state.timing_data.get("Lines", {}))
+        if n_drivers:
+            log.info("State recovered: %d drivers, lap %d, flag %s",
+                     n_drivers, self.state.current_lap,
+                     self.state.current_flag)
 
     def _on_feed(self, msg):
         """Handle streaming 'feed' events (incremental updates)."""
+        self._last_message_time = time.time()
         if isinstance(msg, list):
             if len(msg) >= 2 and isinstance(msg[0], str):
                 self._dispatch(msg[0], msg[1])
@@ -786,22 +805,45 @@ class F1LiveClient:
     # ── run ────────────────────────────────────────────────────────────────
 
     def run(self):
-        """Start the connection and block until stopped."""
+        """Start the connection and block until stopped or stale."""
+        self._stopping = False
         self._build_connection()
         log.info("Starting F1 live timing client")
         self._connection.start()
+        self._last_message_time = time.time()
 
-        while self._is_connected or True:
+        while not self._stopping:
             try:
                 time.sleep(1)
             except KeyboardInterrupt:
-                log.info("Stopping...")
-                self._connection.stop()
+                self._stopping = True
                 break
 
+            if (self._is_connected
+                    and self._last_message_time > 0
+                    and time.time() - self._last_message_time > STALE_TIMEOUT):
+                log.warning("No messages for %ds — forcing reconnect",
+                            STALE_TIMEOUT)
+                try:
+                    self._connection.stop()
+                except Exception:
+                    pass
+                break
+
+        if self._stopping:
+            log.info("Stopping...")
+            try:
+                self._connection.stop()
+            except Exception:
+                pass
+
     def stop(self):
+        self._stopping = True
         if self._connection:
-            self._connection.stop()
+            try:
+                self._connection.stop()
+            except Exception:
+                pass
 
 
 # ── discover mode ─────────────────────────────────────────────────────────────
@@ -894,9 +936,13 @@ def main():
             except KeyboardInterrupt:
                 break
             except Exception as e:
-                log.error("Session error: %s", e)
+                log.error("Session error: %s", e, exc_info=True)
 
-            log.info("Restarting in 10s ...")
+            if client._stopping:
+                break
+
+            log.info("Restarting in 10s (reconnects so far: %d) ...",
+                     client._reconnect_count)
             try:
                 time.sleep(10)
             except KeyboardInterrupt:
@@ -904,7 +950,8 @@ def main():
     finally:
         if db:
             db.close()
-            log.info("Database closed.")
+            log.info("Database closed (total reconnects: %d).",
+                     client._reconnect_count)
 
 
 if __name__ == "__main__":
