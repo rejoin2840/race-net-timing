@@ -40,6 +40,7 @@ import series_profiles
 import quali
 import dashboard as dash   # reuse Poller, Row, _build_rows, FLAG_STYLE, CLASS_ORDER
 import dashboard_quali as dq   # F1 knockout-qualifying cut-line panel (Phase 2b)
+import session_picker          # F1 race/session picker dialog
 
 # ── static entry-list fallback (team/driver names when feed is silent) ────────
 def _load_entries() -> dict:
@@ -906,8 +907,19 @@ class CalmDashboard(QMainWindow):
             f"font-size:14px;}} QPushButton:hover{{color:{TXT};}}")
         self.help_btn.clicked.connect(self._toggle_legend)
 
+        # F1 race/session picker — launch a live feed or historical replay by
+        # clicking instead of hand-editing CLI args (backlog item 10)
+        self.f1_btn = QPushButton("F1 ▾"); self.f1_btn.setFlat(True)
+        self.f1_btn.setFixedHeight(26)
+        self.f1_btn.setToolTip("Pick an F1 live feed or replay session")
+        self.f1_btn.setStyleSheet(
+            f"QPushButton{{color:{MUTE}; background:#171C24; border:none; border-radius:6px;"
+            f"padding:0 10px; font-size:12px;}} QPushButton:hover{{color:{TXT};}}")
+        self.f1_btn.clicked.connect(self._open_session_picker)
+
         hl.addWidget(self.flag); hl.addWidget(seg)
         hl.addSpacing(18); hl.addLayout(evbox); hl.addStretch(1)
+        hl.addWidget(self.f1_btn); hl.addSpacing(8)
         hl.addWidget(self.help_btn); hl.addSpacing(12); hl.addLayout(clockbox)
         root.addWidget(header)
 
@@ -952,6 +964,12 @@ class CalmDashboard(QMainWindow):
 
     def _timing_stub(self):
         self.sub.setText("Timing view — coming next")
+
+    def _open_session_picker(self):
+        dlg = session_picker.SessionPickerDialog(self)
+        if dlg.exec() == session_picker.SessionPickerDialog.DialogCode.Accepted:
+            self._f1_proc = dlg.proc   # keep the QProcess alive for the app's lifetime
+            self.poller = dash.Poller(force_oid=dlg.force_oid, series=dlg.series)
 
     # ---- F1 knockout qualifying (Q1/Q2/Q3) ----
     def _is_quali_session(self) -> bool:

@@ -637,10 +637,13 @@ class RunningModel(QAbstractTableModel):
 
 # ── data poller (DB → analysis → rows, + trend history) ─────────────────────
 class Poller:
-    def __init__(self, force_oid: Optional[str] = None):
+    def __init__(self, force_oid: Optional[str] = None, series: Optional[str] = None):
         # when set, always read this session instead of latest_session() — pins the
         # view to e.g. a replay 'stream' so a concurrent live scraper can't steal it
         self.force_oid = force_oid
+        # when set (and force_oid isn't), scopes latest_session() to one series so an
+        # F1-live session can't be pre-empted by a fresher IMSA one in the same DB
+        self.series = series
         self.conn: Optional[sqlite3.Connection] = None
         self.hist: dict[str, deque] = {}
         self.buffer: deque = deque()        # (capture_ts, snapshot) for broadcast delay
@@ -723,7 +726,7 @@ class Poller:
             conn = self._connect()
             if conn is None:
                 return None
-            oid = self.force_oid or calculator.latest_session(conn)
+            oid = self.force_oid or calculator.latest_session(conn, series=self.series)
             if not oid:
                 return None
             ctx, cars = calculator.analyse(conn, oid)
