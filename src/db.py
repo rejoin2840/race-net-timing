@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     event_name    TEXT,
     session_name  TEXT,
     session_type  TEXT,
+    series        TEXT,           -- racing series discriminator (imsa/f1/…) — routes profile
     first_seen    TEXT,
     last_seen     TEXT
 );
@@ -257,7 +258,7 @@ class RaceDB:
         self._caution_open: bool = False             # a caution period is currently running
 
     # ── session ──────────────────────────────────────────────────────────────
-    def set_session(self, oid: Optional[str], info: dict) -> None:
+    def set_session(self, oid: Optional[str], info: dict, series: str = "imsa") -> None:
         if not oid:
             return
         self.session_oid = oid
@@ -265,16 +266,17 @@ class RaceDB:
         self.conn.execute(
             """INSERT INTO sessions
                  (session_oid, champ_name, event_name, session_name, session_type,
-                  first_seen, last_seen)
-               VALUES (?,?,?,?,?,?,?)
+                  series, first_seen, last_seen)
+               VALUES (?,?,?,?,?,?,?,?)
                ON CONFLICT(session_oid) DO UPDATE SET
                  champ_name=excluded.champ_name,
                  event_name=excluded.event_name,
                  session_name=excluded.session_name,
                  session_type=excluded.session_type,
+                 series=excluded.series,
                  last_seen=excluded.last_seen""",
             (oid, info.get("champName"), info.get("eventName"),
-             info.get("name"), info.get("type"), now, now),
+             info.get("name"), info.get("type"), series, now, now),
         )
         self.conn.commit()
         self._seed_trackers()
@@ -336,6 +338,13 @@ class RaceDB:
 
     def _migrate(self) -> None:
         """Add columns introduced after a DB was first created (idempotent)."""
+        # sessions.series — added when the app went multi-series. Backfill any
+        # pre-existing rows to 'imsa' (the only series before this column).
+        scols = {r[1] for r in self.conn.execute(
+            "PRAGMA table_info(sessions)").fetchall()}
+        if "series" not in scols:
+            self.conn.execute("ALTER TABLE sessions ADD COLUMN series TEXT")
+            self.conn.execute("UPDATE sessions SET series='imsa' WHERE series IS NULL")
         cols = {r[1] for r in self.conn.execute(
             "PRAGMA table_info(standings_current)").fetchall()}
         if "elapsed_ms" not in cols:

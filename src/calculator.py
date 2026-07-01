@@ -35,6 +35,7 @@ from typing import Optional
 
 import config
 import penalties
+import series_profiles
 
 DB_PATH = Path("data/race.db")
 
@@ -114,6 +115,9 @@ class RaceContext:
     caution_count:  int = 0
     last_caution_lap: Optional[int] = None
     cautions:       list = field(default_factory=list)   # [(start_lap, end_lap, dur_s)]
+    # series profile — routes class/strategy behaviour. Defaults to IMSA so any
+    # legacy single-series call path is unchanged; analyse() sets the real one.
+    profile: "series_profiles.SeriesProfile" = series_profiles.IMSA
 
 
 @dataclass
@@ -600,6 +604,7 @@ def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAn
     config.CONFIG.reload_if_changed()   # pick up live config.json edits (~2s latency)
     _apply_config()
     ctx = _load_context(conn, oid)
+    ctx.profile = series_profiles.get_profile(session_series(conn, oid))
     observed_stints = _class_stint_laps(conn, oid)
     owes_dc = _driver_obligation(conn, oid)
     best_sectors = _best_sectors(conn, oid)
@@ -778,6 +783,11 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
     #    Future stops are green; cheap under-yellow stops already taken are already
     #    baked into the real gap. ──
     def future_pit(ca: CarAnalysis) -> tuple[float, float]:
+        # "track" pit model (F1 v1): tyre-only stops, no refuelling — the fuel-fill
+        # regression doesn't apply, so net position collapses to the real running
+        # order (situational). Pending time penalties still shift net_gap below.
+        if ctx.profile.pit_model == "track":
+            return 0.0, 0.0
         n = ca.est_stops_left
         if n <= 0:
             return 0.0, 0.0
@@ -973,16 +983,38 @@ def _print(ctx: RaceContext, cars: list[CarAnalysis]) -> None:
 
 
 # ── entrypoint ──────────────────────────────────────────────────────────────
-def latest_session(conn: sqlite3.Connection) -> Optional[str]:
+def latest_session(conn: sqlite3.Connection, series: Optional[str] = None) -> Optional[str]:
     # Prefer the session whose status was most recently written (updated every frame);
     # fall back to sessions.last_seen for sessions that never got a status row.
-    row = conn.execute("""
-        SELECT s.session_oid
-        FROM sessions s
-        LEFT JOIN session_status ss ON ss.session_oid = s.session_oid
-        ORDER BY COALESCE(ss.updated_at, s.last_seen) DESC
-        LIMIT 1""").fetchone()
+    # `series` scopes the pick so an F1 and an IMSA session in the same DB don't
+    # collide on "most recent" (None = any series, the legacy behaviour).
+    if series:
+        row = conn.execute("""
+            SELECT s.session_oid
+            FROM sessions s
+            LEFT JOIN session_status ss ON ss.session_oid = s.session_oid
+            WHERE COALESCE(s.series, 'imsa') = ?
+            ORDER BY COALESCE(ss.updated_at, s.last_seen) DESC
+            LIMIT 1""", (series,)).fetchone()
+    else:
+        row = conn.execute("""
+            SELECT s.session_oid
+            FROM sessions s
+            LEFT JOIN session_status ss ON ss.session_oid = s.session_oid
+            ORDER BY COALESCE(ss.updated_at, s.last_seen) DESC
+            LIMIT 1""").fetchone()
     return row[0] if row else None
+
+
+def session_series(conn: sqlite3.Connection, oid: str) -> str:
+    """The series string for a session ('imsa' when unset). Used to resolve the
+    SeriesProfile that routes class/palette/strategy behaviour for this session."""
+    try:
+        row = conn.execute(
+            "SELECT series FROM sessions WHERE session_oid=?", (oid,)).fetchone()
+    except sqlite3.Error:
+        return "imsa"
+    return (row[0] if row and row[0] else "imsa")
 
 
 def main() -> None:

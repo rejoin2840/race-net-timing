@@ -39,6 +39,7 @@ import calculator
 import config
 import predictor
 import race_control
+import series_profiles
 import weather as weather_mod
 
 # ── paths ───────────────────────────────────────────────────────────────────
@@ -76,14 +77,12 @@ AMBER     = "#FFB454"
 RED       = "#FF6B78"
 GREEN     = "#3DDC97"
 
-CLASS_COLORS = {
-    "GTP":    "#D0103A",
-    "LMP2":   "#1E5BD6",
-    "GTDPRO": "#E07A00",
-    "GTD":    "#1FA14E",
-}
+# Class palette/order now live on the IMSA SeriesProfile (single source of truth
+# shared with the calm board); re-exported here so existing references are unchanged.
+# Phase 2 flips the render path to read the ACTIVE session's profile dynamically.
+CLASS_COLORS = dict(series_profiles.IMSA.class_colors)
 # IMSA WeatherTech class hierarchy (LMP3 no longer runs in the series)
-CLASS_ORDER = {"GTP": 0, "LMP2": 1, "GTDPRO": 2, "GTD": 3}
+CLASS_ORDER = dict(series_profiles.IMSA.class_order)
 
 FLAG_STYLE = {
     "GF":  ("#0B7A33", "GREEN"),

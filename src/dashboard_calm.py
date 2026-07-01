@@ -35,6 +35,7 @@ import calculator
 import config
 import race_control
 import catchup
+import series_profiles
 import dashboard as dash   # reuse Poller, Row, _build_rows, FLAG_STYLE, CLASS_ORDER
 
 # ── static entry-list fallback (team/driver names when feed is silent) ────────
@@ -68,8 +69,10 @@ AMBER   = "#F4C485"   # penalty / pit-due (red tank → due now)
 AMBER_SOFT = "#BFA074" # fuel window opening (yellow tank → due soon)
 BLUE    = "#8CB9F2"   # strategy (undercut/overcut/in-pit)
 
-# brighter class spines than the dense-table palette (calm screen wants a touch more pop)
-SPINE = {"GTP": "#F01744", "LMP2": "#2E6FF0", "GTDPRO": "#F08A1E", "GTD": "#23A65A"}
+# brighter class spines than the dense-table palette (calm screen wants a touch more pop).
+# Canonical values live on the IMSA SeriesProfile; re-exported so references are unchanged.
+# Phase 2 flips this to the ACTIVE session's profile so F1/WEC/IndyCar bring their own.
+SPINE = dict(series_profiles.IMSA.spine)
 
 MONO = "Menlo"
 SANS = "Helvetica Neue"
