@@ -55,6 +55,13 @@ _LAPS_DOWN = re.compile(r"(\d+)\s+laps?")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def _detect_series(replay: timing71.Replay) -> str:
+    """Map the archive's manifest.name to our series key. IndyCar archives have
+    no Class/PIC/VFT columns (single class, no fuel telemetry) — everything
+    downstream (series_profiles, dashboard rendering) branches on this key."""
+    return "indycar" if "indycar" in replay.series_name.lower() else "imsa"
+
+
 # ── shared helpers ──────────────────────────────────────────────────────────
 
 def _gap_ms(gap) -> int:
@@ -127,11 +134,15 @@ def _init_db(replay: timing71.Replay, db_path: str, oid: str):
             pass   # table may not exist yet on a fresh DB / lacks session_oid
     db.conn.commit()
 
+    series = _detect_series(replay)
     db.set_session(oid, {
         "name": "Race (replay)", "type": "RACE",
         "eventName": replay.name, "champName": "Timing71 replay",
-    })
+    }, series=series)
     col = replay.col
+    # single-class archives (IndyCar) carry no Class column — everything is one
+    # class, matching series_profiles.INDYCAR.classes = ("INDYCAR",)
+    default_class = "INDYCAR" if series == "indycar" else None
 
     # ── entries ──────────────────────────────────────────────────────────────
     finals    = replay.final_cars()
@@ -149,7 +160,7 @@ def _init_db(replay: timing71.Replay, db_path: str, oid: str):
                 lineup.setdefault(num, set()).add(drv)
     for car, fin in finals.items():
         db.upsert_entry(car, {
-            "class": fin.get("class"), "team": None, "vehicle": None,
+            "class": fin.get("class") or default_class, "team": None, "vehicle": None,
             "name": None, "drivers": sorted(lineup.get(car, set())),
         })
     db.commit()
@@ -179,7 +190,8 @@ def _init_db(replay: timing71.Replay, db_path: str, oid: str):
             return "GF"
         i   = bisect.bisect_right(flag_ts_, ts_ms) - 1
         raw = flags[max(0, i)][1]
-        return "FCY" if "fcy" in raw or "yellow" in raw else "GF"
+        # IMSA's flagState uses "fcy"/"yellow"; IndyCar uses "caution".
+        return "FCY" if "fcy" in raw or "yellow" in raw or "caution" in raw else "GF"
 
     # ── pit events ─────────────────────────────────────────────────────────────
     stop_no: dict[str, int] = {}
@@ -217,19 +229,30 @@ def _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at):
     sess    = fr.get("session") or {}
     elapsed_s = sess.get("timeElapsed")
     remain_s  = sess.get("timeRemain")
+    laps_remain = sess.get("lapsRemain")   # IndyCar: lap-limited, no timeRemain
+
+    current_lap = max(
+        (timing71._num(r[col["Laps"]]) or 0)
+        for r in fr.get("cars", [])
+    ) if fr.get("cars") else 0
 
     if elapsed_s is not None:
-        total_s = elapsed_s + remain_s if remain_s is not None else RACE_LENGTH_S
-        db.update_status({
+        status = {
             "currentFlag": flag_at(ts_ms),
-            "currentLap": max(
-                (timing71._num(r[col["Laps"]]) or 0)
-                for r in fr.get("cars", [])
-            ) if fr.get("cars") else 0,
+            "currentLap": current_lap,
             "isSessionRunning": True, "isFinished": False,
-            "finalType": "BY_TIME", "finalTime": total_s,
             "startTime": time.time() - elapsed_s, "stoppedSeconds": 0,
-        })
+        }
+        if remain_s is not None:
+            status["finalType"] = "BY_TIME"
+            status["finalTime"] = elapsed_s + remain_s
+        elif laps_remain is not None:
+            status["finalType"] = "BY_LAPS"
+            status["finalLaps"] = current_lap + laps_remain
+        else:
+            status["finalType"] = "BY_TIME"
+            status["finalTime"] = RACE_LENGTH_S
+        db.update_status(status)
 
     rows = fr.get("cars", [])
     if not rows:
@@ -245,17 +268,25 @@ def _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at):
     # overall leader. The feed's Gap cell lap-quantizes for lower classes (it's gap to
     # the GTP leader), collapsing intra-class gaps to ~0; the Int column (interval to
     # the car directly ahead) sums cleanly. Non-numeric Int ("1 lap") contributes 0.
+    # Use _num() (not a bare isinstance check) — IMSA's Int cells are JSON floats,
+    # but IndyCar's are numeric strings ("1.7297"); _num() coerces either.
     cum_int: dict[str, float] = {}
     running = 0.0
     for r in ordered:
-        iv = timing71._cell(r[col["Int"]])
-        running += iv if isinstance(iv, (int, float)) else 0.0
+        iv = timing71._num(r[col["Int"]])
+        running += iv if iv is not None else 0.0
         cum_int[r[col["Num"]]] = running
+
+    # Columns that don't exist on every archive (IndyCar has no Class/PIC/VFT —
+    # single class, no fuel telemetry — but adds T for tyre compound). Resolved
+    # once per frame rather than per row.
+    cls_i, pic_i, vft_i, tyre_i = col.get("Class"), col.get("PIC"), col.get("VFT"), col.get("T")
+    default_class = "INDYCAR" if cls_i is None else None
 
     for r in rows:
         car  = r[col["Num"]]
         laps = int(timing71._num(r[col["Laps"]]) or 0)
-        cls  = r[col["Class"]]
+        cls  = r[cls_i] if cls_i is not None else default_class
         seq  = pit_in.get(car, [])
         done = [pl for (it, pl) in seq if it <= ts_ms]
         db._pit_count[car]    = len(done)
@@ -268,21 +299,36 @@ def _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at):
 
         # virtual fuel tank telemetry: VFT cell is [percent, flag] where flag is
         # '' / 'yellow' / 'red' (IMSA's own low-fuel warning). Populated for
-        # GTP/GTDPRO/GTD; empty (['','']) for LMP2.
-        vft = r[col["VFT"]]
+        # GTP/GTDPRO/GTD; empty (['','']) for LMP2. None for archives with no
+        # VFT column at all (IndyCar has no fuel telemetry, same as F1 v1).
+        vft = r[vft_i] if vft_i is not None else None
         fuel_pct  = (vft[0] if isinstance(vft, (list, tuple)) and vft
                      and isinstance(vft[0], (int, float)) else None)
         fuel_flag = (vft[1] if isinstance(vft, (list, tuple)) and len(vft) > 1
                      and vft[1] else None)
 
+        # IndyCar tyre compound: T cell is ["P", "tyre-medium"] (Primary/Black)
+        # or ["O", "tyre-soft"] (Alternate/Red) — Firestone has no hardness
+        # naming, just the two compounds. Age = laps run since the car's last
+        # detected pit stop (or since the green flag if it hasn't pitted yet) —
+        # db._last_pit_lap was just set above for this car this frame.
+        tire_compound = tire_age = None
+        if tyre_i is not None:
+            tcell = r[tyre_i]
+            letter = tcell[0] if isinstance(tcell, (list, tuple)) and tcell else None
+            tire_compound = {"P": "PRIMARY", "O": "ALTERNATE"}.get(letter)
+            last_pit_lap = db._last_pit_lap[car]
+            tire_age = laps - last_pit_lap if last_pit_lap is not None else laps
+
         # Authoritative pit/out-lap state from the feed (mirrors the live feed's
         # track_status). OUT spans exactly the single out lap (pit exit → S/F).
         track_status = {"PIT": "BOX", "OUT": "OUT_LAP",
-                        "STOP": "STOPPED"}.get(state, "TRACK")
+                        "STOP": "STOPPED", "RET": "STOPPED"}.get(state, "TRACK")
 
         d = {
             "overall_position": overall_pos.get(car), "car_number": car,
-            "pos_in_class": r[col["PIC"]], "laps": laps,
+            "pos_in_class": r[pic_i] if pic_i is not None else overall_pos.get(car),
+            "laps": laps,
             "laps_behind": laps_behind,
             "gap_ms": gap_ms,
             "track_status": track_status,
@@ -294,6 +340,8 @@ def _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at):
             "elapsedTime":  int(cum_int.get(car, 0.0) * 1000),
             "fuelPct":  fuel_pct,
             "fuelFlag": fuel_flag,
+            "tireCompound": tire_compound,
+            "tireAge": tire_age,
         }
         db.ingest_car(car, d, standing, laps, flag_at(ts_ms), raw_data=None)
 

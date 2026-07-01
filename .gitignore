@@ -20,3 +20,4 @@ data/fastf1_cache/
 
 # Keep static config that lives under data/
 !data/entries_*.json
+!data/indycar_*.json

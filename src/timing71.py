@@ -24,12 +24,6 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-# ── column layout (resolved from manifest, but these are the IMSA defaults) ───
-# Num State Class S/C PIC Driver Team Car Laps Gap Int S1 S2 S3 Last Best VFT Pits
-COL = {"Num": 0, "State": 1, "Class": 2, "PIC": 4, "Driver": 5, "Team": 6,
-       "Car": 7, "Laps": 8, "Gap": 9, "Int": 10, "Last": 14, "Best": 15,
-       "VFT": 16, "Pits": 17}
-
 _PIT_DUR = re.compile(r"pit time:\s*(\d+):(\d+)")
 _DRIVER_CHANGE = re.compile(r"Driver change \((.+?) to (.+?)\)")
 
@@ -70,6 +64,9 @@ class Replay:
     col: dict
     full_frames: list          # [(ts_int, frame_dict)] sorted
     messages: list             # deduped [ts_ms, category, text, type, car] sorted asc
+    series_name: str = ""      # manifest.name — the series identifier (e.g. "IndyCar",
+                                # "IMSA WeatherTech SportsCar Championship"), distinct from
+                                # `name` which is manifest.description (the event title)
 
     # ── flag timeline ────────────────────────────────────────────────────────
     def flag_timeline(self) -> list:
@@ -117,21 +114,24 @@ class Replay:
 
     # ── final standings snapshot (last full frame) ───────────────────────────
     def final_cars(self) -> dict:
-        """Per car → {class, laps, pits, vft, last, best, pic} from the last frame."""
+        """Per car → {class, laps, pits, vft, last, best, pic} from the last frame.
+        class/vft/pic are None when the archive's column set doesn't have them
+        (e.g. IndyCar has no Class/VFT/PIC — single class, no fuel telemetry)."""
         if not self.full_frames:
             return {}
         _ts, fr = self.full_frames[-1]
+        cls_i, vft_i, pic_i = self.col.get("Class"), self.col.get("VFT"), self.col.get("PIC")
         out = {}
         for row in fr.get("cars", []):
             num = row[self.col["Num"]]
             out[num] = {
-                "class": row[self.col["Class"]],
+                "class": row[cls_i] if cls_i is not None else None,
                 "laps": _num(row[self.col["Laps"]]),
                 "pits": _num(row[self.col["Pits"]]),
-                "vft": _num(row[self.col["VFT"]]),
+                "vft": _num(row[vft_i]) if vft_i is not None else None,
                 "last": _cell(row[self.col["Last"]]),
                 "best": _cell(row[self.col["Best"]]),
-                "pic": row[self.col["PIC"]],
+                "pic": row[pic_i] if pic_i is not None else None,
             }
         return out
 
@@ -140,9 +140,13 @@ def load(zip_path: str) -> Replay:
     z = zipfile.ZipFile(zip_path)
     names = z.namelist()
     manifest = json.loads(z.read("manifest.json"))
+    # resolve every column the manifest actually declares (IMSA and IndyCar
+    # archives carry different column sets — e.g. IndyCar has no Class/PIC/VFT
+    # but adds T/PTP). Don't merge in the IMSA COL defaults: doing so mapped a
+    # missing "Class" onto IMSA's index 2, which silently aliased onto
+    # IndyCar's "Driver" column at that same index. Callers use col.get(name)
+    # and must handle None for a column this archive doesn't have.
     col = {spec[0]: i for i, spec in enumerate(manifest["colSpec"])}
-    # resolve column indices by name (fall back to defaults if a name is missing)
-    col = {k: col.get(k, COL.get(k)) for k in COL}
 
     full = []
     for n in names:
@@ -164,7 +168,8 @@ def load(zip_path: str) -> Replay:
 
     return Replay(name=manifest.get("description", "?"),
                   start_time=manifest.get("startTime", 0),
-                  col=col, full_frames=full, messages=msgs)
+                  col=col, full_frames=full, messages=msgs,
+                  series_name=manifest.get("name", ""))
 
 
 def _main():

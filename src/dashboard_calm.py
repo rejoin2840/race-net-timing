@@ -59,13 +59,15 @@ def _load_entries() -> dict:
 _ENTRIES: dict = _load_entries()
 
 
-# ── F1 team table (car# → TLA/team/colour) — scripted off FastF1, see
-# src/build_f1_team_table.py. Falls back to the driver-identity generic path
-# below when a car isn't in the table (e.g. a mid-season reserve driver).
-def _load_f1_teams() -> dict:
+# ── driver-identity team tables (car# → TLA/team/colour) for "driver"-identity
+# series (F1, IndyCar). F1's is scripted off FastF1 (src/build_f1_team_table.py);
+# IndyCar has no equivalent auto-scraper so data/indycar_*.json is hand-built.
+# Falls back to the generic team/driver text below when a car isn't in the
+# table (e.g. a mid-season reserve driver).
+def _load_driver_teams(prefix: str) -> dict:
     out = {}
     data_dir = pathlib.Path(__file__).parent.parent / "data"
-    for f in sorted(data_dir.glob("f1_*.json")):
+    for f in sorted(data_dir.glob(f"{prefix}_*.json")):
         try:
             doc = json.loads(f.read_text())
             out.update(doc.get("drivers", {}))
@@ -73,7 +75,7 @@ def _load_f1_teams() -> dict:
             pass
     return out
 
-_F1_TEAMS: dict = _load_f1_teams()
+_DRIVER_TEAMS: dict = {"f1": _load_driver_teams("f1"), "indycar": _load_driver_teams("indycar")}
 
 # ── calm palette (nudged ~8% brighter; row LINE more visible per feel-test) ───
 BG      = "#10141A"
@@ -108,6 +110,10 @@ TIRE_STYLE = {
     "HARD":         ("H", "#F5F5F5", True),
     "INTERMEDIATE": ("I", "#3FAE4E", False),
     "WET":          ("W", "#3B82F6", False),
+    # IndyCar/Firestone: no compound-hardness naming, just Primary (black
+    # sidewall) vs Alternate (red sidewall) — the feed's own "P"/"O" letters.
+    "PRIMARY":      ("P", "#D8D8D8", True),
+    "ALTERNATE":    ("O", "#E8384F", False),
 }
 
 
@@ -267,15 +273,16 @@ def _row_vm(r, ca, current_lap, cycle_active=True, since=None, allow_net=True,
     since_text = _since_short(since) if since is not None else ""
     since_tone = TONE_HEX.get(since.tone, MUTE) if since is not None else MUTE
 
-    # identity slot: "driver"-identity series (F1) lead with the TLA in team colour and
-    # push the full team name to the dim slot — the IMSA "team · driver" reading flipped
-    # to match how F1 boards are actually read. Falls back to the generic team/driver
-    # text when the car isn't in the scripted table (e.g. a mid-season reserve driver).
+    # identity slot: "driver"-identity series (F1, IndyCar) lead with the TLA in team
+    # colour and push the full team name to the dim slot — the IMSA "team · driver"
+    # reading flipped to match how these boards are actually read. Falls back to the
+    # generic team/driver text when the car isn't in the scripted table (e.g. a
+    # mid-season reserve driver).
     team_text, driver_text = r.team, r.driver
     team_color = MUTE if dim else DIM
     driver_color = FAINT if dim else MUTE
     if profile is not None and profile.identity == "driver":
-        info = _F1_TEAMS.get(r.car)
+        info = _DRIVER_TEAMS.get(profile.key, {}).get(r.car)
         if info:
             team_text = info.get("tla") or r.team
             team_color = MUTE if dim else info.get("color", DIM)
@@ -907,11 +914,11 @@ class CalmDashboard(QMainWindow):
             f"font-size:14px;}} QPushButton:hover{{color:{TXT};}}")
         self.help_btn.clicked.connect(self._toggle_legend)
 
-        # F1 race/session picker — launch a live feed or historical replay by
-        # clicking instead of hand-editing CLI args (backlog item 10)
-        self.f1_btn = QPushButton("F1 ▾"); self.f1_btn.setFlat(True)
+        # session picker — launch an F1/IndyCar live feed or historical replay
+        # by clicking instead of hand-editing CLI args (backlog item 10)
+        self.f1_btn = QPushButton("Session ▾"); self.f1_btn.setFlat(True)
         self.f1_btn.setFixedHeight(26)
-        self.f1_btn.setToolTip("Pick an F1 live feed or replay session")
+        self.f1_btn.setToolTip("Pick an F1/IndyCar live feed or replay session")
         self.f1_btn.setStyleSheet(
             f"QPushButton{{color:{MUTE}; background:#171C24; border:none; border-radius:6px;"
             f"padding:0 10px; font-size:12px;}} QPushButton:hover{{color:{TXT};}}")
@@ -1497,6 +1504,12 @@ def main():
                          "of auto-picking the most-recently-written one")
     args, _ = ap.parse_known_args()
     app = QApplication.instance() or QApplication(sys.argv)
+    # Fusion (not native macOS Aqua) so custom QSS on QComboBox/QPushButton/etc.
+    # renders as one consistent styled widget instead of native chrome bleeding
+    # through underneath the stylesheet — without this, styled QComboBoxes (the
+    # session picker's Year/GP/Session dropdowns) double-render/garble their
+    # text on macOS. dashboard.py (the dense board) already does this.
+    app.setStyle("Fusion")
     w = CalmDashboard(force_oid=args.session)
     w.show()
     sys.exit(app.exec())

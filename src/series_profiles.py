@@ -101,7 +101,28 @@ F1 = SeriesProfile(
 )
 
 
-PROFILES = {p.key: p for p in (IMSA, F1)}
+# ── IndyCar — single class, refuel + tyre stops, driver identity ─────────────
+# Unlike F1, IndyCar cars are refuelled during pit stops (like IMSA), so the
+# fuel-fill/pit-cost regression applies (pit_model="refuel") even though no
+# fuel-percentage telemetry exists — PitCostModel infers cost purely from
+# observed stop-duration vs stint-length, the same path IMSA's GTD class
+# already runs (GTD has no VFT either). Team colours/TLAs come from
+# data/indycar_*.json at render time, same pattern as F1's data/f1_*.json.
+INDYCAR = SeriesProfile(
+    key="indycar",
+    display_name="NTT INDYCAR SERIES",
+    classes=("INDYCAR",),
+    class_order={"INDYCAR": 0},
+    class_colors={"INDYCAR": "#C8102E"},
+    spine={"INDYCAR": "#C8102E"},
+    spine_default="#5F6B7A",
+    pit_model="refuel",
+    identity="driver",
+    rc_dialect="indycar",
+)
+
+
+PROFILES = {p.key: p for p in (IMSA, F1, INDYCAR)}
 
 DEFAULT_SERIES = "imsa"
 
