@@ -86,6 +86,7 @@ class SessionPickerDialog(QDialog):
         self.force_oid: "str | None" = None
         self.series: "str | None" = None
         self._fetch: "_ScheduleFetch | None" = None
+        self._fetching_year: "int | None" = None   # year the in-flight fetch is loading
         self._schedule = None   # cached DataFrame for the currently-selected year
         self._indycar_path: "str | None" = None
 
@@ -312,7 +313,14 @@ class SessionPickerDialog(QDialog):
     # ── data population ──────────────────────────────────────────────────
     def _populate_years(self):
         cur = datetime.now().year
+        # block signals while filling the combo — otherwise addItems fires
+        # currentIndexChanged → _on_year_changed, which would start a schedule
+        # fetch that races the explicit _on_year_changed() call in __init__.
+        # Two concurrent _ScheduleFetch threads hit FastF1's non-thread-safe
+        # sqlite cache and segfault (see _on_year_changed).
+        self.year_combo.blockSignals(True)
         self.year_combo.addItems([str(y) for y in range(cur, cur - 5, -1)])
+        self.year_combo.blockSignals(False)
 
     def _on_year_changed(self):
         if self.year_combo.currentIndex() < 0:
@@ -324,9 +332,33 @@ class SessionPickerDialog(QDialog):
         self.session_combo.setEnabled(False)
         self.status.setStyleSheet(f"color:{MUTE}; font-size:11px;")
         self.status.setText(f"Loading {year} schedule…")
+        # Serialize schedule fetches. FastF1's on-disk sqlite cache is not
+        # thread-safe, so two concurrent _ScheduleFetch threads corrupt it and
+        # segfault. If one is already running, don't start another — the tail
+        # of _on_schedule_loaded re-fetches the latest selected year once the
+        # in-flight fetch finishes.
+        if self._fetch is not None and self._fetch.isRunning():
+            return
+        self._start_fetch(year)
+
+    def _start_fetch(self, year: int):
+        self._fetching_year = year
         self._fetch = _ScheduleFetch(year, self)
         self._fetch.done.connect(self._on_schedule_loaded)
         self._fetch.start()
+
+    def closeEvent(self, event):
+        # Let any in-flight schedule fetch finish before the dialog (its
+        # parent) is destroyed — destroying a running QThread is undefined
+        # behaviour. Disconnect first so the completion slot can't fire into a
+        # half-torn-down dialog; then wait briefly for the sqlite/network call.
+        if self._fetch is not None and self._fetch.isRunning():
+            try:
+                self._fetch.done.disconnect(self._on_schedule_loaded)
+            except (TypeError, RuntimeError):
+                pass
+            self._fetch.wait(5000)
+        super().closeEvent(event)
 
     def _on_schedule_loaded(self, sched):
         self._schedule = sched
@@ -343,6 +375,12 @@ class SessionPickerDialog(QDialog):
             self.gp_combo.addItem(label, int(row["RoundNumber"]))
         self.gp_combo.setEnabled(True)
         self._on_gp_changed()
+        # If the user switched years while this fetch was in flight, load the
+        # now-selected year now (serialized — the previous thread has finished).
+        if self.year_combo.currentIndex() >= 0:
+            cur = int(self.year_combo.currentText())
+            if cur != self._fetching_year:
+                self._start_fetch(cur)
 
     def _on_gp_changed(self):
         self.session_combo.clear()
