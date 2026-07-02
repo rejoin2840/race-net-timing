@@ -3,6 +3,10 @@
 Two independent things to test this weekend. Both have logging built in already —
 no manual note-taking needed, just run the commands and look at what they produce.
 
+> **Picker note:** the F1 session picker now shows **Race/Sprint only**. To use Friday
+> practice for endpoint validation, set `"DEV_SHOW_ALL_SESSIONS": true` in `config.json`
+> and reopen the picker (flip back to `false` after the weekend).
+
 ## A. IndyCar race replay (primary — new work this session)
 
 1. After the race finishes, download the Timing71 **Race** archive (same source as the

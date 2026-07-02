@@ -41,6 +41,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QRadioButton, QStackedWidget, QVBoxLayout, QWidget,
 )
 
+import config
 import replay_f1
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -352,9 +353,16 @@ class SessionPickerDialog(QDialog):
         if row.empty:
             return
         row = row.iloc[0]
+        config.CONFIG.reload_if_changed()
+        show_all = bool(config.CONFIG.DEV_SHOW_ALL_SESSIONS)
         for i in range(1, 6):
             name = row.get(f"Session{i}")
-            if isinstance(name, str) and name:
+            if not (isinstance(name, str) and name):
+                continue
+            # the dashboard only works for race sessions — practice/quali are
+            # hidden unless DEV_SHOW_ALL_SESSIONS (config.json) re-exposes
+            # them for live endpoint validation
+            if name in ("Race", "Sprint") or show_all:
                 self.session_combo.addItem(name, i)   # itemData = position, not name/code
         self.session_combo.setEnabled(self.session_combo.count() > 0)
 
