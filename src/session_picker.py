@@ -1,5 +1,5 @@
 """
-session_picker.py — F1 / IndyCar race/session picker dialog.
+session_picker.py — F1 / IndyCar / IMSA race/session picker dialog.
 
 Opened from a header button in dashboard_calm.py. Lets you pick a series,
 then Live vs a historical Replay, by clicking instead of hand-editing CLI
@@ -9,6 +9,10 @@ args. Launches the matching adapter as a managed QProcess:
   F1      Replay  -> replay_f1.py YEAR GP SESSION --stream --speed N
   IndyCar Replay  -> replay.py ARCHIVE.zip --stream --speed N
   IndyCar Live    -> not built yet (racecontrol.indycar.com feed unbuilt)
+  IMSA    Live    -> alkameldp.py
+  IMSA    Replay  -> replay.py ARCHIVE.zip --stream --speed N (shares the
+                     IndyCar Replay page — replay.py auto-detects series
+                     from the archive's manifest, see _detect_series())
 
 On accept, the caller reads `force_oid` (F1 Replay — pins the dashboard's
 Poller to the exact session the subprocess will write; FastF1's schedule
@@ -91,14 +95,17 @@ class SessionPickerDialog(QDialog):
         seriesrow = QHBoxLayout()
         self.f1_series_radio = QRadioButton("F1")
         self.indycar_series_radio = QRadioButton("IndyCar")
+        self.imsa_series_radio = QRadioButton("IMSA")
         self.f1_series_radio.setChecked(True)
-        for r in (self.f1_series_radio, self.indycar_series_radio):
+        for r in (self.f1_series_radio, self.indycar_series_radio, self.imsa_series_radio):
             r.setStyleSheet(f"QRadioButton{{color:{TXT}; font-size:13px; font-weight:600;}}")
         series_group = QButtonGroup(self)
         series_group.addButton(self.f1_series_radio)
         series_group.addButton(self.indycar_series_radio)
+        series_group.addButton(self.imsa_series_radio)
         seriesrow.addWidget(self.f1_series_radio)
         seriesrow.addWidget(self.indycar_series_radio)
+        seriesrow.addWidget(self.imsa_series_radio)
         seriesrow.addStretch(1)
         root.addLayout(seriesrow)
 
@@ -121,11 +128,13 @@ class SessionPickerDialog(QDialog):
         self.stack.addWidget(self._build_live_page())          # 0: F1 Live
         self.stack.addWidget(self._build_replay_page())        # 1: F1 Replay
         self.stack.addWidget(self._build_indycar_live_page())  # 2: IndyCar Live
-        self.stack.addWidget(self._build_indycar_replay_page())  # 3: IndyCar Replay
+        self.stack.addWidget(self._build_indycar_replay_page())  # 3: IndyCar Replay (shared with IMSA Replay)
+        self.stack.addWidget(self._build_imsa_live_page())      # 4: IMSA Live
         self.live_radio.toggled.connect(lambda on: on and self._sync_stack())
         self.replay_radio.toggled.connect(lambda on: on and self._sync_stack())
         self.f1_series_radio.toggled.connect(lambda on: on and self._sync_stack())
         self.indycar_series_radio.toggled.connect(lambda on: on and self._sync_stack())
+        self.imsa_series_radio.toggled.connect(lambda on: on and self._sync_stack())
         self._sync_stack()
 
         self.status = QLabel("")
@@ -145,13 +154,16 @@ class SessionPickerDialog(QDialog):
 
     def _sync_stack(self):
         """Route the (series, Live/Replay) combo to its stack page. Replay is
-        the useful default pre-live-validation for both series."""
-        is_f1 = self.f1_series_radio.isChecked()
+        the useful default pre-live-validation. IMSA Replay shares the
+        IndyCar Replay page (index 3) since replay.py auto-detects series
+        from the archive itself — no series-specific UI needed."""
         is_live = self.live_radio.isChecked()
-        if is_f1:
+        if self.f1_series_radio.isChecked():
             self.stack.setCurrentIndex(0 if is_live else 1)
-        else:
+        elif self.indycar_series_radio.isChecked():
             self.stack.setCurrentIndex(2 if is_live else 3)
+        else:
+            self.stack.setCurrentIndex(4 if is_live else 3)
 
     # ── Live page ────────────────────────────────────────────────────────
     def _build_live_page(self) -> QWidget:
@@ -260,6 +272,22 @@ class SessionPickerDialog(QDialog):
         v.addWidget(launch)
         return w
 
+    # ── IMSA Live page (Al Kamel DDP feed, no auth needed) ──────────────
+    def _build_imsa_live_page(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setSpacing(10)
+        note = QLabel("Connects to the official live IMSA timing feed.")
+        note.setStyleSheet(f"color:{DIM}; font-size:12px;")
+        note.setWordWrap(True)
+        v.addWidget(note)
+        v.addStretch(1)
+        launch = QPushButton("Launch Live Feed")
+        launch.setStyleSheet(self._btn_style(primary=True))
+        launch.clicked.connect(self._launch_imsa_live)
+        v.addWidget(launch)
+        return w
+
     def _choose_indycar_archive(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Choose Timing71 archive", str(ROOT), "Timing71 archives (*.zip)")
@@ -363,18 +391,21 @@ class SessionPickerDialog(QDialog):
         self.accept()
 
     def _launch_indycar_replay(self):
+        """Shared launcher for the IndyCar/IMSA Replay page — replay.py
+        auto-detects series from the archive itself, so this just needs to
+        know which series radio is active for Poller(series=...) scoping."""
         if not self._indycar_path:
             self.status.setStyleSheet(f"color:{ERROR}; font-size:11px;")
             self.status.setText("Choose a Timing71 archive first.")
             return
         speed = self.indycar_speed_combo.currentText().rstrip("×")
 
-        # No FastF1-equivalent schedule API for IndyCar, so (unlike F1 Replay)
-        # the OID isn't computable ahead of the subprocess — scope by series
-        # and let latest_session() find replay.py's default "stream" oid,
-        # same as F1 Live does for its own not-known-ahead-of-time OID.
+        # No FastF1-equivalent schedule API for IndyCar/IMSA, so (unlike F1
+        # Replay) the OID isn't computable ahead of the subprocess — scope by
+        # series and let latest_session() find replay.py's default "stream"
+        # oid, same as F1 Live does for its own not-known-ahead-of-time OID.
         self.force_oid = None
-        self.series = "indycar"
+        self.series = "imsa" if self.imsa_series_radio.isChecked() else "indycar"
 
         self.proc = QProcess(self)
         self.proc.setWorkingDirectory(str(ROOT))
@@ -382,5 +413,14 @@ class SessionPickerDialog(QDialog):
             str(ROOT / "src" / "replay.py"), self._indycar_path,
             "--stream", "--speed", speed,
         ])
-        self.status.setText("Launching IndyCar replay…")
+        self.status.setText(f"Launching {self.series} replay…")
+        self.accept()
+
+    def _launch_imsa_live(self):
+        self.proc = QProcess(self)
+        self.proc.setWorkingDirectory(str(ROOT))
+        self.proc.start(str(PYTHON), [str(ROOT / "src" / "alkameldp.py")])
+        self.series = "imsa"
+        self.force_oid = None
+        self.status.setText("Launching live feed…")
         self.accept()
