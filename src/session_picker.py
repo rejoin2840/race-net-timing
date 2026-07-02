@@ -31,6 +31,7 @@ its picker is just a file chooser rather than a year/GP/session hierarchy.
 """
 
 from datetime import datetime
+import os
 import pathlib
 
 import fastf1
@@ -38,7 +39,7 @@ import fastf1
 from PyQt6.QtCore import QProcess, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QButtonGroup, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel,
-    QPushButton, QRadioButton, QStackedWidget, QVBoxLayout, QWidget,
+    QMessageBox, QPushButton, QRadioButton, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 import config
@@ -46,6 +47,7 @@ import replay_f1
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PYTHON = ROOT / "venv" / "bin" / "python"
+DATA_DIR = ROOT / "data"
 
 BG     = "#10141A"
 PANEL  = "#171C24"
@@ -237,6 +239,8 @@ class SessionPickerDialog(QDialog):
         return w
 
     def _launch_indycar_live(self):
+        if not self._confirm_double_launch("indycar"):
+            return
         self.proc = QProcess(self)
         self.proc.setWorkingDirectory(str(ROOT))
         self.proc.start(str(PYTHON), [str(ROOT / "src" / "indycar_live.py")])
@@ -414,7 +418,52 @@ class SessionPickerDialog(QDialog):
         self.session_combo.setEnabled(self.session_combo.count() > 0)
 
     # ── launch ───────────────────────────────────────────────────────────
+    def _background_scraper_since(self, series: str) -> "str | None":
+        """If weekend_conductor.py (or a prior manual launch) already has a
+        live scraper running for this series, returns its recorded start
+        time as a display string; None if no lock file / it's stale."""
+        lock = DATA_DIR / f".{series}_live.lock"
+        try:
+            text = lock.read_text().strip()
+        except OSError:
+            return None
+        parts = text.split(" ", 1)
+        if len(parts) != 2:
+            return None
+        try:
+            pid = int(parts[0])
+        except ValueError:
+            return None
+        try:
+            os.kill(pid, 0)     # signal 0: check the process still exists
+        except (OSError, ProcessLookupError):
+            return None         # stale lock from a crashed/killed process
+        try:
+            started = datetime.fromisoformat(parts[1])
+            return started.strftime("%H:%M")
+        except ValueError:
+            return "an earlier time"
+
+    def _confirm_double_launch(self, series: str) -> bool:
+        """Returns True if it's OK to launch (no conflict, or user overrode)."""
+        since = self._background_scraper_since(series)
+        if since is None:
+            return True
+        resp = QMessageBox.question(
+            self, "Already running",
+            f"A {series.upper()} live feed already appears to be running in the "
+            f"background (started {since}) — probably weekend_conductor.py.\n\n"
+            "Just open the dashboard to view it; you don't need to launch again.\n"
+            "Launching a second copy can cause duplicate pit-stop detection.\n\n"
+            "Launch anyway?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return resp == QMessageBox.StandardButton.Yes
+
     def _launch_live(self):
+        if not self._confirm_double_launch("f1"):
+            return
         self.proc = QProcess(self)
         self.proc.setWorkingDirectory(str(ROOT))
         self.proc.start(str(PYTHON), [str(ROOT / "src" / "f1_live.py")])
