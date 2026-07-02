@@ -217,24 +217,33 @@ class SessionPickerDialog(QDialog):
         v.addWidget(launch)
         return w
 
-    # ── IndyCar Live page (stub — no live feed built yet, see indycar_data_sources.md) ──
+    # ── IndyCar Live page — polls INDYCAR's public timing blob (indycar_live.py) ──
     def _build_indycar_live_page(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
         v.setSpacing(10)
         note = QLabel(
-            "Live IndyCar timing isn't built yet — racecontrol.indycar.com\n"
-            "has no public API and needs to be reverse-engineered.\n"
-            "Use Replay with a Timing71 archive for now.")
+            "Connects to INDYCAR's official live timing feed\n"
+            "(the same source the indycar.com leaderboard uses).\n"
+            "No login needed. Works during any live session.")
         note.setStyleSheet(f"color:{DIM}; font-size:12px;")
         note.setWordWrap(True)
         v.addWidget(note)
         v.addStretch(1)
-        launch = QPushButton("Coming soon")
-        launch.setEnabled(False)
-        launch.setStyleSheet(self._btn_style(primary=False))
+        launch = QPushButton("Launch Live Feed")
+        launch.setStyleSheet(self._btn_style(primary=True))
+        launch.clicked.connect(self._launch_indycar_live)
         v.addWidget(launch)
         return w
+
+    def _launch_indycar_live(self):
+        self.proc = QProcess(self)
+        self.proc.setWorkingDirectory(str(ROOT))
+        self.proc.start(str(PYTHON), [str(ROOT / "src" / "indycar_live.py")])
+        self.series = "indycar"
+        self.force_oid = None
+        self.status.setText("Launching live feed…")
+        self.accept()
 
     # ── IndyCar Replay page — a Timing71 archive picked by hand (no schedule
     # API exists for IndyCar the way FastF1 provides one for F1) ────────────
