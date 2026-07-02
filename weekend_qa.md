@@ -7,6 +7,42 @@ no manual note-taking needed, just run the commands and look at what they produc
 > practice for endpoint validation, set `"DEV_SHOW_ALL_SESSIONS": true` in `config.json`
 > and reopen the picker (flip back to `false` after the weekend).
 
+## A0. IndyCar LIVE feed (NEW 2026-07-02 — validate Friday practice, race-ready Sunday)
+
+`src/indycar_live.py` polls INDYCAR's official public timing feed directly (the
+same source indycar.com/leaderboard uses). Built and bench-tested against the
+feed's between-sessions data; Friday practice is its first REAL live session.
+
+1. **Anytime sanity check** (works even between sessions — the feed serves the
+   last session's frozen data):
+   ```bash
+   venv/bin/python src/indycar_live.py --discover
+   ```
+   Should print the session heartbeat (event/flag/session name) and save the
+   full payload to `logs/indycar_discover.json`.
+
+2. **During Friday practice** — either from the dashboard: **Session ▾ →
+   IndyCar → Live → Launch Live Feed**, or by hand with raw capture:
+   ```bash
+   venv/bin/python src/indycar_live.py --record logs/indycar_fri_practice.jsonl.gz
+   ```
+   then open the dashboard normally. (`--record` saves raw payloads — grab at
+   least one session's worth for the fixture library.)
+
+3. **What to watch:** lock-on (event name + flag in header), positions/gaps
+   moving lap to lap, tire P/O chips with sensible ages, IN PIT appearing when
+   cars pit (debounced ~2s), a caution flipping the header if one happens,
+   session change handled when practice ends (new session = new oid).
+
+4. **Known cosmetic quirk (won't affect real IndyCar sessions):** identity TLAs
+   come from `data/indycar_2026.json` by car number — only wrong when a
+   non-IndyCar series (NXT) shares numbers, as in the bench test.
+
+5. **15-min side-task while the session runs (capture only, no build):** open
+   indycar.com/leaderboard in Chrome, DevTools → Network, save the XHR/WS
+   payloads to `sample_data/indycar_raw/` — documents the direct web-app
+   endpoint as a future fallback. Optional; our feed is upstream of it anyway.
+
 ## A. IndyCar race replay (primary — new work this session)
 
 1. After the race finishes, download the Timing71 **Race** archive (same source as the
