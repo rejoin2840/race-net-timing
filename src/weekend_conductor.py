@@ -29,6 +29,7 @@ before trusting it with the real schedule):
 """
 
 import argparse
+import os
 import signal
 import subprocess
 import sys
@@ -50,6 +51,28 @@ import session_healthcheck  # noqa: E402
 
 CONDUCTOR_LOG = LOG_DIR / "weekend_conductor.log"
 _log_lock = threading.Lock()
+
+# every scraper/predictor subprocess currently running, across all session
+# threads — so a signal handler can kill them all regardless of which
+# thread's time.sleep() is in progress when the signal arrives. Without
+# this, Ctrl-C / terminal close only kills the conductor itself; Python
+# does not automatically kill subprocess.Popen children of a dead parent,
+# so a scraper could be left running orphaned in the background with
+# nothing left to stop it or run the evaluator afterward.
+_active_procs_lock = threading.Lock()
+_active_procs: "set[subprocess.Popen]" = set()
+
+
+def _track(proc: "subprocess.Popen | None"):
+    if proc is not None:
+        with _active_procs_lock:
+            _active_procs.add(proc)
+
+
+def _untrack(proc: "subprocess.Popen | None"):
+    if proc is not None:
+        with _active_procs_lock:
+            _active_procs.discard(proc)
 
 # start this many minutes before the posted time (sessions rarely start
 # early; scrapers are harmless/inert before a session exists)
@@ -157,6 +180,7 @@ def run_session(series: str, label: str, kind: str, start: datetime):
                 [PYTHON, "-u", str(SRC / SCRAPER[series])],
                 cwd=str(ROOT), stdout=slog, stderr=subprocess.STDOUT,
             )
+        _track(scraper_proc)
         _write_lock(series, scraper_proc.pid)
         _log(f"  {series} scraper pid={scraper_proc.pid}")
 
@@ -167,6 +191,7 @@ def run_session(series: str, label: str, kind: str, start: datetime):
                     [PYTHON, "-u", str(SRC / "headless_predictor.py"), "--series", series],
                     cwd=str(ROOT), stdout=plog, stderr=subprocess.STDOUT,
                 )
+            _track(predictor_proc)
             _log(f"  headless predictor pid={predictor_proc.pid} -> {pred_log_path}")
 
         remaining = (stop_at - datetime.now()).total_seconds()
@@ -179,6 +204,8 @@ def run_session(series: str, label: str, kind: str, start: datetime):
         _log(f"STOP {series} {label}")
         _stop_proc(scraper_proc, f"{series} scraper")
         _stop_proc(predictor_proc, f"{series} predictor")
+        _untrack(scraper_proc)
+        _untrack(predictor_proc)
         _remove_lock(series)
 
     # post-processing (best-effort; never let this crash the thread)
@@ -217,7 +244,41 @@ def main():
                          "starting ~1 min from now to smoke-test the whole cycle")
     args = ap.parse_args()
 
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    def _shutdown(signum, _frame):
+        # Runs in the main thread regardless of which session-thread is mid
+        # time.sleep() when the signal arrives — os.kill() reaches every
+        # tracked child directly rather than waiting for threads to notice.
+        with _active_procs_lock:
+            procs = list(_active_procs)
+        _log(f"received signal {signum}, terminating {len(procs)} "
+             f"active subprocess(es) and exiting")
+        for p in procs:
+            try:
+                p.terminate()
+            except OSError:
+                pass
+        for p in procs:
+            try:
+                p.wait(timeout=5)
+            except Exception:
+                try:
+                    p.kill()
+                except OSError:
+                    pass
+        # os._exit skips `finally` blocks (incl. the lock-file cleanup in
+        # run_session), so clear any lock files directly here too.
+        for lock in DATA_DIR.glob(".*_live.lock"):
+            try:
+                lock.unlink()
+            except OSError:
+                pass
+        # os._exit rather than sys.exit: sys.exit only unwinds the main
+        # thread and Python won't actually exit while the (non-daemon)
+        # session threads are still sleeping through their windows.
+        os._exit(1)
+
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, _shutdown)
 
     if args.test_now:
         start = datetime.now() + timedelta(minutes=1)
