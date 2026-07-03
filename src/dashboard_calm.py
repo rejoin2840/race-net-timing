@@ -293,6 +293,11 @@ def _row_vm(r, ca, current_lap, cycle_active=True, since=None, allow_net=True,
     # (2026 field names are provisional; see series_profiles.py docstring).
     override_on = bool(ca is not None and ca.override_state)
 
+    # band — net gap uncertainty suffix, only when NET overlay is active and band < 20s
+    band_text = ""
+    if ca is not None and ca.net_gap_band_ms and 0 < ca.net_gap_band_ms < 20_000:
+        band_text = f"±{ca.net_gap_band_ms/1000:.0f}"
+
     return {
         "net": net, "has_penalty": r.has_penalty,          # net drives the breath (filters pit-shuffle)
         "pos_text": pos_text, "pos_color": pos_color,
@@ -307,6 +312,7 @@ def _row_vm(r, ca, current_lap, cycle_active=True, since=None, allow_net=True,
         "gap_text": gap_text, "gap_color": gap_color,
         "call_text": call_text, "call_color": call_color,
         "since_text": since_text, "since_tone": since_tone,
+        "band_text": band_text,
     }
 
 
@@ -432,6 +438,12 @@ class RowWidget(QWidget):
         # NET overlay — speaks only when effective position differs (▲P / ▼P)
         p.setFont(self.f_delta); p.setPen(QColor(vm["net_color"]))
         p.drawText(QRect(c["net_x"], 0, 46, H), L | VC, vm["net_text"])
+        # BAND — ± uncertainty suffix, dim, only when NET overlay is active
+        if vm.get("band_text") and vm["net_text"] != "—":
+            bx = c["net_x"] + QFontMetrics(self.f_delta).horizontalAdvance(vm["net_text"]) + 3
+            if bx + 20 < c["car_x"]:
+                p.setFont(self.f_stint); p.setPen(QColor(FAINT))
+                p.drawText(QRect(bx, 0, c["car_x"] - bx, H), L | VC, vm["band_text"])
 
         # CALL (the one strategic note; mostly empty)
         if vm["call_text"]:
@@ -1156,7 +1168,10 @@ class CalmDashboard(QMainWindow):
                 self.clock.setText(f"{s//3600}:{(s%3600)//60:02d}:{s%60:02d}")
             else:
                 self.clock.setText("—")
-            self.sub.setText(f"LAP {ctx.current_lap}")
+            lap_text = f"LAP {ctx.current_lap}"
+            if ctx.is_race and ctx.pit_model.thin:
+                lap_text += "  ·  LOW PIT DATA"
+            self.sub.setText(lap_text)
 
     TOP_N = 5                  # per-class row cap before the "+N more" accordion (multi-class)
     TOP_N_SINGLE_CLASS = 30    # single-class grid: show the whole field by default

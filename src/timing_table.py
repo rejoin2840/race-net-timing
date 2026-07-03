@@ -120,6 +120,7 @@ class Row:
     net_pos_delta: Optional[int] = None # positions gained(+)/lost(-) vs pre-pit net
     has_penalty: bool = False           # pending in-race time penalty owed
     catch_imminent: bool = False        # catching target within 3 laps
+    pit_scope: str = ""                 # car/class/field/default — pit model scope
 
 
 def _strategy_text(c) -> tuple[str, bool]:
@@ -250,6 +251,7 @@ def _build_rows(ctx, cars, trend_map: dict, filter_cls: Optional[str],
                 box_s=box_s, just_pitted=just_pitted, net_pos_delta=net_pos_delta,
                 has_penalty=(c.penalty_s > 0 and not c.dq),
                 catch_imminent=catch_imminent,
+                pit_scope=c.pit_scope,
             ))
     return rows
 
@@ -338,6 +340,10 @@ class StrategyModel(QAbstractTableModel):
             return ("Net position — where this car ends up once everyone has taken "
                     "their remaining pit stops. This is the real running order. "
                     "Double-click for full detail.")
+        if col == C_GAP and r.pit_scope and r.pit_scope != "car":
+            scope_label = {"class": "class-level", "field": "field-wide",
+                           "default": "default (no pit data)"}.get(r.pit_scope, r.pit_scope)
+            return f"Pit prediction from {scope_label} data — band may be wide."
         if col == C_TREND:
             return {1: "Gaining net positions vs 5 minutes ago.",
                     -1: "Losing net positions vs 5 minutes ago.",

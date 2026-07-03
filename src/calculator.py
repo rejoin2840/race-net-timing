@@ -148,6 +148,7 @@ class CarAnalysis:
     owes_driver_change: bool = False
     next_stop_ms:     Optional[float] = None     # predicted cost of this car's next stop
     next_stop_std_ms: Optional[float] = None     # 1σ spread on that prediction
+    pit_scope:        str = "default"            # which model scope predicted the next stop
     # sector analysis (best sector vs class best)
     best_s1_ms:       Optional[int] = None
     best_s2_ms:       Optional[int] = None
@@ -398,31 +399,40 @@ class PitCostModel:
                 sum(s.duration_ms for s in dc_stops) / len(dc_stops) - sum(nodc) / len(nodc))
         return m
 
+    @property
+    def thin(self) -> bool:
+        return self._fit_all is None and not self._fit_cls and not self._fit_car
+
     def predict_stop(self, car: str, cls: str, stint_laps: float,
-                     owes_dc: bool) -> tuple[float, float]:
-        """Return (mean_ms, std_ms) for this car's next green stop of given length."""
+                     owes_dc: bool) -> tuple[float, float, str]:
+        """Return (mean_ms, std_ms, scope) for this car's next green stop."""
         mean = std = None
-        # most specific scope with a trustworthy fuel fit wins
-        for fit_store, flat_store, key in ((self._fit_car, self._flat_car, car),
-                                           (self._fit_cls, self._flat_cls, cls)):
+        scope = "default"
+        for fit_store, flat_store, key, sc in (
+                (self._fit_car, self._flat_car, car, "car"),
+                (self._fit_cls, self._flat_cls, cls, "class")):
             if key in fit_store:
                 a, b, s = fit_store[key]
                 mean, std = a + b * max(0.0, stint_laps), s
+                scope = sc
                 break
             if key in flat_store:
                 mean, std = flat_store[key]
+                scope = sc
                 break
         if mean is None and self._fit_all:
             a, b, s = self._fit_all
             mean, std = a + b * max(0.0, stint_laps), s
+            scope = "field"
         if mean is None and self._flat_all:
             mean, std = self._flat_all
+            scope = "field"
         if mean is None:
             mean, std = DEFAULT_GREEN_PIT_MS, DEFAULT_STOP_STD_MS
         mean = max(mean, self.transit_ms)
         if owes_dc:
             mean += self.dc_delta_ms
-        return mean, (std or DEFAULT_STOP_STD_MS)
+        return mean, (std or DEFAULT_STOP_STD_MS), scope
 
 
 def _load_stops(conn: sqlite3.Connection, oid: str) -> list[_Stop]:
@@ -763,7 +773,7 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
     for ca in group_sorted:
         ca.est_stops_left = _stops_left(ctx, ca, avg_stint, avg_green_lap)
         # predicted cost of this car's NEXT stop (full-length stint, owed change if due)
-        ca.next_stop_ms, ca.next_stop_std_ms = model.predict_stop(
+        ca.next_stop_ms, ca.next_stop_std_ms, ca.pit_scope = model.predict_stop(
             ca.car_number, cls, avg_stint, ca.owes_driver_change)
         # fuel / pit window: laps left in the tank, and the session lap it must pit by
         if ca.stint_laps is not None and avg_stint > 0:
@@ -801,7 +811,7 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
         if n <= 0:
             return 0.0, 0.0
         # only the soonest stop carries the owed driver-change increment
-        per, std = model.predict_stop(ca.car_number, cls, avg_stint, False)
+        per, std, _ = model.predict_stop(ca.car_number, cls, avg_stint, False)
         total = n * per
         if ca.owes_driver_change:
             total += model.dc_delta_ms
