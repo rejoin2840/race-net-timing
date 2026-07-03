@@ -641,8 +641,8 @@ class Poller:
         # when set, always read this session instead of latest_session() — pins the
         # view to e.g. a replay 'stream' so a concurrent live scraper can't steal it
         self.force_oid = force_oid
-        # when set (and force_oid isn't), scopes latest_session() to one series so an
-        # F1-live session can't be pre-empted by a fresher IMSA one in the same DB
+        # when set (and force_oid isn't), scopes latest_session() to one series so a
+        # live session for one series can't be pre-empted by a newer session in the same DB
         self.series = series
         self.conn: Optional[sqlite3.Connection] = None
         self.hist: dict[str, deque] = {}

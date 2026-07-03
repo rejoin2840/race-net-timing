@@ -8,8 +8,8 @@ logic lifted out: find the latest session for a series, analyse it, log one
 row per car, sleep, repeat. Exits cleanly on SIGTERM (used by the conductor)
 or Ctrl-C.
 
-Run:  venv/bin/python src/headless_predictor.py --series f1
-      venv/bin/python src/headless_predictor.py --series indycar --db data/race.db
+Run:  venv/bin/python src/headless_predictor.py --series imsa
+      venv/bin/python src/headless_predictor.py --series wec --db data/race.db
 """
 
 import argparse
@@ -68,7 +68,7 @@ def run(db_path: str, series: str, poll_s: float = 5.0):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--series", required=True, choices=["f1", "indycar", "imsa"])
+    ap.add_argument("--series", required=True, choices=["imsa", "wec"])
     ap.add_argument("--db", default=str(DEFAULT_DB_PATH))
     ap.add_argument("--poll", type=float, default=5.0,
                     help="how often to check for new data (s); actual logging "

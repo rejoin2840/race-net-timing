@@ -56,10 +56,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _detect_series(replay: timing71.Replay) -> str:
-    """Map the archive's manifest.name to our series key. IndyCar archives have
-    no Class/PIC/VFT columns (single class, no fuel telemetry) — everything
-    downstream (series_profiles, dashboard rendering) branches on this key."""
-    return "indycar" if "indycar" in replay.series_name.lower() else "imsa"
+    """Map the archive's manifest.name to our series key.
+    Currently only IMSA archives are used; extend for WEC when its Timing71
+    archive format is confirmed."""
+    return "imsa"
 
 
 # ── shared helpers ──────────────────────────────────────────────────────────
@@ -140,9 +140,9 @@ def _init_db(replay: timing71.Replay, db_path: str, oid: str):
         "eventName": replay.name, "champName": "Timing71 replay",
     }, series=series)
     col = replay.col
-    # single-class archives (IndyCar) carry no Class column — everything is one
-    # class, matching series_profiles.INDYCAR.classes = ("INDYCAR",)
-    default_class = "INDYCAR" if series == "indycar" else None
+    # single-class archives carry no Class column — default_class fills that gap.
+    # IMSA archives always have a Class column, so this stays None for now.
+    default_class = None
 
     # ── entries ──────────────────────────────────────────────────────────────
     finals    = replay.final_cars()

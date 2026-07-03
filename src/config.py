@@ -40,7 +40,7 @@ DEFAULTS = {
     "BUDGET_PER_CLASS":       1,        # max NET-overlay highlights allowed per class on the calm board (0 = monochrome)
     "TRACK_LAT":              42.337,   # circuit latitude  (Watkins Glen — first race)
     "TRACK_LON":             -76.927,   # circuit longitude (edit per round for weather)
-    "DEV_SHOW_ALL_SESSIONS":  False,    # picker shows Race/Sprint only; True re-exposes practice/quali for endpoint validation
+    "DEV_SHOW_ALL_SESSIONS":  False,    # picker shows Race sessions only; True re-exposes all session types for debugging
     "ARCHIVE_DIR":            "~/Downloads",  # where IMSA Timing71 replay zips live (validate_races.py; ~ expanded)
 }
 

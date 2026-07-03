@@ -26,7 +26,7 @@ from PyQt6.QtCore import (Qt, QTimer, QPropertyAnimation, pyqtProperty,
 from PyQt6.QtGui import QColor, QFont, QPainter, QFontMetrics
 from PyQt6.QtWidgets import (QApplication, QFrame, QGraphicsOpacityEffect,
                              QHBoxLayout, QLabel, QMainWindow, QPushButton,
-                             QScrollArea, QStackedWidget, QVBoxLayout, QWidget)
+                             QScrollArea, QVBoxLayout, QWidget)
 
 import json
 import pathlib
@@ -37,10 +37,8 @@ import config
 import race_control
 import catchup
 import series_profiles
-import quali
 import dashboard as dash   # reuse Poller, Row, _build_rows, FLAG_STYLE, CLASS_ORDER
-import dashboard_quali as dq   # F1 knockout-qualifying cut-line panel (Phase 2b)
-import session_picker          # F1 race/session picker dialog
+import session_picker          # race/session picker dialog
 
 # ── static entry-list fallback (team/driver names when feed is silent) ────────
 def _load_entries() -> dict:
@@ -60,10 +58,8 @@ _ENTRIES: dict = _load_entries()
 
 
 # ── driver-identity team tables (car# → TLA/team/colour) for "driver"-identity
-# series (F1, IndyCar). F1's is scripted off FastF1 (src/build_f1_team_table.py);
-# IndyCar has no equivalent auto-scraper so data/indycar_*.json is hand-built.
-# Falls back to the generic team/driver text below when a car isn't in the
-# table (e.g. a mid-season reserve driver).
+# series. Loaded on demand per-series prefix (e.g. "wec_2026.json" when WEC is added).
+# Falls back to the generic team/driver text when a car isn't in the table.
 def _load_driver_teams(prefix: str) -> dict:
     out = {}
     data_dir = pathlib.Path(__file__).parent.parent / "data"
@@ -75,7 +71,7 @@ def _load_driver_teams(prefix: str) -> dict:
             pass
     return out
 
-_DRIVER_TEAMS: dict = {"f1": _load_driver_teams("f1"), "indycar": _load_driver_teams("indycar")}
+_DRIVER_TEAMS: dict = {}
 
 # ── calm palette (nudged ~8% brighter; row LINE more visible per feel-test) ───
 BG      = "#10141A"
@@ -94,15 +90,15 @@ BLUE    = "#8CB9F2"   # strategy (undercut/overcut/in-pit)
 
 # brighter class spines than the dense-table palette (calm screen wants a touch more pop).
 # Canonical values live on the IMSA SeriesProfile; re-exported so references are unchanged.
-# Phase 2 flips this to the ACTIVE session's profile so F1/WEC/IndyCar bring their own.
+# Flips to the ACTIVE session's profile so WEC and future series bring their own.
 SPINE = dict(series_profiles.IMSA.spine)
 
 MONO = "Menlo"
 SANS = "Helvetica Neue"
 
-OVERRIDE = "#FFD166"   # F1 2026 manual-override/boost active — distinct from every other cue
+OVERRIDE = "#FFD166"   # energy/override state active — distinct from every other cue
 
-# FIA-standard tyre-compound colours (F1 only; NULL for IMSA — no chip painted).
+# Tyre-compound colours (NULL when series doesn't populate tire_compound — no chip painted).
 # Third element: use dark text on the chip (light backgrounds only).
 TIRE_STYLE = {
     "SOFT":         ("S", "#F2444A", False),
@@ -110,8 +106,7 @@ TIRE_STYLE = {
     "HARD":         ("H", "#F5F5F5", True),
     "INTERMEDIATE": ("I", "#3FAE4E", False),
     "WET":          ("W", "#3B82F6", False),
-    # IndyCar/Firestone: no compound-hardness naming, just Primary (black
-    # sidewall) vs Alternate (red sidewall) — the feed's own "P"/"O" letters.
+    # Primary/Alternate compounds (Firestone style: "P"/"O" from feed)
     "PRIMARY":      ("P", "#D8D8D8", True),
     "ALTERNATE":    ("O", "#E8384F", False),
 }
@@ -273,11 +268,9 @@ def _row_vm(r, ca, current_lap, cycle_active=True, since=None, allow_net=True,
     since_text = _since_short(since) if since is not None else ""
     since_tone = TONE_HEX.get(since.tone, MUTE) if since is not None else MUTE
 
-    # identity slot: "driver"-identity series (F1, IndyCar) lead with the TLA in team
-    # colour and push the full team name to the dim slot — the IMSA "team · driver"
-    # reading flipped to match how these boards are actually read. Falls back to the
-    # generic team/driver text when the car isn't in the scripted table (e.g. a
-    # mid-season reserve driver).
+    # identity slot: "driver"-identity series lead with the TLA in team colour and push
+    # the full team name to the dim slot. Falls back to the generic team/driver text
+    # when the car isn't in the scripted table (e.g. a mid-season reserve driver).
     team_text, driver_text = r.team, r.driver
     team_color = MUTE if dim else DIM
     driver_color = FAINT if dim else MUTE
@@ -914,11 +907,11 @@ class CalmDashboard(QMainWindow):
             f"font-size:14px;}} QPushButton:hover{{color:{TXT};}}")
         self.help_btn.clicked.connect(self._toggle_legend)
 
-        # session picker — launch an F1/IndyCar live feed or historical replay
-        # by clicking instead of hand-editing CLI args (backlog item 10)
+        # session picker — launch a live feed or historical replay without
+        # editing CLI args
         self.f1_btn = QPushButton("Session ▾"); self.f1_btn.setFlat(True)
         self.f1_btn.setFixedHeight(26)
-        self.f1_btn.setToolTip("Pick an F1/IndyCar live feed or replay session")
+        self.f1_btn.setToolTip("Pick a live feed or replay session")
         self.f1_btn.setStyleSheet(
             f"QPushButton{{color:{MUTE}; background:#171C24; border:none; border-radius:6px;"
             f"padding:0 10px; font-size:12px;}} QPushButton:hover{{color:{TXT};}}")
@@ -958,15 +951,7 @@ class CalmDashboard(QMainWindow):
 
         body.addWidget(leftcol, 1); body.addWidget(self.rail)
         self.race_body = QWidget(); self.race_body.setLayout(body)
-
-        # F1 knockout-qualifying swaps in here in place of the race body (see
-        # refresh()) — a session either has race-shaped standings or quali
-        # segment data, never both, so a stacked page is a clean either/or.
-        self.quali_panel = dq.QualiListPanel()
-        self.stack = QStackedWidget()
-        self.stack.addWidget(self.race_body)
-        self.stack.addWidget(self.quali_panel)
-        root.addWidget(self.stack, 1)
+        root.addWidget(self.race_body, 1)
         self.setCentralWidget(central)
 
     def _timing_stub(self):
@@ -978,47 +963,6 @@ class CalmDashboard(QMainWindow):
             self._f1_proc = dlg.proc   # keep the QProcess alive for the app's lifetime
             self.poller = dash.Poller(force_oid=dlg.force_oid, series=dlg.series)
 
-    # ---- F1 knockout qualifying (Q1/Q2/Q3) ----
-    def _is_quali_session(self) -> bool:
-        """A session either has race-shaped standings or quali segment data,
-        never both — quali_status having a row for this oid is the signal."""
-        oid, conn = self.poller.last_oid, self.poller.conn
-        if not oid or conn is None:
-            return False
-        try:
-            row = conn.execute(
-                "SELECT 1 FROM quali_status WHERE session_oid=? LIMIT 1", (oid,)
-            ).fetchone()
-        except sqlite3.Error:
-            return False   # older DB without the quali tables — definitely not quali
-        return row is not None
-
-    def _refresh_quali(self):
-        self.stack.setCurrentWidget(self.quali_panel)
-        qctx, qcars = quali.analyse(self.poller.conn, self.poller.last_oid)
-        self._render_header_quali(qctx)
-        self.quali_panel.render(qctx, qcars)
-
-    def _render_header_quali(self, qctx):
-        neutral = "#3A4150"
-        if qctx is None:
-            self.flag.setText("  Q  ")
-            self.flag.setStyleSheet(f"background:{neutral}; color:#FFFFFF; border-radius:5px;")
-            self.sub.setText("waiting for data")
-            return
-        self.flag.setText(f"  {qctx.segment}  ")
-        self.flag.setStyleSheet(f"background:{neutral}; color:#FFFFFF; border-radius:5px;")
-        self.event.setText(qctx.event)
-        self.eventsub.setText("Qualifying")
-        remaining = max(0, qctx.segment_total_s - qctx.segment_elapsed_s)
-        if qctx.is_finished:
-            self.clock.setText("—")
-            self.sub.setText("SEGMENT COMPLETE")
-        else:
-            self.clock.setText(f"{remaining // 60}:{remaining % 60:02d}")
-            self.sub.setText(f"CUT: TOP {qctx.advance_n}" if qctx.advance_n is not None
-                             else f"{qctx.entries} CARS")
-
     # ---- refresh ----
     def refresh(self):
         res = self.poller.poll(0)
@@ -1026,12 +970,7 @@ class CalmDashboard(QMainWindow):
             self.sub.setText("waiting for data")
             return
 
-        if self._is_quali_session():
-            self._refresh_quali()
-            return
-
         ctx, cars, rc, _age, trend = res
-        self.stack.setCurrentWidget(self.race_body)
         self._profile = ctx.profile          # active series' palette/single-class-ness
         self.colheader.set_profile(self._profile)
         # freeze the diff-relevant slice every tick so a mark (manual or on blur) and the

@@ -1,6 +1,6 @@
 """
 series_profiles.py — per-series identity so one codebase serves multiple racing
-series (IMSA, and — added incrementally — F1, WEC, IndyCar).
+series (IMSA, WEC, and future additions).
 
 The app was born single-series (IMSA/Al-Kamel). Everything that is genuinely
 DIFFERENT between series used to be hard-coded in the render and calculator
@@ -14,14 +14,12 @@ What is NOT here on purpose:
     same canonical codes (GF/YF/FCY/SC/VSC/RF/CH) serve every series; a new
     source just maps its flags onto them.
   - Stint-length priors (DEFAULT_STINT_LAPS) stay in config.py so they remain
-    hot-reloadable via config.json. F1 doesn't use them (net = track, no fuel
-    model), so there's nothing to move.
+    hot-reloadable via config.json.
 
 Design intent: the IMSA profile holds the CANONICAL palette/class values that
 dashboard.py / dashboard_calm.py re-export, so extracting them here is provably
-byte-identical (regression-gated by validate_races.py + headless render). F1 and
-IndyCar are built and validated against this seam; WEC is designed-not-built (add
-a profile when its adapter lands).
+byte-identical (regression-gated by validate_races.py + headless render). WEC
+is next: add a profile when the adapter lands.
 """
 
 from dataclasses import dataclass, field
@@ -30,7 +28,7 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class SeriesProfile:
-    key: str                       # matches sessions.series ("imsa" | "f1" | …)
+    key: str                       # matches sessions.series ("imsa" | "wec" | …)
     display_name: str
 
     # ── class taxonomy ──────────────────────────────────────────────────────
@@ -48,11 +46,10 @@ class SeriesProfile:
 
     # ── strategy / parsing selectors ────────────────────────────────────────
     # pit_model: "refuel" → the fuel-fill regression + driver-change model
-    #            (IMSA/WEC/IndyCar); "track" → net-position collapses to track
-    #            position (F1 v1: tyre-only stops, no refuel — situational only).
+    #            (endurance series: IMSA, WEC). "track" → net-position collapses
+    #            to track position (non-refuel series — no current users).
     pit_model: str = "refuel"
-    # identity: how a car is keyed/labelled. "car_class" = number + class (IMSA);
-    #           "driver" = driver number + TLA + team colour (F1).
+    # identity: how a car is keyed/labelled. "car_class" = number + class (IMSA/WEC).
     identity: str = "car_class"
     # rc_dialect: which race-control / penalty wording parser to use.
     rc_dialect: str = "imsa"
@@ -81,48 +78,9 @@ IMSA = SeriesProfile(
     rc_dialect="imsa",
 )
 
+# WEC profile will be added here once the wec_live.py adapter lands (Epic 8).
 
-# ── F1 — single class, tyre-only stops, driver identity ──────────────────────
-# v1 is situational (net = track); tyre-strategy pit model is a later iteration.
-# Team colours/TLAs come from data/f1_*.json at render time (Phase 2), so the
-# class palette here is just a neutral single-class placeholder — the redundant
-# class header is suppressed for single_class series anyway.
-F1 = SeriesProfile(
-    key="f1",
-    display_name="Formula 1",
-    classes=("F1",),
-    class_order={"F1": 0},
-    class_colors={"F1": "#E8EDF3"},
-    spine={"F1": "#5F6B7A"},
-    spine_default="#5F6B7A",
-    pit_model="track",
-    identity="driver",
-    rc_dialect="f1",
-)
-
-
-# ── IndyCar — single class, refuel + tyre stops, driver identity ─────────────
-# Unlike F1, IndyCar cars are refuelled during pit stops (like IMSA), so the
-# fuel-fill/pit-cost regression applies (pit_model="refuel") even though no
-# fuel-percentage telemetry exists — PitCostModel infers cost purely from
-# observed stop-duration vs stint-length, the same path IMSA's GTD class
-# already runs (GTD has no VFT either). Team colours/TLAs come from
-# data/indycar_*.json at render time, same pattern as F1's data/f1_*.json.
-INDYCAR = SeriesProfile(
-    key="indycar",
-    display_name="NTT INDYCAR SERIES",
-    classes=("INDYCAR",),
-    class_order={"INDYCAR": 0},
-    class_colors={"INDYCAR": "#C8102E"},
-    spine={"INDYCAR": "#C8102E"},
-    spine_default="#5F6B7A",
-    pit_model="refuel",
-    identity="driver",
-    rc_dialect="indycar",
-)
-
-
-PROFILES = {p.key: p for p in (IMSA, F1, INDYCAR)}
+PROFILES = {p.key: p for p in (IMSA,)}
 
 DEFAULT_SERIES = "imsa"
 
