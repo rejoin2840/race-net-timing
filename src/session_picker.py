@@ -167,21 +167,22 @@ class SessionPickerDialog(QDialog):
         v.addWidget(launch)
         return w
 
-    # ── WEC Live page stub (Epic 8) ──────────────────────────────────────
+    # ── WEC Live page ────────────────────────────────────────────────────
     def _build_wec_live_page(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
         v.setSpacing(10)
         note = QLabel(
-            "WEC live timing client is coming in Epic 8 (SignalR + MessagePack).\n"
-            "Select Replay to use a Timing71 archive in the meantime.")
-        note.setStyleSheet(f"color:{MUTE}; font-size:12px;")
+            "Connects to the FIA WEC live timing feed (Griiip SignalR).\n"
+            "Auto-discovers the active WEC session. Use --record to capture "
+            "raw frames for offline replay.")
+        note.setStyleSheet(f"color:{DIM}; font-size:12px;")
         note.setWordWrap(True)
         v.addWidget(note)
         v.addStretch(1)
         launch = QPushButton("Launch Live Feed")
         launch.setStyleSheet(self._btn_style(primary=True))
-        launch.setEnabled(False)
+        launch.clicked.connect(self._launch_wec_live)
         v.addWidget(launch)
         return w
 
@@ -257,6 +258,19 @@ class SessionPickerDialog(QDialog):
         self.series = "imsa"
         self.force_oid = None
         self.status.setText("Launching live feed…")
+        self.accept()
+
+    def _launch_wec_live(self):
+        if not self._confirm_double_launch("wec"):
+            return
+        self.proc = QProcess(self)
+        self.proc.setWorkingDirectory(str(ROOT))
+        args = [str(ROOT / "src" / "wec_live.py"), "--record",
+                str(DATA_DIR / f"wec_raw_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl.gz")]
+        self.proc.start(str(PYTHON), args)
+        self.series = "wec"
+        self.force_oid = None
+        self.status.setText("Launching WEC live feed…")
         self.accept()
 
     def _launch_replay(self):

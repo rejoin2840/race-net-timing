@@ -78,9 +78,23 @@ IMSA = SeriesProfile(
     rc_dialect="imsa",
 )
 
-# WEC profile will be added here once the wec_live.py adapter lands (Epic 8).
+WEC = SeriesProfile(
+    key="wec",
+    display_name="FIA WEC",
+    classes=("HYPERCAR", "LMGT3"),
+    class_order={"HYPERCAR": 0, "LMGT3": 1},
+    class_colors={
+        "HYPERCAR": "#E8102E",
+        "LMGT3":    "#00A651",
+    },
+    spine={"HYPERCAR": "#F01744", "LMGT3": "#1EC96A"},
+    spine_default="#5F6B7A",
+    pit_model="refuel",
+    identity="car_class",
+    rc_dialect="wec",
+)
 
-PROFILES = {p.key: p for p in (IMSA,)}
+PROFILES = {p.key: p for p in (IMSA, WEC)}
 
 DEFAULT_SERIES = "imsa"
 

@@ -3,3 +3,4 @@ pandas==2.3.3
 websockets==15.0.1
 PyQt6==6.10.2
 signalrcore==1.0.2
+msgpack==1.1.2
