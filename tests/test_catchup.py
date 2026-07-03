@@ -6,7 +6,8 @@ Two layers:
     reads the live CarAnalysis fields correctly, and that real race-control penalty rows
     surface through summarize().
 
-Run: ./venv/bin/python -m pytest tests/test_catchup.py
+Run (no pytest dependency — matches the other tests in this dir):
+  ./venv/bin/python tests/test_catchup.py
 """
 import copy
 import os
@@ -150,3 +151,22 @@ def test_snapshot_reads_real_caranalysis_fields():
     assert one.car and one.cls is not None      # fields populated, no AttributeError
     # real RC rows flow through summarize without error (whatever they contain)
     catchup.summarize(snap, snap, rc_since=list(rc or []))
+
+
+if __name__ == "__main__":
+    # Runnable without pytest: execute every test_* function in this module.
+    import traceback
+
+    tests = [v for k, v in sorted(globals().items())
+             if k.startswith("test_") and callable(v)]
+    failed = 0
+    for t in tests:
+        try:
+            t()
+            print(f"PASS {t.__name__}")
+        except Exception:
+            failed += 1
+            print(f"FAIL {t.__name__}")
+            traceback.print_exc()
+    print(f"\n{len(tests) - failed}/{len(tests)} passed")
+    raise SystemExit(1 if failed else 0)

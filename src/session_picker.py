@@ -8,7 +8,7 @@ args. Launches the matching adapter as a managed QProcess:
   F1      Live    -> f1_live.py
   F1      Replay  -> replay_f1.py YEAR GP SESSION --stream --speed N
   IndyCar Replay  -> replay.py ARCHIVE.zip --stream --speed N
-  IndyCar Live    -> not built yet (racecontrol.indycar.com feed unbuilt)
+  IndyCar Live    -> indycar_live.py (INDYCAR's public Azure-blob timing feed)
   IMSA    Live    -> alkameldp.py
   IMSA    Replay  -> replay.py ARCHIVE.zip --stream --speed N (shares the
                      IndyCar Replay page — replay.py auto-detects series

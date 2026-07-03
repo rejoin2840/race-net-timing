@@ -19,9 +19,9 @@ What is NOT here on purpose:
 
 Design intent: the IMSA profile holds the CANONICAL palette/class values that
 dashboard.py / dashboard_calm.py re-export, so extracting them here is provably
-byte-identical (regression-gated by validate_races.py + headless render). F1 is
-built and validated against this seam; WEC/IndyCar are designed-not-built (add a
-profile when their adapter lands).
+byte-identical (regression-gated by validate_races.py + headless render). F1 and
+IndyCar are built and validated against this seam; WEC is designed-not-built (add
+a profile when its adapter lands).
 """
 
 from dataclasses import dataclass, field

@@ -7,7 +7,7 @@ SAME production DB the GUI reads from, then stops them and runs either the
 evaluator (races) or a lighter data-quality health check (practice/quali)
 once the window closes. Everything funnels into one log file.
 
-Design choices (see the plan doc for the "why"):
+Design choices (see BACKLOG.md at the project root for the "why"):
   - Same DB as the GUI (no --db override) — so opening dashboard_calm.py
     while this is running just shows the live session, no picker action
     needed. Don't click "Launch Live Feed" for a series this is covering;

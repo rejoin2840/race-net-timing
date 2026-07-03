@@ -41,6 +41,7 @@ DEFAULTS = {
     "TRACK_LAT":              42.337,   # circuit latitude  (Watkins Glen — first race)
     "TRACK_LON":             -76.927,   # circuit longitude (edit per round for weather)
     "DEV_SHOW_ALL_SESSIONS":  False,    # picker shows Race/Sprint only; True re-exposes practice/quali for endpoint validation
+    "ARCHIVE_DIR":            "~/Downloads",  # where IMSA Timing71 replay zips live (validate_races.py; ~ expanded)
 }
 
 

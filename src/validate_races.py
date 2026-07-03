@@ -21,6 +21,7 @@ import os
 import sys
 import tempfile
 
+import config
 import evaluator
 import replay
 import timing71
@@ -28,7 +29,7 @@ import timing71
 # default regression set — edit as the library of complete archives grows.
 # Only COMPLETE (run-to-chequered) archives belong here; truncated ones skew
 # the numbers (final pit cycles unresolved). Verified complete 2026-06-28.
-DL = os.path.expanduser("~/Downloads")
+DL = os.path.expanduser(config.CONFIG.ARCHIVE_DIR)
 RACES = [
     f"{DL}/2026-01-24 18-37 IMSA WeatherTech SportsCar Championship - Rolex 24 at Daytona - Race.zip",
     f"{DL}/2025-10-11 16-07 IMSA WeatherTech SportsCar Championship - 28th Annual Motul Petit Le Mans - Race.zip",
