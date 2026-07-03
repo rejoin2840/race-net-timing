@@ -2,5 +2,4 @@ playwright==1.60.0
 pandas==2.3.3
 websockets==15.0.1
 PyQt6==6.10.2
-fastf1==3.7.0
 signalrcore==1.0.2
