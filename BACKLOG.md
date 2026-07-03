@@ -81,13 +81,22 @@ revertible commits.
   archives. `test_known_unparsed_invariant` enforces no silent drops.
 - Parser fixes: STOP PLUS N, STOP + MM:SS, post-race STOP+N (all backed by corpus tests).
 - `replay.py` now persists RC rows via `db.record_race_control()`.
-- **MAE delta (penalties now costed in batch):** netMAE 2.69 → 2.84 (worse), trkMAE
-  2.71 → 2.44 (better). Root cause: `_load_penalties` queries all RC rows with no ts
-  filter — in batch mode ALL historical drive-throughs pile up as `pending_s`; in live
-  mode this is fine because messages arrive sequentially. **Decision needed:**
-  (a) add `max_ts_ms` param to `_load_penalties` + pass `now_ms` through `analyse()`, or
-  (b) only persist `post_race` penalties in replay.py, or
-  (c) revert RC persistence and leave it live-only.
+- **Step 3b (option 1, approved + done):** RC rows are now persisted *incrementally* as
+  replay time advances (`_rc_feed` cursor in replay.py), so every analyse() cycle —
+  batch AND stream — sees only penalties issued up to that moment, matching live.
+  (Upfront loading had leaked future penalties into early predictions.)
+  `replay_f1.py:182` still loads RC upfront — F1 frozen, not in the gate, left alone.
+- **Honest MAE result (per-race mean across the 6-race suite):**
+  pre-RC baseline net 2.69 / trk 2.71 → with time-consistent penalty carry net **3.00**
+  / trk 2.44. Penalty carry as modeled HURTS finish prediction. Cause is the carry
+  model, not parsing or timing: (1) **pending_s never expires** — after the car serves
+  its drive-through, track position already reflects the loss but NET keeps subtracting
+  22s forever (double-count); (2) **rescissions don't cancel** — the RESCINDED line
+  parses to nothing but the original penalty line stays counted. **Decision for Paul:**
+  (a) served-detection (clear pending at the car's next pit stop) + rescission
+  cancellation, or (b) keep pending_s in the live NET gauge only and exclude it from
+  the finish-prediction path, or (c) accept as-is (penalties visible on the rail,
+  slightly worse long-horizon numbers). No work until decided.
 - **Step 4 (post-weekend):** `race_control.classify()` new `"unparsed_penalty"` kind +
   calm-board dim-amber rail alert.
 

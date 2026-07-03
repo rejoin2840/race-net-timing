@@ -218,15 +218,31 @@ def _init_db(replay: timing71.Replay, db_path: str, oid: str):
                 db.record_driver(car, s.driver_to, pit_lap)
     db.commit()
 
-    # ── race-control messages ─────────────────────────────────────────────────
-    # Persist RC text so calculator._load_penalties() can cost them into NET.
-    # Filter matches Step 1's fixture builder: only 'raceControl' typed rows.
-    rc_msgs = [(m[0], m[2]) for m in replay.messages
-               if len(m) > 3 and m[3] == "raceControl"]
-    db.record_race_control(rc_msgs)
-    db.commit()
-
     return db, col, lap_at, flag_at, pit_in
+
+
+def _rc_feed(replay: timing71.Replay):
+    """Time-gated race-control feed for frame loops.
+
+    Returns feed(ts_ms) → the (ts, text) raceControl tuples newly due since the
+    last call (message ts <= ts_ms). Persisting RC incrementally — instead of
+    all upfront — keeps the DB time-consistent at every analyse() cycle, so
+    calculator._load_penalties() only ever sees penalties already issued,
+    matching live-feed behaviour. Loading them upfront charged hour-1
+    predictions with hour-20 penalties (netMAE regression, see BACKLOG Epic 3).
+    """
+    rc = [(m[0], m[2]) for m in replay.messages
+          if len(m) > 3 and m[3] == "raceControl"]   # already sorted asc by ts
+    cursor = [0]
+
+    def feed(ts_ms: int) -> list:
+        i = cursor[0]
+        while i < len(rc) and rc[i][0] <= ts_ms:
+            i += 1
+        due, cursor[0] = rc[cursor[0]:i], i
+        return due
+
+    return feed
 
 
 # ── per-frame ingestion (shared) ────────────────────────────────────────────
@@ -371,10 +387,12 @@ def build(replay: timing71.Replay, db_path: str, oid: str = "replay",
           cadence_s: int = 60) -> None:
     db, col, _lap_at, flag_at, pit_in = _init_db(replay, db_path, oid)
     predictor.ensure(db.conn)
+    rc_feed  = _rc_feed(replay)
     last_log = -1e9
     n_logged = 0
 
     for ts, fr in replay.full_frames:
+        db.record_race_control(rc_feed(ts * 1000))
         elapsed_s = _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at)
         db.conn.commit()
         if elapsed_s is not None and elapsed_s - last_log >= cadence_s:
@@ -402,6 +420,7 @@ def stream(replay: timing71.Replay, db_path: str, oid: str = "stream",
     """
     db, col, _lap_at, flag_at, pit_in = _init_db(replay, db_path, oid)
     predictor.ensure(db.conn)
+    rc_feed = _rc_feed(replay)
 
     frames    = replay.full_frames
     n_frames  = len(frames)
@@ -433,6 +452,7 @@ def stream(replay: timing71.Replay, db_path: str, oid: str = "stream",
             if sleep_s > 0:
                 time.sleep(sleep_s)
 
+            db.record_race_control(rc_feed(ts * 1000))
             elapsed_s = _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at)
             db.conn.commit()
 
