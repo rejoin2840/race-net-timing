@@ -522,6 +522,11 @@ class WecLiveClient:
     def _handle_ranks(self, data):
         if not isinstance(data, dict):
             return
+        if "items" in data and isinstance(data["items"], list):
+            for item in data["items"]:
+                if isinstance(item, dict):
+                    self._handle_ranks(item)
+            return
         car = str(data.get("carNumber") or "").strip()
         if not car:
             return
@@ -535,6 +540,11 @@ class WecLiveClient:
 
     def _handle_gaps(self, data):
         if not isinstance(data, dict):
+            return
+        if "items" in data and isinstance(data["items"], list):
+            for item in data["items"]:
+                if isinstance(item, dict):
+                    self._handle_gaps(item)
             return
         car = str(data.get("carNumber") or "").strip()
         if not car:

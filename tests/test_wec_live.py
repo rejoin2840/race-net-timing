@@ -16,6 +16,8 @@ from wec_live import (  # noqa: E402
     make_oid,
     parse_participant,
     _int_or,
+    WecLiveClient,
+    WecLiveState,
 )
 
 
@@ -350,6 +352,68 @@ class TestGriiipDataShapes(unittest.TestCase):
         self.assertEqual(e["name"], "Derek Loree")
         self.assertEqual(e["drivers"], ["Derek Loree"])
         self.assertEqual(e["class"], "HYPERCAR")
+
+
+class TestItemsUnwrapping(unittest.TestCase):
+    """Verify that ranks/gaps handlers unwrap the nested {items: [...]} wrapper
+    seen in live ReceiveBatch data (vs flat dicts from bootstrap)."""
+
+    def _make_client(self):
+        c = WecLiveClient(db_path="", no_db=True)
+        c.state = WecLiveState(sid=1, session_oid="wec_live_1")
+        return c
+
+    def test_ranks_flat(self):
+        c = self._make_client()
+        c._handle_ranks({"carNumber": "7", "overallPosition": 1, "position": 1, "classId": ""})
+        self.assertEqual(c.state.car_ranks["7"]["pos"], 1)
+        self.assertEqual(c.state.car_ranks["7"]["pos_class"], 1)
+
+    def test_ranks_items_wrapped(self):
+        """Live ReceiveBatch sends ranks as {items: [{...}, {...}]}."""
+        c = self._make_client()
+        c._handle_ranks({"items": [
+            {"carNumber": "7", "overallPosition": 1, "position": 1, "classId": ""},
+            {"carNumber": "51", "overallPosition": 2, "position": 2, "classId": "LMGT3"},
+        ]})
+        self.assertEqual(c.state.car_ranks["7"]["pos"], 1)
+        self.assertEqual(c.state.car_ranks["51"]["pos"], 2)
+        self.assertEqual(c.state.car_classes["51"], "LMGT3")
+
+    def test_gaps_flat(self):
+        c = self._make_client()
+        c._handle_gaps({"carNumber": "7", "gapToFirstMillis": 0, "gapToFirstLaps": 0})
+        self.assertEqual(c.state.car_gaps["7"]["gap_ms"], 0)
+
+    def test_gaps_items_wrapped(self):
+        """Live ReceiveBatch sends gaps as {items: [{...}, {...}]}."""
+        c = self._make_client()
+        c._handle_gaps({"items": [
+            {"carNumber": "7", "gapToFirstMillis": 0, "gapToFirstLaps": 0},
+            {"carNumber": "51", "gapToFirstMillis": 5200, "gapToFirstLaps": 0},
+        ]})
+        self.assertEqual(c.state.car_gaps["7"]["gap_ms"], 0)
+        self.assertEqual(c.state.car_gaps["51"]["gap_ms"], 5200)
+
+    def test_ranks_empty_items(self):
+        c = self._make_client()
+        c._handle_ranks({"items": []})
+        self.assertEqual(len(c.state.car_ranks), 0)
+
+    def test_receive_batch_full_pipeline(self):
+        """Simulate a real ReceiveBatch message through _on_receive_batch."""
+        c = self._make_client()
+        batch = [{"items": [
+            {"channel": "ranks", "view": {"items": [
+                {"carNumber": "7", "overallPosition": 1, "position": 1, "classId": ""},
+            ]}},
+            {"channel": "laps", "view": {
+                "lapNumber": 5, "lapTimeMillis": 92000, "carNumber": "7", "classId": "",
+            }},
+        ]}]
+        c._on_receive_batch(batch)
+        self.assertEqual(c.state.car_ranks["7"]["pos"], 1)
+        self.assertEqual(c.state.car_laps["7"]["lap"], 5)
 
 
 if __name__ == "__main__":
