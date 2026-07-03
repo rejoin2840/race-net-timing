@@ -878,7 +878,7 @@ class CalmDashboard(QMainWindow):
                 f"QPushButton{{color:{'#FFFFFF' if on else MUTE}; background:{'#2A323D' if on else 'transparent'};"
                 f"border:none; border-radius:6px; padding:0 14px; font-size:12px;}}")
             sl.addWidget(b)
-        self.tab_time.clicked.connect(self._timing_stub)
+        self.tab_time.clicked.connect(self._open_timing_window)
 
         # race name + lap (restored from mockup) — centre block
         self.event = QLabel(""); self.event.setFont(QFont(SANS, 13))
@@ -954,8 +954,17 @@ class CalmDashboard(QMainWindow):
         root.addWidget(self.race_body, 1)
         self.setCentralWidget(central)
 
-    def _timing_stub(self):
-        self.sub.setText("Timing view — coming next")
+    def _open_timing_window(self):
+        if hasattr(self, "_timing_win") and self._timing_win is not None:
+            self._timing_win.raise_()
+            self._timing_win.activateWindow()
+            return
+        oid = self.poller.force_oid
+        series = getattr(self.poller, "series", None)
+        self._timing_win = dash.Dashboard(force_oid=oid, series=series)
+        self._timing_win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self._timing_win.destroyed.connect(lambda: setattr(self, "_timing_win", None))
+        self._timing_win.show()
 
     def _open_session_picker(self):
         dlg = session_picker.SessionPickerDialog(self)

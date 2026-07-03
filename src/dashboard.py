@@ -244,11 +244,11 @@ class Poller:
 
 # ── main window ─────────────────────────────────────────────────────────────
 class Dashboard(QMainWindow):
-    def __init__(self):
+    def __init__(self, force_oid=None, series=None):
         super().__init__()
         self.setWindowTitle("IMSA Strategy — Net Position")
         self.resize(1500, 880)
-        self.poller = Poller()
+        self.poller = Poller(force_oid=force_oid, series=series)
         self.proc: Optional[QProcess] = None
         self.delay_s = 0
         self.filter_cls: Optional[str] = None
