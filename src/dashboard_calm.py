@@ -1011,6 +1011,7 @@ class CalmDashboard(QMainWindow):
             r.driver = _short_driver(r.driver, roster)
         camap = {c.car_number: c for c in cars}
         self._current_lap = ctx.current_lap
+        self._is_race = bool(ctx.is_race)    # rail's PROJECTED PODIUM is race-only
         # per-class "out of sequence on stops?" — net overlay only speaks when the
         # field has diverged on stop counts (a pit cycle is in play). Include cars up
         # to 1 lap down: during a cycle the cars that just pitted often read +1L
@@ -1457,6 +1458,44 @@ class CalmDashboard(QMainWindow):
         else:
             bn = QLabel("none close"); bn.setFont(QFont(SANS, 11)); bn.setStyleSheet(f"color:{MUTE};")
             self.raill.addWidget(bn)
+
+        # PROJECTED PODIUM — the visible honest home for projected_finish. It's the
+        # track-anchored blend (calculator.finish_score): early race the blend IS the
+        # running order, so every number reads dim; a number only takes colour when the
+        # projection disagrees with the car's current in-class spot — green projected
+        # gain, red projected drop. A situational gauge, not a promise (decisions log
+        # 06-28), hence race-only and never louder than a rail line.
+        if getattr(self, "_is_race", False):
+            self.raill.addSpacing(14)
+            pp = self._rail_label("PROJECTED PODIUM")
+            pp.setToolTip("Track-anchored finish blend, typically ±2–3 spots — "
+                          "a gauge, not a promise. Colour = differs from current position.")
+            self.raill.addWidget(pp)
+            self.raill.addSpacing(6)
+            pod: dict = {}
+            for r in rows:
+                if r.is_header:
+                    continue
+                ca = camap.get(r.car)
+                if ca is not None and ca.projected_finish is not None:
+                    pod.setdefault(r.cls, []).append(ca)
+            if pod:
+                for cls in sorted(pod, key=lambda k: (dash.CLASS_ORDER.get(k, 9), k)):
+                    parts = []
+                    for ca in sorted(pod[cls], key=lambda c: c.projected_finish)[:3]:
+                        cur = ca.pos_in_class
+                        if cur is None or ca.projected_finish == cur:
+                            col = DIM
+                        else:
+                            col = GREEN if ca.projected_finish < cur else RED
+                        parts.append(f'<span style="color:{col};">#{ca.car_number}</span>')
+                    lab = QLabel(f'<span style="color:{_spine(cls, self._profile)};">{cls}</span>  '
+                                 + "  ".join(parts))
+                    lab.setTextFormat(Qt.TextFormat.RichText); lab.setFont(QFont(MONO, 11))
+                    self.raill.addWidget(lab); self.raill.addSpacing(2)
+            else:
+                pn = QLabel("—"); pn.setFont(QFont(SANS, 11)); pn.setStyleSheet(f"color:{MUTE};")
+                self.raill.addWidget(pn)
         self.raill.addStretch(1)
 
 
