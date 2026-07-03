@@ -163,10 +163,23 @@ module-level IMSA dicts remain only as a fallback for callers without a live con
   (`dashboard_calm.py:1407`). Closes the epic — penalties can no longer silently
   break net.
 
-### Epic 7 — WYWA & calm-board polish (Paul wants to lean in)
-Catch-up card refinements, breath-noise evaluation, a visible honest home for
-`projected_finish`, WATCH/BATTLES knob tuning (`BUDGET_PER_CLASS`, `CATCH_GAP_S`,
-`CATCH_TREND_LAPS`, `BATTLE_GAP_S`) via hot-reload against streaming replays.
+### Epic 7 — WYWA & calm-board polish *(in progress 2026-07-03)*
+
+**Done (2026-07-03):**
+- ✅ `projected_finish` visible home: PROJECTED PODIUM rail section (commit ce13669),
+  last in attention order; dim when projection = current position, green/red on
+  disagreement. Placement + wording deferred to the general UI refactor.
+- ✅ Hot-reload wired at top of `refresh()` (fires once per poll cycle before any
+  config read, so `BUDGET_PER_CLASS`/`CATCH_GAP_S`/`BATTLE_GAP_S`/`CATCH_TREND_LAPS`
+  all pick up live edits reliably).
+
+**Open (needs Paul at keyboard — streaming session):**
+- WATCH/BATTLES knob tuning: `replay.py <archive> --stream`, edit `config.json`
+  live, land chosen values + note findings here.
+- Catch-up card refinements / breath-noise notes: observe during the same session;
+  each fix gets its own commit.
+- **Gate for any code change:** `./check.sh` + `replay.py --stream` feel-test;
+  evaluator report (`logs/stream_*.txt`) as the honesty check metrics didn't slip.
 
 ## Research items (unscheduled)
 

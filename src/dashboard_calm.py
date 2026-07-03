@@ -991,6 +991,7 @@ class CalmDashboard(QMainWindow):
             self.sub.setText("waiting for data")
             return
 
+        config.CONFIG.reload_if_changed()    # one reload per cycle, before any config read
         ctx, cars, rc, _age, trend = res
         self._profile = ctx.profile          # active series' palette/single-class-ness
         self.colheader.set_profile(self._profile)
@@ -1196,7 +1197,6 @@ class CalmDashboard(QMainWindow):
         suppressed); only the unbounded signal (net moves) is governed. BUDGET_PER_CLASS
         is a live config knob (0 = pure monochrome)."""
         try:
-            config.CONFIG.reload_if_changed()
             per_class = int(config.CONFIG.BUDGET_PER_CLASS)
         except Exception:
             per_class = 1
