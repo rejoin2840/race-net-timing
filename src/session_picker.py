@@ -7,7 +7,7 @@ args. Launches the matching adapter as a managed QProcess:
 
   IMSA  Live    -> alkameldp.py
   IMSA  Replay  -> replay.py ARCHIVE.zip --stream --speed N
-  WEC   Live    -> wec_live.py  [coming in Epic 8 — button disabled until then]
+  WEC   Live    -> wec_live.py  [Epic 8; --record raw-capture is on by default]
   WEC   Replay  -> replay.py ARCHIVE.zip --stream --speed N
 
 On accept, the caller reads `series` (the OID isn't knowable ahead of time

@@ -53,6 +53,20 @@ Next WEC race: Rolex 6H São Paulo 2026-07-12.
 **Goal:** raw-capture-first WEC client ready before São Paulo FP1.
 Raw capture = must-have; live board = nice-to-have for race day.
 
+**Status (2026-07-03) — commits 1–4 done, full runbook in `WEC_RACE_WEEK.md`:**
+1. ✅ WEC `SeriesProfile` (HYPERCAR/LMGT3).
+2. ✅ `src/wec_live.py` — full Griiip SignalR+msgpack client, DB persistence.
+3. ✅ `--record` raw-capture mode.
+4. ✅ `session_picker.py` WEC Live page wiring (enabled, not a stub).
+- ✅ Fix: `ranks`/`gaps` nested-`items` unwrapping (found from live F1 traffic).
+- ✅ `tests/test_wec_live.py`: 70 tests, all green (`./check.sh`).
+- ⬜ **Open (Phase 3, see `WEC_RACE_WEEK.md`):** kill-network reconnect test, Timing71
+  DVR fallback verification, `--discover` check for WEC seriesId=10 (~07-07).
+- ⚠️ **Finding (07-03 rehearsal):** `--record`'s gzip archive is not crash-safe — a hard
+  process kill truncates the tail. Fix identified (flush after each frame write) but not
+  yet applied; see `WEC_RACE_WEEK.md` for detail.
+- ⬜ **Blocked on FP1 (07-10):** Commit 5, field corrections from a real WEC capture.
+
 **Feasibility:** `signalrcore 1.0.2` already in venv with full `MessagePackHubProtocol`;
 `msgpack 1.1.2` importable. If WEC is SignalR Core (vs classic ASP.NET SignalR — fails
 fast at negotiate, easy to distinguish), the `HubConnectionBuilder` pattern from the
