@@ -86,17 +86,15 @@ revertible commits.
   batch AND stream — sees only penalties issued up to that moment, matching live.
   (Upfront loading had leaked future penalties into early predictions.)
   `replay_f1.py:182` still loads RC upfront — F1 frozen, not in the gate, left alone.
-- **Honest MAE result (per-race mean across the 6-race suite):**
-  pre-RC baseline net 2.69 / trk 2.71 → with time-consistent penalty carry net **3.00**
-  / trk 2.44. Penalty carry as modeled HURTS finish prediction. Cause is the carry
-  model, not parsing or timing: (1) **pending_s never expires** — after the car serves
-  its drive-through, track position already reflects the loss but NET keeps subtracting
-  22s forever (double-count); (2) **rescissions don't cancel** — the RESCINDED line
-  parses to nothing but the original penalty line stays counted. **Decision for Paul:**
-  (a) served-detection (clear pending at the car's next pit stop) + rescission
-  cancellation, or (b) keep pending_s in the live NET gauge only and exclude it from
-  the finish-prediction path, or (c) accept as-is (penalties visible on the rail,
-  slightly worse long-horizon numbers). No work until decided.
+- **Honest MAE result with time-consistent penalty carry (6-race mean):**
+  net **3.00** / trk **2.44**. Option (b) was tried (sort net_order without penalty_s)
+  and reverted — it made Detroit worse, no net improvement. Root cause: penalties have
+  real predictive value for finish position (penalised cars tend to finish further back)
+  but the double-count of served penalties still drags the long-horizon blend. Option (a)
+  (served-detection) would fully fix this but needs more work. Current state: **accept
+  as-is.** The penalty gauge signal is live-only value; the slight finish-prediction cost
+  is tolerable. Reopen if live feel confirms the projected_finish column is visibly wrong
+  on penalised cars.
 - **Step 4 (post-weekend):** `race_control.classify()` new `"unparsed_penalty"` kind +
   calm-board dim-amber rail alert.
 
