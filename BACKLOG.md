@@ -76,6 +76,21 @@ revertible commits.
   plus an "unparsed RC message" fallback alert so penalties never *silently* break net.
 - Re-run `validate_races.py`; record the net MAE delta here.
 
+**Progress as of 2026-07-02 (commit 15bb728) — Steps 1–3 done:**
+- `tests/fixtures/rc_messages_imsa.txt`: 716 unique RC messages extracted from all 6 IMSA
+  archives. `test_known_unparsed_invariant` enforces no silent drops.
+- Parser fixes: STOP PLUS N, STOP + MM:SS, post-race STOP+N (all backed by corpus tests).
+- `replay.py` now persists RC rows via `db.record_race_control()`.
+- **MAE delta (penalties now costed in batch):** netMAE 2.69 → 2.84 (worse), trkMAE
+  2.71 → 2.44 (better). Root cause: `_load_penalties` queries all RC rows with no ts
+  filter — in batch mode ALL historical drive-throughs pile up as `pending_s`; in live
+  mode this is fine because messages arrive sequentially. **Decision needed:**
+  (a) add `max_ts_ms` param to `_load_penalties` + pass `now_ms` through `analyse()`, or
+  (b) only persist `post_race` penalties in replay.py, or
+  (c) revert RC persistence and leave it live-only.
+- **Step 4 (post-weekend):** `race_control.classify()` new `"unparsed_penalty"` kind +
+  calm-board dim-amber rail alert.
+
 ### Epic 4 — WEC research spike (timeboxed ~1 session; slot into any gap)
 - WEC timing is very likely Al Kamel: try `livetimingFeed("wec")` against the existing
   DDP client in `alkameldp.py`; check Timing71 WEC archive availability; find out whether
