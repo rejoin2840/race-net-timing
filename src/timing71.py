@@ -64,8 +64,8 @@ class Replay:
     col: dict
     full_frames: list          # [(ts_int, frame_dict)] sorted
     messages: list             # deduped [ts_ms, category, text, type, car] sorted asc
-    series_name: str = ""      # manifest.name — the series identifier (e.g. "IndyCar",
-                                # "IMSA WeatherTech SportsCar Championship"), distinct from
+    series_name: str = ""      # manifest.name — the series identifier (e.g. "IMSA
+                                # WeatherTech SportsCar Championship"), distinct from
                                 # `name` which is manifest.description (the event title)
 
     # ── flag timeline ────────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ class Replay:
     def final_cars(self) -> dict:
         """Per car → {class, laps, pits, vft, last, best, pic} from the last frame.
         class/vft/pic are None when the archive's column set doesn't have them
-        (e.g. IndyCar has no Class/VFT/PIC — single class, no fuel telemetry)."""
+        (single-class archives carry no Class/VFT/PIC)."""
         if not self.full_frames:
             return {}
         _ts, fr = self.full_frames[-1]
@@ -140,12 +140,13 @@ def load(zip_path: str) -> Replay:
     z = zipfile.ZipFile(zip_path)
     names = z.namelist()
     manifest = json.loads(z.read("manifest.json"))
-    # resolve every column the manifest actually declares (IMSA and IndyCar
-    # archives carry different column sets — e.g. IndyCar has no Class/PIC/VFT
-    # but adds T/PTP). Don't merge in the IMSA COL defaults: doing so mapped a
-    # missing "Class" onto IMSA's index 2, which silently aliased onto
-    # IndyCar's "Driver" column at that same index. Callers use col.get(name)
-    # and must handle None for a column this archive doesn't have.
+    # resolve every column the manifest actually declares (different series'
+    # archives carry different column sets — single-class ones have no
+    # Class/PIC/VFT but may add T/PTP). Don't merge in the IMSA COL defaults:
+    # doing so mapped a missing "Class" onto IMSA's index 2, which silently
+    # aliased onto another archive's "Driver" column at that same index.
+    # Callers use col.get(name) and must handle None for a column this
+    # archive doesn't have.
     col = {spec[0]: i for i, spec in enumerate(manifest["colSpec"])}
 
     full = []
