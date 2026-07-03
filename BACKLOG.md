@@ -117,10 +117,11 @@ hard-coded IMSA class colors with `ctx.profile` during the move. Two independent
 revertible commits.
 
 ### Epic 1 — Confidence UX + IMSA live validation
-- **1a (replay-driven, after the timing tab):** resurface `net_gap_band_ms` on the calm
-  board (reuse dashboard.py's band formatting + hide-when-≥20s rule); "early race / low
-  pit data" badge; pit-model scope indicator (car/class/field fallback level). Feel-test
-  via `replay.py --stream`.
+- **1a ✅ 2026-07-03 (commit 7dda651):** `predict_stop` returns scope (car/class/field/
+  default); calm board paints ±Ns after NET overlay, header shows "LOW PIT DATA" when
+  model is thin; dense table tooltip explains non-car scope. Zero regression (net 3.00 /
+  trk 2.44). `ponytail: inline scope letter skipped, add when feel-test says tooltip
+  isn't discoverable enough.`
 - **1b (calendar-blocked, next IMSA event):** 2–3 live sessions; watch **class-leader gap
   correctness** (pain point #1) through a full pit cycle; compare live vs replay eval metrics.
 - **Acceptance:** NET order trustworthy through one full live pit cycle; class-leader gaps
