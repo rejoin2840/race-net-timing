@@ -240,7 +240,7 @@ def run_session(series: str, label: str, kind: str, start: datetime):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--test-now", action="store_true",
-                    help="ignore SCHEDULE; run one short fake IndyCar session "
+                    help="ignore SCHEDULE; run one short fake IMSA session "
                          "starting ~1 min from now to smoke-test the whole cycle")
     args = ap.parse_args()
 

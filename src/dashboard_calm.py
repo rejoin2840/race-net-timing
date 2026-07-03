@@ -462,8 +462,8 @@ class RowWidget(QWidget):
         p.drawText(QRect(x, 0, car_r - x, H), L | VC, vm["car_num"])
         x += fm_num.horizontalAdvance(vm["car_num"]) + 10
 
-        # TYRE chip — compound letter in a small rounded box + stint age. F1 only;
-        # blank (no chip) whenever tire_compound is NULL, e.g. every IMSA row.
+        # TYRE chip — compound letter in a small rounded box + stint age.
+        # Blank (no chip) whenever tire_compound is NULL (series that don't report it).
         if vm["tire_letter"] and x < car_r:
             chip_w = 18
             p.setPen(Qt.PenStyle.NoPen)
@@ -533,7 +533,7 @@ class ColumnHeader(QWidget):
         c = _columns(W)
         p.drawText(QRect(c["pos_x"], 0, 40, H), L | VC, "POS")
         p.drawText(QRect(c["net_x"], 0, 46, H), L | VC, "NET")
-        # driver identity (F1) leads with TLA, so the label flips to match
+        # driver-identity series leads with TLA, so the label flips to match
         identity_label = ("DRIVER · TEAM" if self.profile is not None
                           and self.profile.identity == "driver" else "TEAM · DRIVER")
         p.drawText(QRect(c["car_x"], 0, c["car_r"] - c["car_x"], H), L | VC, identity_label)
@@ -1150,7 +1150,7 @@ class CalmDashboard(QMainWindow):
             self.sub.setText(f"LAP {ctx.current_lap}")
 
     TOP_N = 5                  # per-class row cap before the "+N more" accordion (multi-class)
-    TOP_N_SINGLE_CLASS = 30    # F1-style single-class grid: show the whole field by default
+    TOP_N_SINGLE_CLASS = 30    # single-class grid: show the whole field by default
 
     @property
     def _top_n(self) -> int:
@@ -1248,8 +1248,8 @@ class CalmDashboard(QMainWindow):
             # TRACK-led board: show in real on-track order (gaps then climb down the list)
             cars.sort(key=lambda r: (r.trk if r.trk else 99))
             if not single_class:
-                # a single-class series (F1) has exactly one group — the "F1 · 20 cars"
-                # header is pure redundancy on a board that's already flat; the field
+                # a single-class series has exactly one group — the class header
+                # is pure redundancy on a board that's already flat; the field
                 # header (event name) already tells you what you're looking at.
                 self.listl.addWidget(ClassHeader(cls, str(len(cars)), self._profile))
             collapsed = self._collapsed.get(cls, True)

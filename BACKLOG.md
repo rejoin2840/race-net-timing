@@ -1,6 +1,6 @@
 # Backlog
 
-Epic-structured roadmap, reconciled 2026-07-02 from the original phased plan + an
+Epic-structured roadmap, reconciled 2026-07-03 from the original phased plan + an
 external (Cursor) audit + Paul's feedback. This file is the single source of truth for
 "what's next and why" — code comments should point here, not at phase numbers.
 
@@ -11,15 +11,19 @@ tune). Paul's top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
-- **2026-07-02 — Timing tab stays first in line. DO NOT FLIP-FLOP.** Rationale: there is
-  a long calendar gap before the next IMSA/WEC race, so the accuracy epics (live
-  validation, telemetry capture) are calendar-blocked regardless — UI work is exactly
-  what fits the gap. Paul explicitly asked that this note be kept so he doesn't reverse
-  it later.
-- **2026-07-02 — F1 and IndyCar are frozen after the 2026-07-03..05 weekend.** They were
-  learning vehicles. F1 keeps its live feed + quali panel, nothing more (no tire-stint
-  model, no F1 regression list). IndyCar gets exactly one held-out validation run, then
-  no further investment. Both adapters stay working for tinkering.
+- **2026-07-03 — F1 and IndyCar scrapped entirely (supersedes 07-02 freeze).** Paul's
+  call. Full delete of source, tests, data, docs, and archive folders. Recovery path:
+  `git checkout pre-endurance-refocus -- <file>` or `git show pre-endurance-refocus:src/f1_live.py`.
+- **2026-07-03 — Epic W cancelled.** F1 British GP / IndyCar Mid-Ohio live-validation
+  weekend (07-03..05) called off. WEC pivot starts immediately.
+- **2026-07-03 — WEC live client jumps the queue (Epic 8, top priority).** Supersedes the
+  07-02 timing-tab-first note under its own "new information" clause: that note's rationale
+  was "long calendar gap before the next race," but the WEC spike surfaced a race in 9 days
+  (Rolex 6H São Paulo, 07-12). Missing the São Paulo capture window costs ~8 weeks to the
+  next WEC event. Epic 6 (timing tab) becomes fill work when Epic 8 is blocked on live
+  traffic.
+- **2026-07-02 — Timing tab stays first in line. DO NOT FLIP-FLOP.** *Superseded
+  2026-07-03 by WEC São Paulo discovery — see entry above.*
 - **2026-07-02 — CI = local `check.sh`** (repo has no remote). Revisit only if
   regressions start slipping through.
 - **2026-07-02 — Timing71 integration rejected** (private connector package; T71 consumes
@@ -31,16 +35,68 @@ tune). Paul's top pain points, which shape acceptance criteria everywhere:
 ## Epics
 
 ### Epic 0 — Docs & hygiene ✅ 2026-07-02
-README, this file, stale docstrings fixed, `requirements.txt` pinned (fastf1,
-signalrcore), `ARCHIVE_DIR` config key replacing the hardcoded `~/Downloads`,
-`check.sh` gate, `test_catchup.py` main runner added.
+README, this file, stale docstrings fixed, `requirements.txt` pinned (signalrcore),
+`ARCHIVE_DIR` config key replacing the hardcoded `~/Downloads`, `check.sh` gate,
+`test_catchup.py` main runner added.
 
-### Epic W — Live weekend 2026-07-03..05 (validation only, NO builds)
-`weekend_conductor.py` covers F1 (British GP) + IndyCar (Mid-Ohio) unattended; protocol
-in `weekend_qa.md`. After Sunday: flip `DEV_SHOW_ALL_SESSIONS` back to `false`, grab the
-IndyCar race archive, read `logs/weekend_conductor.log` before anything else.
+### Epic 4 — WEC research spike ✅ 2026-07-03
+Findings committed in `wec_spike_findings.md`. Key result: WEC timing is Al Kamel data,
+but the public frontend at `livetiming.fiawec.com` is **SignalR + MessagePack** — NOT
+the Meteor/DDP transport `alkameldp.py` speaks. `livetimingFeed("wec")` against the
+existing DDP client will not work. Fields visible from the spike: class, driver, gap,
+interval, pit count, laps, sector times + unknown `VET` column (hypothesis: Virtual
+Energy Tank % — the WEC analog of IMSA fuel telemetry; to confirm from a live capture).
+Next WEC race: Rolex 6H São Paulo 2026-07-12.
 
-### Epic 6 — Timing tab (next up, Mon 07-06+)
+### Epic 8 — WEC live pipeline *(top priority, deadline-driven: FP1 ≈ 07-10)*
+
+**Goal:** raw-capture-first WEC client ready before São Paulo FP1.
+Raw capture = must-have; live board = nice-to-have for race day.
+
+**Feasibility:** `signalrcore 1.0.2` already in venv with full `MessagePackHubProtocol`;
+`msgpack 1.1.2` importable. If WEC is SignalR Core (vs classic ASP.NET SignalR — fails
+fast at negotiate, easy to distinguish), the `HubConnectionBuilder` pattern from the
+deleted `f1_live.py` works unchanged. Reference patterns recoverable via
+`git show pre-endurance-refocus:src/f1_live.py` and `:src/indycar_live.py`.
+
+**Raw-capture-first (mandatory insurance):** `--record` writes every decoded frame
+BEFORE dispatch/parsing; dispatch wrapped in try/except, capture-write never is. Even a
+zero-parse race day still yields a complete archive to finish the parser replay-style.
+
+**Commit order (each gated by `./check.sh`):**
+1. WEC `SeriesProfile` in `series_profiles.py` (pure data, no risk).
+2. `src/wec_live.py` skeleton + pure parser fns + `tests/test_wec_live.py`; pin `msgpack`.
+3. `--record` raw-capture mode (needs only transport, not correct parsing).
+4. `session_picker.py` WEC Live page wiring (~10 lines, enables the disabled stub).
+5. Post-discovery: correct field mappings/topics from real `--discover` dumps.
+
+**Protocol discovery:** attempt `livetiming.fiawec.com` NOW — the feed may serve a frozen
+session between events (IndyCar's did). Inspect `/negotiate` response first (settles
+Core-vs-classic on day 1). Retry 07-06 (session pools often open 3–5 days pre-event).
+
+**Runway 07-03 → 07-12:**
+- Now–07-05: skeleton, msgpack decode harness, guessed mappings, `--record` mode.
+- 07-06: retry discovery; verify Timing71 Desktop DVR fallback works NOW, not race day.
+- 07-07/08: picker wiring, tests, hardening.
+- 07-09: full rehearsal — `--record` under `--no-db`, kill-wifi reconnect test.
+- 07-10 FP1: first guaranteed live traffic; `--record` runs through every session.
+- 07-11: iterate parser offline against Friday's capture.
+- 07-12 race: `--record` = non-negotiable; live board = best-effort.
+
+**Fallbacks (ranked):**
+1. Raw frame capture → post-race parsing.
+2. Timing71 Desktop DVR → existing `timing71.py`/`replay.py` path (IMSA-proven).
+3. Browser HAR/WS capture (manual last resort).
+
+**Top risks:** SignalR classic-vs-Core (day-1 check) · auth/cookie gate on negotiate ·
+msgpack schema opacity (capped by raw capture) · hub-target/session-ID discovery ·
+rate limiting on pre-race-week negotiate attempts.
+
+**Research note (no v1 work):** `VET` column hypothesis = Virtual Energy Tank % for
+Hypercar. If confirmed in captures, it's WEC's fuel-telemetry analog — a natural Epic 2
+sibling for WEC.
+
+### Epic 6 — Timing tab *(fill work when Epic 8 is blocked on live traffic)*
 Pure-move `dashboard.py` table pieces → `src/timing_table.py` (byte-identical render
 verified), then a separate wiring commit into the calm board's `Timing ↗` stub. Replace
 hard-coded IMSA class colors with `ctx.profile` during the move. Two independently
@@ -51,11 +107,10 @@ revertible commits.
   board (reuse dashboard.py's band formatting + hide-when-≥20s rule); "early race / low
   pit data" badge; pit-model scope indicator (car/class/field fallback level). Feel-test
   via `replay.py --stream`.
-- **1b (calendar-blocked, next IMSA event):** 2–3 live sessions; IMSA live protocol added
-  to `weekend_qa.md`; watch **class-leader gap correctness** (pain point #1) through a
-  full pit cycle; compare live vs replay eval metrics.
-- **Acceptance:** NET order trustworthy through one full live pit cycle; class-leader
-  gaps match broadcast.
+- **1b (calendar-blocked, next IMSA event):** 2–3 live sessions; watch **class-leader gap
+  correctness** (pain point #1) through a full pit cycle; compare live vs replay eval metrics.
+- **Acceptance:** NET order trustworthy through one full live pit cycle; class-leader gaps
+  match broadcast.
 
 ### Epic 2 — IMSA fuel telemetry (biggest accuracy lever; capture blocked on next IMSA session)
 - Capture with `src/telemetry_capture.py` at next IMSA practice. **First verify Paul's
@@ -85,31 +140,10 @@ revertible commits.
   replay time advances (`_rc_feed` cursor in replay.py), so every analyse() cycle —
   batch AND stream — sees only penalties issued up to that moment, matching live.
   (Upfront loading had leaked future penalties into early predictions.)
-  `replay_f1.py:182` still loads RC upfront — F1 frozen, not in the gate, left alone.
 - **Honest MAE result with time-consistent penalty carry (6-race mean):**
-  net **3.00** / trk **2.44**. Option (b) was tried (sort net_order without penalty_s)
-  and reverted — it made Detroit worse, no net improvement. Root cause: penalties have
-  real predictive value for finish position (penalised cars tend to finish further back)
-  but the double-count of served penalties still drags the long-horizon blend. Option (a)
-  (served-detection) would fully fix this but needs more work. Current state: **accept
-  as-is.** The penalty gauge signal is live-only value; the slight finish-prediction cost
-  is tolerable. Reopen if live feel confirms the projected_finish column is visibly wrong
-  on penalised cars.
-- **Step 4 (post-weekend):** `race_control.classify()` new `"unparsed_penalty"` kind +
+  net **3.00** / trk **2.44**. Current state: **accept as-is.**
+- **Step 4 (fill work):** `race_control.classify()` new `"unparsed_penalty"` kind +
   calm-board dim-amber rail alert.
-
-### Epic 4 — WEC research spike (timeboxed ~1 session; slot into any gap)
-- WEC timing is very likely Al Kamel: try `livetimingFeed("wec")` against the existing
-  DDP client in `alkameldp.py`; check Timing71 WEC archive availability; find out whether
-  WEC has any telemetry (unknown).
-- Deliverable: findings + go/no-go. **Adapter build waits until IMSA is live-validated.**
-- Also the recommended "tinker target" now that F1/IndyCar are frozen — same exploratory
-  fun, pointed at the north star.
-
-### Epic 5 — IndyCar close-out (one run, post-weekend)
-Run the held-out `INDYCAR_RACES` suite once (including the fresh Mid-Ohio archive),
-write the honest verdict here (net edge by track type: oval/street/road), freeze.
-No tuning, no per-track configs.
 
 ### Epic 7 — WYWA & calm-board polish (Paul wants to lean in)
 Catch-up card refinements, breath-noise evaluation, a visible honest home for
@@ -121,9 +155,9 @@ Catch-up card refinements, breath-noise evaluation, a visible honest home for
 - **Driver-change / min-drive-time rules:** vary per race and per class; need a reliable
   per-event source (IMSA supplementary regulations, WEC sporting regs). Until found, the
   `(lineup_size − 1)` heuristic stays.
+- **WEC VET column:** hypothesis = Virtual Energy Tank % for Hypercar. Confirm from first
+  São Paulo capture; if correct, scope as Epic 2 sibling for WEC.
 - **"+1 lap" flicker** — cosmetic; hysteresis fix idea documented in session notes.
-- **IndyCar push-to-pass UI slot** — `OverTake_Remain`/`OverTake_Active` exist in the
-  live feed; only if IndyCar is ever unfrozen.
 
 ## Parked north star (no work — direction only)
 
@@ -136,8 +170,8 @@ Catch-up card refinements, breath-noise evaluation, a visible honest home for
 - **IMSA (6 complete archives, the default gate):** Daytona 24h, Petit Le Mans 10h,
   Indy 6h, Monterey, Long Beach, Detroit — paths in `validate_races.py` under
   `ARCHIVE_DIR`.
-- **IndyCar (10 archives, `indycar archives/`):** deliberately unrun until the Epic 5
-  close-out so the first validation is honest.
+- **WEC:** São Paulo 2026-07-12 raw capture will be the first WEC archive. Add to
+  `validate_races.py` once the parser is proven against it.
 - Only complete run-to-chequered archives count; verify span + final flag before adding.
 
 ## Standing gates
