@@ -62,6 +62,7 @@ Raw capture = must-have; live board = nice-to-have for race day.
 - ✅ `tests/test_wec_live.py`: 70 tests, all green (`./check.sh`).
 - ⬜ **Open (Phase 3, see `WEC_RACE_WEEK.md`):** kill-network reconnect test, Timing71
   DVR fallback verification, `--discover` check for WEC seriesId=10 (~07-07).
+  *07-03 check run: no WEC sessions yet, transport healthy (connect + group join OK).*
 - ✅ **Fixed (07-03):** `--record`'s gzip archive wasn't crash-safe (a hard process kill
   truncated the tail). Now flushes after every frame write; verified with a second
   kill test. See `WEC_RACE_WEEK.md` for detail.
@@ -110,11 +111,11 @@ rate limiting on pre-race-week negotiate attempts.
 Hypercar. If confirmed in captures, it's WEC's fuel-telemetry analog — a natural Epic 2
 sibling for WEC.
 
-### Epic 6 — Timing tab *(fill work when Epic 8 is blocked on live traffic)*
-Pure-move `dashboard.py` table pieces → `src/timing_table.py` (byte-identical render
-verified), then a separate wiring commit into the calm board's `Timing ↗` stub. Replace
-hard-coded IMSA class colors with `ctx.profile` during the move. Two independently
-revertible commits.
+### Epic 6 — Timing tab ✅ 2026-07-03
+Done in two commits as planned: 9be7f07 (pure-move `dashboard.py` table pieces →
+`src/timing_table.py`) + 6ca9bc8 (wire `Timing ↗` to a separate Dashboard window).
+Class colors resolve from `ctx.profile` at build time (`timing_table.py:72`); the
+module-level IMSA dicts remain only as a fallback for callers without a live context.
 
 ### Epic 1 — Confidence UX + IMSA live validation
 - **1a ✅ 2026-07-03 (commit 7dda651):** `predict_stop` returns scope (car/class/field/
@@ -139,7 +140,7 @@ revertible commits.
 - **Acceptance (targets pain point #2):** DUE calls within ~2 laps of the actual pit
   window on replay + one live session, per telemetry-covered class.
 
-### Epic 3 — Penalty parsing hardening (no calendar block)
+### Epic 3 — Penalty parsing hardening ✅ 2026-07-03
 - Fixture library from real race-control text: the 66 captured Sahlen's 6H rows + message
   logs inside the 6 IMSA Timing71 archives.
 - Expand `tests/test_penalties.py` with race-sourced cases; UI shows parsed penalties
@@ -157,8 +158,10 @@ revertible commits.
   (Upfront loading had leaked future penalties into early predictions.)
 - **Honest MAE result with time-consistent penalty carry (6-race mean):**
   net **3.00** / trk **2.44**. Current state: **accept as-is.**
-- **Step 4 (fill work):** `race_control.classify()` new `"unparsed_penalty"` kind +
-  calm-board dim-amber rail alert.
+- **Step 4 ✅ (commit 263ef3d):** `race_control.classify()` new `"unparsed_penalty"`
+  kind (`race_control.py:99`) + calm-board dim-amber rail alert
+  (`dashboard_calm.py:1407`). Closes the epic — penalties can no longer silently
+  break net.
 
 ### Epic 7 — WYWA & calm-board polish (Paul wants to lean in)
 Catch-up card refinements, breath-noise evaluation, a visible honest home for

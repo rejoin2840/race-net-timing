@@ -37,6 +37,9 @@ commit-by-commit history).
   ```
   venv/bin/python src/wec_live.py --discover
   ```
+  - *07-03 result:* no `seriesId=10` yet — only NASCAR (id=355), already chequered.
+    Transport healthy end-to-end: SignalR msgpack connect + `SID-*` group join worked;
+    0 batches only because the session had finished. Re-check daily from 07-06.
 
 ### ✅ Fixed: raw-capture archive crash-safety (found + fixed 07-03)
 
