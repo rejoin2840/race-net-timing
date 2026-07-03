@@ -1388,7 +1388,8 @@ class CalmDashboard(QMainWindow):
         # everything kept-but-quiet (reviews / yellow-cause incidents) stays dim.
         RC_COLOR = {"penalty": AMBER, "dq": RED, "rescinded": GREEN,
                     "retired": TXT, "flag": TXT,
-                    "review": DIM, "warning": DIM, "incident": DIM}
+                    "review": DIM, "warning": DIM, "incident": DIM,
+                    "unparsed_penalty": AMBER_SOFT}
         lines = []
         for msg, _tier, kind in race_control.feed(rc, limit=6):
             c = RC_COLOR.get(kind, DIM)

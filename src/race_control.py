@@ -92,6 +92,12 @@ def classify(message) -> tuple:
     if any(k in low for k in _YELLOW_CAUSE):
         return (CONTEXT, "incident")
 
+    # a message mentioning a penalty that wasn't scored by parse() and doesn't
+    # contain "warning" is likely a lap-time invalidation or an unknown penalty
+    # format — surface it dimly rather than silently suppressing it.
+    if "penalt" in low and "warning" not in low:
+        return (CONTEXT, "unparsed_penalty")
+
     # everything else = procedural admin / routine warning / resolved chatter
     return (SUPPRESS, "")
 
