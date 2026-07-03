@@ -218,6 +218,14 @@ def _init_db(replay: timing71.Replay, db_path: str, oid: str):
                 db.record_driver(car, s.driver_to, pit_lap)
     db.commit()
 
+    # ── race-control messages ─────────────────────────────────────────────────
+    # Persist RC text so calculator._load_penalties() can cost them into NET.
+    # Filter matches Step 1's fixture builder: only 'raceControl' typed rows.
+    rc_msgs = [(m[0], m[2]) for m in replay.messages
+               if len(m) > 3 and m[3] == "raceControl"]
+    db.record_race_control(rc_msgs)
+    db.commit()
+
     return db, col, lap_at, flag_at, pit_in
 
 

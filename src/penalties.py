@@ -36,9 +36,12 @@ class Penalty:
 _CARS_RE   = re.compile(r"\bcars?\s*#?\s*([0-9]+(?:\s*,\s*#?\s*[0-9]+)*(?:\s*(?:and|&)\s*#?\s*[0-9]+)?)", re.I)
 _HASH_RE   = re.compile(r"#\s*([0-9]+)")
 _SECONDS_RE = re.compile(r"\+?\s*(\d+(?:\.\d+)?)\s*(?:sec(?:ond)?s?)\b", re.I)
-# stationary "Stop + N" / "Stop and hold + N" hold penalty (N = seconds held).
+# stationary "Stop + N" / "Stop and hold + N" / "Stop plus N" hold penalty.
 # Distinct from a stated seconds penalty: the N here is NOT followed by "sec".
-_STOP_HOLD_RE = re.compile(r"stop\s*(?:\+|and\s+hold|/?\s*hold)\s*\+?\s*(\d+(?:\.\d+)?)", re.I)
+# MM:SS variant ("Stop + 3:36") is handled separately to avoid capturing only
+# the minutes digit.
+_STOP_HOLD_RE = re.compile(r"stop\s*(?:\+|plus|and\s+hold|/?\s*hold)\s*\+?\s*(\d+(?:\.\d+)?)", re.I)
+_STOP_MMSS_RE = re.compile(r"stop\s*(?:\+|plus|and\s+hold|/?\s*hold)\s*\+?\s*(\d+):(\d+)", re.I)
 
 
 def _extract_cars(msg: str) -> list:
@@ -88,8 +91,14 @@ def parse(message: str) -> list:
 
     secs = _seconds(message)
 
-    # post-race time penalty (applied to final classification)
+    # post-race time penalty (applied to final classification).
+    # IMSA sometimes writes "Stop + 60 *POST RACE TIME" — the seconds suffix
+    # ("sec") is absent so _seconds() returns 0; fall back to _STOP_HOLD_RE.
     if "post-race" in m or "post race" in m:
+        if secs == 0.0:
+            mh = _STOP_HOLD_RE.search(message)
+            if mh:
+                secs = float(mh.group(1))
         return [Penalty(cars, "TIME", secs, "post_race", message)]
 
     # in-race penalties the car must serve → pending time loss
@@ -97,8 +106,11 @@ def parse(message: str) -> list:
         return [Penalty(cars, "DRIVE_THROUGH", DRIVE_THROUGH_S, "pending", message)]
     if "stop" in m and ("go" in m or "/go" in m):
         return [Penalty(cars, "STOP_GO", (secs or 0.0) + STOP_GO_TRANSIT_S, "pending", message)]
-    # stationary "Stop + N" hold: held N seconds at the box, then released. Costs
-    # the stationary hold plus pit transit, served in-race → pending time loss.
+    # stationary hold: check MM:SS first so "Stop + 3:36" gives 216s not 3s.
+    mmss = _STOP_MMSS_RE.search(message)
+    if mmss:
+        hold_s = int(mmss.group(1)) * 60 + int(mmss.group(2))
+        return [Penalty(cars, "STOP_HOLD", hold_s + STOP_GO_TRANSIT_S, "pending", message)]
     mh = _STOP_HOLD_RE.search(message)
     if mh:
         return [Penalty(cars, "STOP_HOLD", float(mh.group(1)) + STOP_GO_TRANSIT_S, "pending", message)]
