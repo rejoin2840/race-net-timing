@@ -38,23 +38,27 @@ commit-by-commit history).
   venv/bin/python src/wec_live.py --discover
   ```
 
-### ⚠️ Finding from the 07-03 rehearsal: raw-capture archive is not crash-safe
+### ✅ Fixed: raw-capture archive crash-safety (found + fixed 07-03)
 
 `--record` writes via `gzip.open(path, "ab")`, which buffers compressed data
-internally. Killing the process with `SIGTERM` (simulating a crash/reconnect-loop
-failure, not a clean `Ctrl-C`) left `wec_rehearsal.jsonl.gz` **truncated** —
-`gzip -t` reports "unexpected end of file"; `gzip -dc` recovers only the frames
-written before the last internal flush (295 of however many were sent), then errors.
+internally. A `SIGTERM` (simulating a crash, not a clean `Ctrl-C`) left the archive
+**truncated** — `gzip -t` failed "unexpected end of file"; only the frames written
+before the last internal flush were recoverable.
 
-This matters because BACKLOG.md calls `--record` "mandatory insurance" / "non-negotiable"
-for race day — a laptop sleep, crash, or ungraceful kill during the real 6-hour race
-could truncate the tail of the archive right when it matters most.
+This mattered because BACKLOG.md calls `--record` "mandatory insurance" for race day —
+a laptop sleep, crash, or ungraceful kill during the real 6-hour race could have cost
+the tail of the archive right when it matters most.
 
-**Recommended fix (not yet applied — needs Paul's go-ahead, touches `wec_live.py`):**
-call `self._recorder.flush()` after every frame write in `_record_frame()`
-(`src/wec_live.py:307`). `gzip.GzipFile.flush()` defaults to `zlib.Z_SYNC_FLUSH`, which
-makes the stream decodable up to that point even if the process dies immediately after
-— turning "lose the whole tail" into "lose at most the frame in flight."
+**Fix applied:** `self._recorder.flush()` after every frame write in `_record_frame()`
+(`src/wec_live.py:307`). `gzip.GzipFile.flush()` defaults to `zlib.Z_SYNC_FLUSH`, making
+the stream decodable up to that point immediately.
+
+**Verified by a second live rehearsal + kill test:** after the fix, a `SIGTERM` mid-capture
+left 49/50 recovered frames as clean, valid JSON — only the exact frame being written at
+the instant of the kill was torn (an unavoidable race with any hard-kill signal; a
+downstream JSONL reader just skips one bad trailing line). Before the fix, an entire
+buffered chunk could be lost instead of just the one in-flight frame. Regression test:
+`tests/test_wec_live.py::TestRecordFrameFlush`.
 
 ## Phase 4 — race-week execution checklist
 

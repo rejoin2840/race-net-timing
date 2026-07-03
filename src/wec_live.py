@@ -316,6 +316,7 @@ class WecLiveClient:
         }
         self._recorder.write((json.dumps(frame, default=str) + "\n")
                              .encode("utf-8"))
+        self._recorder.flush()
 
     # ── connection setup ─────────────────────────────────────────────────
 

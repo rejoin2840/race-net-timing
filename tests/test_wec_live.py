@@ -6,6 +6,7 @@ Run (no pytest dependency):
 import os
 import sys
 import unittest
+import unittest.mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -414,6 +415,20 @@ class TestItemsUnwrapping(unittest.TestCase):
         c._on_receive_batch(batch)
         self.assertEqual(c.state.car_ranks["7"]["pos"], 1)
         self.assertEqual(c.state.car_laps["7"]["lap"], 5)
+
+
+class TestRecordFrameFlush(unittest.TestCase):
+    """--record is billed as mandatory race-day insurance; a frame must be
+    flushed to disk immediately so a hard process kill can lose at most the
+    single frame in flight, not a whole buffered chunk."""
+
+    def test_record_frame_flushes_after_write(self):
+        c = WecLiveClient(db_path="", no_db=True)
+        recorder = unittest.mock.MagicMock()
+        c._recorder = recorder
+        c._record_frame("ranks", {"carNumber": "7"})
+        recorder.write.assert_called_once()
+        recorder.flush.assert_called_once()
 
 
 if __name__ == "__main__":

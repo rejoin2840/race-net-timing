@@ -62,9 +62,9 @@ Raw capture = must-have; live board = nice-to-have for race day.
 - ✅ `tests/test_wec_live.py`: 70 tests, all green (`./check.sh`).
 - ⬜ **Open (Phase 3, see `WEC_RACE_WEEK.md`):** kill-network reconnect test, Timing71
   DVR fallback verification, `--discover` check for WEC seriesId=10 (~07-07).
-- ⚠️ **Finding (07-03 rehearsal):** `--record`'s gzip archive is not crash-safe — a hard
-  process kill truncates the tail. Fix identified (flush after each frame write) but not
-  yet applied; see `WEC_RACE_WEEK.md` for detail.
+- ✅ **Fixed (07-03):** `--record`'s gzip archive wasn't crash-safe (a hard process kill
+  truncated the tail). Now flushes after every frame write; verified with a second
+  kill test. See `WEC_RACE_WEEK.md` for detail.
 - ⬜ **Blocked on FP1 (07-10):** Commit 5, field corrections from a real WEC capture.
 
 **Feasibility:** `signalrcore 1.0.2` already in venv with full `MessagePackHubProtocol`;
