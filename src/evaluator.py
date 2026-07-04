@@ -39,7 +39,6 @@ CATCH_TOL_LAPS     = 3         # a catch counts as hit within ± this many laps
 TUNE_BOUNDS = {
     "PACE_WINDOW":            (3, 10, 1),
     "PACE_OUTLIER_FACTOR":    (1.03, 1.15, 0.01),
-    "CAUTION_PENALTY_FACTOR": (0.10, 0.70, 0.05),
 }
 TUNE_MIN_SAMPLES = 5          # need this many catch cases before touching pace knobs
 
@@ -176,21 +175,13 @@ def autotune(stop, net, catch, cfg) -> list[tuple]:
     [(param, old, new, reason)]. Only touches knobs the data can actually inform.
 
     NOTE: fuel/stint/pit/DC costs are NOT here — those already self-learn from
-    observed data inside the calculator. This nudges pace knobs and the caution
-    penalty factor (the only fixed parameter the data can directly inform)."""
+    observed data inside the calculator. CAUTION_PENALTY_FACTOR is also not here:
+    it only scales the live pit_now_position projection (calculator.py), never
+    next_stop_ms — the value the STOP TIME caution bucket actually grades — so
+    that bias can't inform it. Nudging it here would just walk the knob to a
+    bound without ever moving the number that triggered the nudge. This nudges
+    the pace knobs only, the one thing the catch data can directly inform."""
     changes = []
-
-    # caution penalty factor: informed directly by caution-stop prediction bias
-    if stop and stop.get("caution") and stop["caution"]["n"] >= 2:
-        cb = stop["caution"]["bias_ms"]
-        cpf = cfg["CAUTION_PENALTY_FACTOR"]
-        lo, hi, step = TUNE_BOUNDS["CAUTION_PENALTY_FACTOR"]
-        if cb > 3000 and cpf > lo:       # over-predicting → factor too high
-            changes.append(("CAUTION_PENALTY_FACTOR", cpf, round(cpf - step, 2),
-                            f"caution stops over-predicted by {cb/1000:.1f}s"))
-        elif cb < -3000 and cpf < hi:    # under-predicting → factor too low
-            changes.append(("CAUTION_PENALTY_FACTOR", cpf, round(cpf + step, 2),
-                            f"caution stops under-predicted by {abs(cb)/1000:.1f}s"))
 
     if catch and catch["n"] >= TUNE_MIN_SAMPLES:
         ml = catch.get("median_late_laps")
@@ -240,9 +231,9 @@ def _suggest(stop, net, catch):
     if stop and stop.get("caution") and abs(stop["caution"]["bias_ms"]) > 3000:
         cb = stop["caution"]["bias_ms"]
         s.append(f"Caution stops {('OVER' if cb > 0 else 'UNDER')}-predicted by "
-                 f"{abs(cb)/1000:.1f}s — CAUTION_PENALTY_FACTOR needs to go "
-                 f"{'DOWN' if cb > 0 else 'UP'} (currently "
-                 f"{config.CONFIG.CAUTION_PENALTY_FACTOR:.2f}).")
+                 f"{abs(cb)/1000:.1f}s — model.predict_stop() has no caution-awareness. "
+                 f"(CAUTION_PENALTY_FACTOR won't fix this: it only scales the live "
+                 f"pit_now_position call, not this prediction.)")
     if net and net["improvement_pct"] < 0:
         s.append("Net position predicts the FINISH worse than current track position "
                  "— check est_stops_left and the pit-cost model.")
@@ -274,10 +265,10 @@ def report(ctx, stop, net, catch) -> str:
                      f"bias {g['bias_ms']/1000:+5.1f}s")
         if stop.get("caution"):
             c = stop["caution"]
-            direction = "OVER" if c["bias_ms"] > 0 else "UNDER"
+            flag = ("  ← predict_stop has no caution-awareness"
+                    if abs(c["bias_ms"]) > 3000 else "")
             L.append(f"    caution    n={c['n']:<3}  MAE {c['mae_ms']/1000:5.1f}s  "
-                     f"bias {c['bias_ms']/1000:+5.1f}s  ← CAUTION_PENALTY_FACTOR "
-                     f"{'too HIGH' if c['bias_ms'] > 3000 else 'too LOW' if c['bias_ms'] < -3000 else 'OK'}")
+                     f"bias {c['bias_ms']/1000:+5.1f}s{flag}")
     else:
         L.append("  STOP TIME    (no completed stops with a prior prediction yet)")
     if net:

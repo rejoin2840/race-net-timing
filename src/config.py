@@ -30,6 +30,9 @@ DEFAULTS = {
     "CATCH_GAP_S":            2.0,      # only flag "catching" when within this in-class gap (s)
     "CATCH_TREND_LAPS":       3,        # …and the gap has been closing for this many green laps
     "BATTLE_GAP_S":           2.0,      # in-class gap (s) at/under which a pair counts as a battle to watch
+    "BATTLE_TREND_LAPS":      3,        # BATTLES-rail-only closing gate: green laps required (looser than CATCH_TREND_LAPS)
+    "BATTLE_MIN_DROP_MS":     80,       # …minimum net gap drop over that window to call it "catching"
+    "BATTLE_NOISE_TOL_MS":    120,      # …per-lap noise tolerance (vs the main board's stricter 50ms)
     "MIN_FIT_POINTS":         3,        # min stops before trusting a fuel-fill regression
     "STOP_OUTLIER_MAD":       4.0,      # reject stop durations beyond median + this·(robust σ) before fitting (garage/repair stops)
     "DC_NEAR_LAPS":           2,        # a stop is a driver-change stop if a change is within ±this

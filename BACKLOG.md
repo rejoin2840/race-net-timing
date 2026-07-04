@@ -239,16 +239,74 @@ consume + display these new streams — see the 2026-07-04 decisions-log entry
   - `CAUTION_PENALTY_FACTOR`: 0.45 → **0.35** (bonus, not one of the original
     four). Evaluator explicitly flagged it "too HIGH" — caution-stop bias was
     +19.7s over-predicted.
-  - **Validation still open:** none of these have been checked against a fresh
-    evaluator run yet — land, then confirm via next `--stream` + eval diff
-    before calling B2 fully closed.
+    **Correction (07-04, B3 session):** this was chasing a knob with no causal
+    path to the metric. `CAUTION_PENALTY_FACTOR` only scales the live
+    `pit_now_position` projection (`calculator.py:869-876`), never
+    `next_stop_ms` — the value the STOP TIME "caution" bucket actually grades
+    (`calculator.py:802`, via `model.predict_stop()`). Confirmed empirically:
+    a fresh evaluator run at 0.35 reproduced the *exact same* +19.7s bias as
+    the 0.45 baseline, byte-for-byte. `evaluator.py`'s suggestion text and its
+    `--auto` autotune branch both pointed at this knob incorrectly — both
+    fixed (07-04): suggestion text now names the real cause, and the autotune
+    branch that nudged `CAUTION_PENALTY_FACTOR` off this metric was removed
+    (it would have walked the knob to a bound for zero effect). The 0.35 value
+    stands on its own merits if there's a real reason to prefer it, but it was
+    not fixing what B2 thought it was fixing.
+  - **Real gap surfaced by the above:** `model.predict_stop()` has no
+    caution-awareness at all — caution stops carry a genuine, unaddressed
+    +19.7s over-prediction bias. Needs an actual modeling fix (a caution-stop
+    branch/discount inside `predict_stop`, likely mirroring the logic
+    `CAUTION_PENALTY_FACTOR` already applies to `pit_now_position`), not a
+    knob tweak. Unscoped — next time this session has spare capacity, or when
+    Epic 2 telemetry work is touching the stop-cost model anyway.
+  - **Validation (07-04, B3 session):** fresh full-race `--stream` + evaluator
+    run (`logs/eval_20260704_102649.txt`) confirms `CATCH_TREND_LAPS` worked as
+    intended — hit-rate 78%→88%, median lateness 10.5→2.6 laps vs the 090013
+    baseline (small sample, n=8, treat as directional not final). NET MAE
+    unchanged (2.48 vs 2.37 track) as expected — nothing this round touched
+    that path. `BUDGET_PER_CLASS` isn't evaluator-measurable (display-only,
+    no accuracy metric applies) — still just Paul's-call, not re-litigated.
+    `CATCH_GAP_S`/`BATTLE_GAP_S` themselves: still unchanged/untuned — Paul
+    explicitly deferred further calibration to the live WEC race (07-06+),
+    same as the new `BATTLE_TREND_LAPS`/`BATTLE_MIN_DROP_MS`/
+    `BATTLE_NOISE_TOL_MS` knobs added this session (see below).
+
+- ✅ **B3 session (2026-07-04), BATTLES rail:** live-paced 60x replay + Paul at
+  keyboard. Landed: plain-English "catching #X — Ns (Ys/lap)" text replacing
+  the ambiguous bare `▼` (too easily confused with the unrelated `▼P{n}`
+  net-position arrow); a rail-local closing gate (`BATTLE_TREND_LAPS`=3,
+  `BATTLE_MIN_DROP_MS`=80, `BATTLE_NOISE_TOL_MS`=120, all hot-reloadable) so
+  the signal is actually visible in practice, separate from the stricter
+  main-board `catching` call (untouched); a rate-calc sign bug (`--0.0s/lap`)
+  fixed along the way. Paul: "fine for now, will fine-tune more once I know
+  what's actually happening in a real race" — expect further BATTLE_* +
+  BATTLE_GAP_S adjustment during the live WEC race (07-06+).
+- ✅ **B3 session, RACE CONTROL rail:** was truncating mid-word at 340px even
+  after widening from 238px. Switched to word-wrap + a bullet-column table
+  (matches the existing legend's `row()`/`col()` idiom) so wrapped
+  continuation lines stay visually distinct from the next message's bullet.
+  Also color-codes car numbers in RC text to each car's class-spine color
+  (reuses `penalties._CARS_RE`, no new parsing), bolded per Paul's follow-up.
+- ✅ **B3 session, evaluator bug found + fixed:** `CAUTION_PENALTY_FACTOR` was
+  never able to inform the STOP TIME caution-bias metric it was suggesting
+  changes to — see the correction note above. Suggestion text and the
+  `--auto` autotune branch both fixed; TUNE_BOUNDS entry removed.
 
 **Open (needs Paul at keyboard — streaming session):**
-- WATCH/BATTLES knob tuning: `replay.py <archive> --stream`, edit `config.json`
-  live, land chosen values + note findings here. *(Behavioral — NOT frozen by the
-  07-04 UI freeze; tuned thresholds transfer to any future front end.)*
-- Catch-up LOGIC refinements (event ranking/selection in `catchup.py`) — allowed.
-  Cosmetic card/board tweaks — **frozen until Epic 9 decides** (07-04 decision).
+- Catch-up LOGIC refinements (event ranking/selection in `catchup.py`) —
+  **not started this session.** `MIN_POS_MOVE`, `MAX_EVENTS`, and the `_RANK`
+  floors are all still at stock defaults (2, 8, and the original per-tone
+  values respectively) — this was B3's originally-named scope and got
+  displaced by the BATTLES/RC rail work above. Allowed (behavioral, not
+  frozen). Cosmetic card/board tweaks — **frozen until Epic 9 decides**
+  (07-04 decision).
+  **Tabled (07-04):** Paul's call — no automated/evaluator path exists for
+  this one. Unlike `CAUTION_PENALTY_FACTOR`/`CATCH_TREND_LAPS`, there's no
+  ground truth to grade a "while you were away" brief against (existing unit
+  tests only check the code does what it's told — cap enforced, dedup,
+  sort order — not whether the *values* feel right). Requires watching a real
+  race. Tabled until the live WEC race (07-06+ practice, or São Paulo race
+  07-12) rather than another replay session.
 - Same session doubles as UX-input gathering: Paul screenshots/notes whatever bugs
   him visually → raw material for Epic 9's design phase.
 - **Gate for any code change:** `./check.sh` + `replay.py --stream` feel-test;
@@ -294,6 +352,21 @@ phase 1/2, not yet actioned (cosmetics frozen):
   currently-boxed cars by real time gap instead of the feed's stale frozen
   slot, so it matches live-broadcast reality rather than projecting it. No
   conflict found — implementation already matches the principle.
+  **Scope input (07-04, Epic 7 B3 session):** Paul's current thinking on what
+  WYWA needs to cover, ahead of an Epic 9 mockup pass — not a spec, a starting
+  point for that discussion:
+  - More than one event per class (current `MAX_EVENTS`=8 field-wide cap is too
+    coarse for this).
+  - On-track position changes for the **top 5 of each class**, specifically.
+  - Anything happening **below** the top 5 that could plausibly *impact* the
+    top 5 given known strategy/pit-cycle state (e.g. an undercut brewing outside
+    the top 5 that will surface once cycles resolve).
+  - Pit stops, cars stopped on track, incidents, and penalties that happened
+    while away.
+  Paul's own framing: "this is going to be a lot of info... which means we need
+  to discuss and come up with a great UX plan before implementing changes" —
+  he does not want this built from this note alone. Treat as raw input for the
+  Epic 9 phase 1/2 mockup/planning pass, same as the other WYWA gripes above.
 - Net position display (the `±18` / arrow / P7 cluster) is unclear at a glance —
   **both** a comprehension problem (Paul isn't sure what it's measuring: time
   gap? positions gained/lost? track position vs. net-of-pits?) **and** a

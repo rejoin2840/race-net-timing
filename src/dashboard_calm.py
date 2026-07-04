@@ -17,6 +17,7 @@ The original dashboard.py is left intact as the fallback. Run:
   ./venv/bin/python src/dashboard_calm.py
 """
 
+import re
 import sys
 import time
 from datetime import datetime
@@ -36,6 +37,7 @@ import calculator
 import config
 import race_control
 import catchup
+import penalties
 import series_profiles
 import dashboard as dash   # reuse Poller, Row, _build_rows, FLAG_STYLE, CLASS_ORDER
 import session_picker          # race/session picker dialog
@@ -116,6 +118,31 @@ def _spine(cls: str, profile=None) -> str:
     if profile is not None:
         return profile.spine_of(cls)
     return SPINE.get(cls, "#5F6B7A")
+
+
+_NUM_RE = re.compile(r"[0-9]+")
+
+
+def _colorize_car_refs(msg: str, camap: dict, profile=None) -> str:
+    """Wrap the car number(s) in a "CAR 96" / "CARS 23 & 60" clause with each car's
+    class-spine color, matching the rest of the app. Leaves the message untouched if it
+    doesn't match that shape or none of the numbers are known cars (e.g. already
+    retired/removed from the field)."""
+    m = penalties._CARS_RE.search(msg)
+    if not m:
+        return msg
+    start, end = m.span(1)
+
+    def repl(nm: "re.Match") -> str:
+        num = nm.group(0)
+        ca = camap.get(num)
+        if ca is None:
+            return num
+        return (f'<span style="color:{_spine(ca.car_class, profile)}; '
+                f'font-weight:bold;">{num}</span>')
+
+    colored = _NUM_RE.sub(repl, msg[start:end])
+    return msg[:start] + colored + msg[end:]
 
 
 # ── catch-up ("while you were away") tone → palette + compact inline labels ────
@@ -823,7 +850,7 @@ class LegendCard(QFrame):
             row(sw("RACE AT A GLANCE", DIM), "actionable calls (penalty/undercut/catch)"),
             row(sw("RACE CONTROL", DIM), "official messages"),
             row(sw("DUE TO PIT", DIM), "cars near their fuel window"),
-            row(sw("BATTLES", DIM), "close in-class fights · ▼ = gap closing"),
+            row(sw("BATTLES", DIM), "close in-class fights · says \"catching\" + s/lap when a gap is actually shrinking"),
         ]
         return (f'<table cellspacing="0" cellpadding="0"><tr>'
                 f'<td valign="top" style="padding-right:30px;">{col(left)}</td>'
@@ -957,7 +984,7 @@ class CalmDashboard(QMainWindow):
         self.colheader = ColumnHeader()
         leftv.addWidget(self.colheader); leftv.addWidget(self.scroll, 1)
 
-        self.rail = QFrame(); self.rail.setFixedWidth(238)
+        self.rail = QFrame(); self.rail.setFixedWidth(340)
         self.rail.setStyleSheet(f"background:{RAIL};")
         self.raill = QVBoxLayout(self.rail); self.raill.setContentsMargins(15, 13, 15, 13); self.raill.setSpacing(0)
 
@@ -1398,7 +1425,7 @@ class CalmDashboard(QMainWindow):
         self.raill.addSpacing(10)
         self.raill.addWidget(self._rail_label("RACE CONTROL"))
         self.raill.addSpacing(6)
-        rc_box = QLabel(); rc_box.setTextFormat(Qt.TextFormat.RichText); rc_box.setWordWrap(False)
+        rc_box = QLabel(); rc_box.setTextFormat(Qt.TextFormat.RichText); rc_box.setWordWrap(True)
         rc_box.setFont(QFont(SANS, 11))
         # colour reserved for what matters: penalties loud, a rescind reads as relief,
         # everything kept-but-quiet (reviews / yellow-cause incidents) stays dim.
@@ -1406,26 +1433,38 @@ class CalmDashboard(QMainWindow):
                     "retired": TXT, "flag": TXT,
                     "review": DIM, "warning": DIM, "incident": DIM,
                     "unparsed_penalty": AMBER_SOFT}
-        lines = []
+        # table with a bullet column: keeps wrapped continuation lines visually distinct
+        # from the next message's bullet, instead of every wrapped line looking like a
+        # new item.
+        rows_html = []
         for msg, _tier, kind in race_control.feed(rc, limit=6):
             c = RC_COLOR.get(kind, DIM)
-            short = msg[:40] + "…" if len(msg) > 40 else msg
-            lines.append(f'<div style="color:{c}; padding:2px 0;">{short}</div>')
-        rc_box.setText("".join(lines) or f'<span style="color:{MUTE};">no messages</span>')
+            short = msg[:160] + "…" if len(msg) > 160 else msg
+            short = _colorize_car_refs(short, camap, self._profile)
+            rows_html.append(
+                f'<tr><td style="padding:2px 6px 2px 0; color:{c}; vertical-align:top;">•</td>'
+                f'<td style="padding:2px 0; color:{c};">{short}</td></tr>')
+        rc_box.setText(
+            f'<table cellspacing="0" cellpadding="0">{"".join(rows_html)}</table>'
+            if rows_html else f'<span style="color:{MUTE};">no messages</span>')
         self.raill.addWidget(rc_box)
 
         # BATTLES — the close in-class fights actually worth watching (replaces the old
         # "ON TRACK overall", which was just the GTP leaders). Adjacent same-class,
-        # same-lap pairs within BATTLE_GAP_S; a ▼ marks a gap that's been closing (reuses
-        # the catching trend gate so it can't fire on caution bunching).
+        # same-lap pairs within BATTLE_GAP_S; says "catching" + a s/lap rate when a gap
+        # is actually closing. Uses its own (looser) trend gate than the main-board
+        # "catching" call — this rail is a glance-worthy hint, not a firm prediction, so
+        # it can afford more noise tolerance to actually be visible in practice.
         self.raill.addSpacing(14)
         self.raill.addWidget(self._rail_label("BATTLES"))
         self.raill.addSpacing(6)
         try:
             gap_s = float(config.CONFIG.BATTLE_GAP_S)
-            trend_laps = int(config.CONFIG.CATCH_TREND_LAPS)
+            trend_laps = int(config.CONFIG.BATTLE_TREND_LAPS)
+            min_drop_ms = float(config.CONFIG.BATTLE_MIN_DROP_MS)
+            noise_tol_ms = float(config.CONFIG.BATTLE_NOISE_TOL_MS)
         except Exception:
-            gap_s, trend_laps = 2.0, 3
+            gap_s, trend_laps, min_drop_ms, noise_tol_ms = 2.0, 3, 80, 120
         oid = getattr(self.poller, "last_oid", None)
         cur_lap = getattr(self, "_current_lap", 0)
         by_cls: dict = {}
@@ -1443,16 +1482,26 @@ class CalmDashboard(QMainWindow):
                 gap = (chaser.class_gap_ms or 0) - (ahead.class_gap_ms or 0)
                 if 0 < gap <= gap_s * 1000:
                     closing = bool(oid and calculator._gap_closing(
-                        oid, chaser.car_number, ahead.car_number, cur_lap, trend_laps))
-                    battles.append((gap, cls, ahead.car_number, chaser.car_number, closing))
+                        oid, chaser.car_number, ahead.car_number, cur_lap, trend_laps,
+                        min_drop_ms=min_drop_ms, noise_tol_ms=noise_tol_ms))
+                    rate = (calculator._gap_close_rate_s(
+                                oid, chaser.car_number, ahead.car_number, cur_lap, trend_laps)
+                            if closing else None)
+                    battles.append((gap, cls, ahead.car_number, chaser.car_number, closing, rate))
         battles.sort(key=lambda b: b[0])                  # tightest first
         if battles:
-            for gap, cls, a, c, closing in battles[:6]:
-                arrow = f' <span style="color:{AMBER};">▼</span>' if closing else ""
-                lab = QLabel(
-                    f'<span style="color:{_spine(cls, self._profile)};">{cls}</span>  '
-                    f'#{a} <span style="color:{MUTE};">▸</span> #{c}  '
-                    f'<span style="color:{TXT};">{gap/1000:.1f}s</span>{arrow}')
+            for gap, cls, a, c, closing, rate in battles[:6]:
+                spine = f'<span style="color:{_spine(cls, self._profile)};">{cls}</span>'
+                if closing and rate:
+                    # plain-English: who's catching whom, current gap, how fast it's closing
+                    lab_text = (f'{spine}  #{c} '
+                                f'<span style="color:{AMBER};">catching</span> #{a}  '
+                                f'<span style="color:{TXT};">{gap/1000:.1f}s</span> '
+                                f'<span style="color:{MUTE};">(-{rate:.1f}s/lap)</span>')
+                else:
+                    lab_text = (f'{spine}  #{a} <span style="color:{MUTE};">▸</span> #{c}  '
+                                f'<span style="color:{TXT};">{gap/1000:.1f}s</span>')
+                lab = QLabel(lab_text)
                 lab.setTextFormat(Qt.TextFormat.RichText); lab.setFont(QFont(MONO, 11))
                 self.raill.addWidget(lab); self.raill.addSpacing(2)
         else:

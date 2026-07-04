@@ -67,21 +67,47 @@ def _sample_gap(oid: str, car: str, lap: Optional[int], gap_ms: Optional[float])
         dq.append((lap, gap_ms))
 
 
-def _gap_closing(oid: str, chaser: str, ahead: str, cur_lap: int, trend_laps: int) -> bool:
-    """True when the inter-car gap (chaser − ahead, both measured vs the class leader)
-    has been non-increasing across the last `trend_laps` green laps, with a meaningful
-    net drop. Only samples within the window are used, so pre-caution history (sampling
-    pauses under yellow) can't leak in and read as a false close."""
+def _gap_trend_seq(oid: str, chaser: str, ahead: str, cur_lap: int,
+                    trend_laps: int) -> Optional[list]:
+    """Inter-car gap (chaser − ahead, both vs the class leader) at each sampled green
+    lap within the trend window, oldest first. None if there isn't enough history yet."""
     dc, da = _GAP_HIST.get((oid, chaser)), _GAP_HIST.get((oid, ahead))
     if not dc or not da:
-        return False
+        return None
     ahead_by_lap = {l: g for l, g in da}
     pts = sorted((l, gc - ahead_by_lap[l]) for l, gc in dc
                  if l in ahead_by_lap and l > cur_lap - (trend_laps + 1))
     if len(pts) < trend_laps:
+        return None
+    return [g for _, g in pts]
+
+
+def _gap_closing(oid: str, chaser: str, ahead: str, cur_lap: int, trend_laps: int,
+                  min_drop_ms: float = 150, noise_tol_ms: float = 50) -> bool:
+    """True when the inter-car gap has been non-increasing across the last `trend_laps`
+    green laps, with a meaningful net drop. Only samples within the window are used, so
+    pre-caution history (sampling pauses under yellow) can't leak in and read as a false
+    close. `min_drop_ms`/`noise_tol_ms` default to the main-board "catching" call's
+    strict thresholds; callers with a looser bar (e.g. the BATTLES rail) can pass their
+    own without affecting that call."""
+    seq = _gap_trend_seq(oid, chaser, ahead, cur_lap, trend_laps)
+    if seq is None:
         return False
-    seq = [g for _, g in pts]
-    return seq[-1] <= seq[0] - 150 and all(b <= a + 50 for a, b in zip(seq, seq[1:]))
+    return (seq[-1] <= seq[0] - min_drop_ms
+            and all(b <= a + noise_tol_ms for a, b in zip(seq, seq[1:])))
+
+
+def _gap_close_rate_s(oid: str, chaser: str, ahead: str, cur_lap: int,
+                       trend_laps: int) -> Optional[float]:
+    """Average per-lap gap closure over the trend window, in seconds (always positive
+    when _gap_closing is True, since that gate requires a net drop across the window —
+    unlike a bare last-lap-over-lap delta, which the looser BATTLES noise tolerance can
+    let go slightly negative on the final step even while the overall trend still
+    closes). Call only when _gap_closing is True."""
+    seq = _gap_trend_seq(oid, chaser, ahead, cur_lap, trend_laps)
+    if seq is None or len(seq) < 2:
+        return None
+    return (seq[0] - seq[-1]) / 1000.0 / (len(seq) - 1)
 
 # Pit-sequence states where the feed's pos_in_class is stale (frozen mid-stop, only
 # re-sorting at S/F) — these cars get re-ranked by cumulative-time gap. Mirrors
