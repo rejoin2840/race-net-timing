@@ -80,7 +80,15 @@ Raw capture = must-have; live board = nice-to-have for race day.
 - ✅ **Fixed (07-03):** `--record`'s gzip archive wasn't crash-safe (a hard process kill
   truncated the tail). Now flushes after every frame write; verified with a second
   kill test. See `WEC_RACE_WEEK.md` for detail.
-- ⬜ **Blocked on FP1 (07-10):** Commit 5, field corrections from a real WEC capture.
+- ✅ **Fable Tier-1 review (07-04, commits 65a26c0 + d2360e3):** 6 race-day bugs
+  fixed (first pit stop dropped, status fields nulling each other, Z-timestamp
+  parse failure on Py3.9, frozen best lap, --discover NameError, DVR fallback
+  loading WEC as IMSA) + capture-replay harness (`tests/test_wec_capture_replay.py`,
+  real bootstrap fixture) + `--replay` offline mode = the Commit-5 workflow, ready
+  before FP1. Full findings + FP1 verification checklist: `FABLE_REVIEW.md`.
+- ⬜ **Blocked on FP1 (07-10):** Commit 5, field corrections from a real WEC capture —
+  run the capture through `--replay` + the harness; work the `FABLE_REVIEW.md` §2
+  verify-at-FP1 checklist; regenerate the test fixture from the real capture.
 
 **Race-week fill queue (07-04→07-12, between Epic 8 checklist items — all
 freeze-compatible, reviewed 2026-07-04):**
