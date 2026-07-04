@@ -871,6 +871,50 @@ class WecLiveClient:
         self._cleanup()
 
 
+# ── offline capture replay ────────────────────────────────────────────────────
+
+def iter_capture(path):
+    """Yield (channel, data) frames from a --record capture (gzip JSONL).
+    Torn trailing lines (the hard-kill artifact documented in WEC_RACE_WEEK.md)
+    are skipped rather than raised — a crashed capture must still replay."""
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                frame = json.loads(line)
+            except ValueError:
+                log.warning("Skipping torn capture line (%d bytes)", len(line))
+                continue
+            if isinstance(frame, dict):
+                yield frame.get("channel") or "", frame.get("data")
+
+
+def replay_capture(client: "WecLiveClient", path) -> tuple:
+    """Feed a recorded capture through the full parse/dispatch path offline.
+    Returns (n_frames, n_dispatch_errors).
+
+    This is the race-week Commit-5 workflow: --record at FP1, then replay the
+    file here against a scratch DB to find/fix field-mapping mistakes offline.
+    """
+    n = errs = 0
+    for channel, data in iter_capture(path):
+        n += 1
+        if channel == "_bootstrap":
+            if isinstance(data, dict):
+                client._hydrate_bootstrap(data)
+            continue
+        try:
+            client._dispatch_channel(channel, data)
+        except Exception:
+            errs += 1
+            log.exception("Replay dispatch error on channel %s", channel)
+    if client.db:
+        client.db.commit()
+    return n, errs
+
+
 # ── discover mode ─────────────────────────────────────────────────────────────
 
 def discover_mode(sid: Optional[int] = None):
@@ -969,12 +1013,26 @@ def main():
                     help="append raw frames (gzip JSONL) for offline analysis")
     ap.add_argument("--discover", action="store_true",
                     help="list live sessions + 30s protocol dump")
+    ap.add_argument("--replay", metavar="FILE.jsonl.gz",
+                    help="replay a --record capture offline through the full "
+                         "parse/dispatch path (field-mapping iteration)")
     ap.add_argument("--sid", type=int, default=None,
                     help="Griiip session ID (auto-discovers WEC if omitted)")
     args = ap.parse_args()
 
     if args.discover:
         discover_mode(sid=args.sid)
+        return
+
+    if args.replay:
+        client = WecLiveClient(db_path=args.db, no_db=args.no_db)
+        if not client.no_db:
+            client.db = dbmod.RaceDB(client.db_path)
+        try:
+            n, errs = replay_capture(client, args.replay)
+            log.info("Replayed %d frames (%d dispatch errors)", n, errs)
+        finally:
+            client._cleanup()
         return
 
     sid = args.sid

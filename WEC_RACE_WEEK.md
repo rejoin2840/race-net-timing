@@ -85,4 +85,15 @@ cd "/Users/paulkassan/Claude projects/race-net-timing"
 venv/bin/python src/wec_live.py --discover                 # list live sessions
 venv/bin/python src/wec_live.py --record data/wec_raw.jsonl.gz   # auto-discover WEC, record
 venv/bin/python src/wec_live.py --sid <sid> --no-db --record F.jsonl.gz  # rehearsal/dry run
+venv/bin/python src/wec_live.py --replay F.jsonl.gz --db data/scratch.db # offline replay
 ```
+
+## Offline capture replay (Commit-5 workflow, added 07-04)
+
+`--replay` feeds a `--record` capture through the full parse/dispatch path
+offline — record FP1, replay against a scratch DB, fix field mappings, repeat.
+Torn trailing lines (hard-kill artifact) are skipped automatically.
+`tests/test_wec_capture_replay.py` runs the same path in `check.sh` against
+`tests/fixtures/wec_capture_sample.jsonl.gz` (real 07-03 Griiip bootstrap +
+live-shape frames). **After FP1: regenerate the fixture from the real WEC
+capture** — the test assertions are the contract.
