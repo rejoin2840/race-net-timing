@@ -284,7 +284,16 @@ phase 1/2, not yet actioned (cosmetics frozen):
   the shuffle since Paul last watched the live TV feed. It should NOT fold in
   net-position projections — those already live on the main calm board and
   would just duplicate/complicate the card. Narrows the phase 1/2 design
-  problem considerably.
+  problem considerably. Principle: WYWA = retrospective narration (what a
+  live-TV viewer would note down), main board = our forward-looking
+  analytical layer (net/catch projections) — never blend the two.
+  **Verified against code (07-04):** current `catchup.py` gain/loss/lead
+  detection already honors this — it keys off `effective_pos_in_class`, not
+  the `net_position` projection. `effective_pos_in_class`
+  (`calculator.py:697`) isn't a forward prediction either; it only re-ranks
+  currently-boxed cars by real time gap instead of the feed's stale frozen
+  slot, so it matches live-broadcast reality rather than projecting it. No
+  conflict found — implementation already matches the principle.
 - Net position display (the `±18` / arrow / P7 cluster) is unclear at a glance —
   **both** a comprehension problem (Paul isn't sure what it's measuring: time
   gap? positions gained/lost? track position vs. net-of-pits?) **and** a
