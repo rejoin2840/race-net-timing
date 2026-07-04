@@ -1027,17 +1027,26 @@ class CalmDashboard(QMainWindow):
         self._snap_now = catchup.snapshot(ctx, cars)
         self._rc_now = list(rc or [])
         rows = dash._build_rows(ctx, cars, trend, None, poller=self.poller)
+        camap = {c.car_number: c for c in cars}
         # patch missing team/driver from static entry list
         for r in rows:
             if r.is_header:
                 continue
             e = _ENTRIES.get(r.car)
+            # car numbers collide across series' entry files (e.g. IMSA #7 vs
+            # WEC #7) — trust a static entry only if its class matches the
+            # feed's class for this car. Class codes are disjoint across series
+            # (GTP/GTD... vs HYPERCAR/LMGT3), so this picks the right file.
+            ca = camap.get(r.car)
+            if e and ca and e.get("class") and ca.car_class:
+                norm = lambda s: re.sub(r"[^A-Z0-9]", "", str(s).upper())
+                if norm(e["class"]) != norm(ca.car_class):
+                    e = None
             roster = e.get("drivers") if e else None
             if e and (not r.team or r.team == "?"):
                 r.team = e["team"]
             # show only the driver currently in the car, as "F. Lastname"
             r.driver = _short_driver(r.driver, roster)
-        camap = {c.car_number: c for c in cars}
         self._current_lap = ctx.current_lap
         self._is_race = bool(ctx.is_race)    # rail's PROJECTED PODIUM is race-only
         # per-class "out of sequence on stops?" — net overlay only speaks when the
