@@ -73,6 +73,19 @@ Raw capture = must-have; live board = nice-to-have for race day.
   kill test. See `WEC_RACE_WEEK.md` for detail.
 - ⬜ **Blocked on FP1 (07-10):** Commit 5, field corrections from a real WEC capture.
 
+**Race-week fill queue (07-04→07-12, between Epic 8 checklist items — all
+freeze-compatible, reviewed 2026-07-04):**
+1. **São Paulo WEC entry-list JSON** (`data/entries_wec_saopaulo_2026.json`, car# →
+   class/team/drivers from the FIA WEC entry list PDF, mirroring the Monterey
+   pattern + `_load_entries()` merge) — makes the live board readable on race day.
+   PDF likely 403s to curl: Paul downloads in browser → ~/Downloads.
+2. **Driver-change / min-drive-time rules research, WEC sporting regs first**
+   (promotes the unscheduled research item) — São Paulo-relevant, and replaces the
+   `(lineup_size − 1)` heuristic eventually. Pure research, survives any UI direction.
+3. **Epic 7 B3** catch-up logic — rides along with the B2 session.
+Everything else is frozen (cosmetics → Epic 9) or calendar-blocked (Epics 1b/2 →
+next IMSA event; Epic 9 → post-race-week).
+
 **Feasibility:** `signalrcore 1.0.2` already in venv with full `MessagePackHubProtocol`;
 `msgpack 1.1.2` importable. If WEC is SignalR Core (vs classic ASP.NET SignalR — fails
 fast at negotiate, easy to distinguish), the `HubConnectionBuilder` pattern from the
