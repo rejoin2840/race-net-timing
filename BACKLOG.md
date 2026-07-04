@@ -189,12 +189,23 @@ module-level IMSA dicts remain only as a fallback for callers without a live con
 - **WEC VET column:** hypothesis = Virtual Energy Tank % for Hypercar. Confirm from first
   São Paulo capture; if correct, scope as Epic 2 sibling for WEC.
 - **"+1 lap" flicker** — cosmetic; hysteresis fix idea documented in session notes.
+- **F1OpenViewer steal-audit** (added 2026-07-04, Paul's flag): MIT-licensed F1 TV
+  desktop client whose look Paul likes — github.com/npanu420/F1OpenViewer (v1.2.0;
+  Electron + React + Tailwind, Shaka Player). Spike scope: (a) UI design-language
+  audit (screenshots, Tailwind theme values, layout/typography) as concrete input to
+  the UI refactor; (b) read its **video↔timing sync-engine** — MIT prior art for the
+  broadcast-video north star below; (c) MultiViewer is closed source — UI inspiration
+  by use only, nothing liftable. Non-goal: no stack-migration decision from this
+  spike — but note every look Paul likes (Timing71, F1OpenViewer, MultiViewer) is
+  web-tech; that question belongs to the UI refactor.
 
 ## Parked north star (no work — direction only)
 
 - **Broadcast video linkage:** connect the app to the livestream and pull video clips of
   notable overtakes/incidents, feeding the "while you were away" card. Paul's "final
-  boss" idea — everything WYWA-related should avoid foreclosing it.
+  boss" idea — everything WYWA-related should avoid foreclosing it. Prior art:
+  F1OpenViewer's MIT sync engine anchors video playback to live timing (see the
+  steal-audit spike under Research items).
 
 ## Held-out / regression sets
 
