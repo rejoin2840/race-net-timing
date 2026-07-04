@@ -54,7 +54,7 @@ python3 -m venv venv
 ./venv/bin/python src/dashboard.py
 ```
 
-No-terminal launch: `IMSA Strategy.app` at the project root (path is hardcoded inside
+No-terminal launch: `Overcut.app` at the project root (path is hardcoded inside
 `Contents/MacOS/run` — update it if the folder moves).
 
 ## Common commands
