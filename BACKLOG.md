@@ -11,6 +11,11 @@ tune). Paul's top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-04 — UI code frozen until the direction spike (Epic 9) decides.** Paul's
+  call: "do it right the first time." No new visual/cosmetic work (placement, wording,
+  styling, brightness) until Epic 9 answers product purpose + front-end direction.
+  NOT frozen: behavioral tuning via config knobs (Epic 7 B2 — values transfer to any
+  front end), catch-up *logic* refinements, and all Epic 8 WEC work.
 - **2026-07-03 — F1 and IndyCar scrapped entirely (supersedes 07-02 freeze).** Paul's
   call. Full delete of source, tests, data, docs, and archive folders. Recovery path:
   `git checkout pre-endurance-refocus -- <file>` or `git show pre-endurance-refocus:src/f1_live.py`.
@@ -175,11 +180,39 @@ module-level IMSA dicts remain only as a fallback for callers without a live con
 
 **Open (needs Paul at keyboard — streaming session):**
 - WATCH/BATTLES knob tuning: `replay.py <archive> --stream`, edit `config.json`
-  live, land chosen values + note findings here.
-- Catch-up card refinements / breath-noise notes: observe during the same session;
-  each fix gets its own commit.
+  live, land chosen values + note findings here. *(Behavioral — NOT frozen by the
+  07-04 UI freeze; tuned thresholds transfer to any future front end.)*
+- Catch-up LOGIC refinements (event ranking/selection in `catchup.py`) — allowed.
+  Cosmetic card/board tweaks — **frozen until Epic 9 decides** (07-04 decision).
+- Same session doubles as UX-input gathering: Paul screenshots/notes whatever bugs
+  him visually → raw material for Epic 9's design phase.
 - **Gate for any code change:** `./check.sh` + `replay.py --stream` feel-test;
   evaluator report (`logs/stream_*.txt`) as the honesty check metrics didn't slip.
+
+### Epic 9 — Product definition + UI direction spike *(gates all cosmetic UI work; run after São Paulo race week)*
+
+Paul (2026-07-04): research and decide before investing more in UI code — "do it
+right the first time." Two phases, one spike; phase 1 feeds phase 2.
+
+**Phase 1 — nail the product's main purpose.** Pressure-test the existing one-liners
+(North Star = "catch up at a glance after stepping away"; BACKLOG identity =
+"endurance strategy companion with honest confidence signaling / strategy learning
+lab") into answers concrete enough to drive architecture: one screen or several?
+race-day tool vs between-races study tool? solo-Paul or ever shared? does the
+broadcast-video "final boss" make the cut? Sounding-board format (options/mockups,
+not open questions — per the UX-redesign playbook).
+
+**Phase 2 — front-end direction.** Inputs: phase 1 answers + the F1OpenViewer
+steal-audit (MIT, github.com/npanu420/F1OpenViewer v1.2.0, Electron/React/Tailwind):
+(a) design-language audit — screenshots, Tailwind theme values, layout/typography;
+(b) its **video↔timing sync engine** — MIT prior art for the broadcast-video north
+star; (c) MultiViewer = closed source, inspiration by use only. Decide: keep
+polishing PyQt6 vs move display layer to web tech (engine/data layer unaffected
+either way). Every look Paul likes (Timing71, F1OpenViewer, MultiViewer) is
+web-tech — weigh honestly, decide once.
+
+**Output:** a decision-log entry + a scoped plan for the chosen direction.
+Until then: cosmetic UI work frozen (see 07-04 decision).
 
 ## Research items (unscheduled)
 
@@ -189,15 +222,7 @@ module-level IMSA dicts remain only as a fallback for callers without a live con
 - **WEC VET column:** hypothesis = Virtual Energy Tank % for Hypercar. Confirm from first
   São Paulo capture; if correct, scope as Epic 2 sibling for WEC.
 - **"+1 lap" flicker** — cosmetic; hysteresis fix idea documented in session notes.
-- **F1OpenViewer steal-audit** (added 2026-07-04, Paul's flag): MIT-licensed F1 TV
-  desktop client whose look Paul likes — github.com/npanu420/F1OpenViewer (v1.2.0;
-  Electron + React + Tailwind, Shaka Player). Spike scope: (a) UI design-language
-  audit (screenshots, Tailwind theme values, layout/typography) as concrete input to
-  the UI refactor; (b) read its **video↔timing sync-engine** — MIT prior art for the
-  broadcast-video north star below; (c) MultiViewer is closed source — UI inspiration
-  by use only, nothing liftable. Non-goal: no stack-migration decision from this
-  spike — but note every look Paul likes (Timing71, F1OpenViewer, MultiViewer) is
-  web-tech; that question belongs to the UI refactor.
+- **F1OpenViewer steal-audit** — promoted into Epic 9 phase 2 (2026-07-04).
 
 ## Parked north star (no work — direction only)
 
