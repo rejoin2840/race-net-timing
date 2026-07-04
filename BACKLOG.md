@@ -75,7 +75,9 @@ Raw capture = must-have; live board = nice-to-have for race day.
 - ✅ Fix: `ranks`/`gaps` nested-`items` unwrapping (found from live F1 traffic).
 - ✅ `tests/test_wec_live.py`: 70 tests, all green (`./check.sh`).
 - ⬜ **Open (Phase 3, see `WEC_RACE_WEEK.md`):** kill-network reconnect test, Timing71
-  DVR fallback verification, `--discover` check for WEC seriesId=10 (~07-07).
+  archive fallback confirmation at FP1 (corrected 07-04: T71 can't record live, it
+  provides a post-session archive — data-only fallback, no live board), `--discover`
+  check for WEC seriesId=10 (~07-07).
   *07-03 check run: no WEC sessions yet, transport healthy (connect + group join OK).*
 - ✅ **Fixed (07-03):** `--record`'s gzip archive wasn't crash-safe (a hard process kill
   truncated the tail). Now flushes after every frame write; verified with a second
@@ -130,7 +132,7 @@ Core-vs-classic on day 1). Retry 07-06 (session pools often open 3–5 days pre-
 
 **Runway 07-03 → 07-12:**
 - Now–07-05: skeleton, msgpack decode harness, guessed mappings, `--record` mode.
-- 07-06: retry discovery; verify Timing71 Desktop DVR fallback works NOW, not race day.
+- 07-06: retry discovery. (Timing71 fallback = post-session archive only, confirm at FP1.)
 - 07-07/08: picker wiring, tests, hardening.
 - 07-09: full rehearsal — `--record` under `--no-db`, kill-wifi reconnect test.
 - 07-10 FP1: first guaranteed live traffic; `--record` runs through every session.
@@ -139,7 +141,8 @@ Core-vs-classic on day 1). Retry 07-06 (session pools often open 3–5 days pre-
 
 **Fallbacks (ranked):**
 1. Raw frame capture → post-race parsing.
-2. Timing71 Desktop DVR → existing `timing71.py`/`replay.py` path (IMSA-proven).
+2. Timing71 post-session archive → existing `timing71.py`/`replay.py` path
+   (IMSA-proven; data-only, available after the session — not a live-board fallback).
 3. Browser HAR/WS capture (manual last resort).
 
 **Top risks:** SignalR classic-vs-Core (day-1 check) · auth/cookie gate on negotiate ·

@@ -35,8 +35,8 @@ already regression-gated by the 6-race IMSA suite.
 5. **`--discover` crashed with NameError when the schedule fetch failed**
    (`sessions` referenced before assignment) — the exact command in the daily
    07-06+ checklist. Fixed.
-6. **Timing71 DVR fallback loaded WEC archives as IMSA.** `_detect_series`
-   hardcoded `"imsa"`; a WEC DVR capture (fallback #2) would have gotten the
+6. **Timing71 archive fallback loaded WEC archives as IMSA.** `_detect_series`
+   hardcoded `"imsa"`; a WEC post-session archive (fallback #2) would have gotten the
    wrong profile/classes. Now detects WEC manifests.
 
 Plus: capture-replay harness (`tests/test_wec_capture_replay.py`, real 07-03

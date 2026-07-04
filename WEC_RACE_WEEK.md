@@ -10,7 +10,7 @@ commit-by-commit history).
 |---|---|---|
 | 1 | Protocol discovery + `wec_live.py` client build | ✅ done |
 | 2 | Raw capture (`--record`), tests, picker wiring | ✅ done |
-| 3 | Pre-event validation (rehearsal, DVR fallback, discovery check) | ⬜ open |
+| 3 | Pre-event validation (rehearsal, archive fallback, discovery check) | ⬜ open |
 | 4 | Race-week execution (FP1 capture → field corrections → race) | ⬜ calendar-blocked |
 
 **Protocol (confirmed 2026-07-03):** Griiip SignalR Core + msgpack v2, hub at
@@ -29,9 +29,12 @@ commit-by-commit history).
   process death). A true "kill wifi mid-session" test needs a live network interruption
   on Paul's machine — do this manually once real WEC traffic is up (~07-07+), not via a
   sandboxed process kill.
-- [ ] **Timing71 Desktop DVR fallback.** Never verified. Manual step for Paul: open
-  Timing71 Desktop, confirm it can see/record a WEC session before race week. This is
-  fallback #2 if the live client fails race day.
+- [ ] **Timing71 archive fallback.** *(Corrected 07-04, per Paul: the Timing71 app
+  does NOT record live — it provides an archive file after the session ends.)* So
+  fallback #2 rescues the DATA (post-session archive → `timing71.py`/`replay.py`,
+  IMSA-proven) but NOT the live board mid-race — if `wec_live` fails live, watch
+  Timing71 itself and parse the archive afterward. Verify at FP1: confirm the WEC
+  session appears in Timing71 and an archive is downloadable after the session.
 - [ ] **WEC discovery check (~07-07).** Griiip session pools typically open 3–5 days
   pre-event. Run `--discover` and confirm a `seriesId=10` entry appears:
   ```
@@ -75,7 +78,8 @@ buffered chunk could be lost instead of just the one in-flight frame. Regression
 ## Fallback ladder
 
 1. Raw frame capture (`--record`) → post-race parsing.
-2. Timing71 Desktop DVR → existing `timing71.py` / `replay.py` path (IMSA-proven).
+2. Timing71 post-session archive → existing `timing71.py` / `replay.py` path
+   (IMSA-proven; data-only — no live board, archive available only after the session).
 3. Browser HAR/WS capture (manual last resort).
 
 ## Launch commands
