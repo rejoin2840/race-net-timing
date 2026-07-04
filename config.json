@@ -20,12 +20,14 @@
     "GTP": 28,
     "LMP2": 30,
     "GTD": 32,
-    "GTDPRO": 32
+    "GTDPRO": 32,
+    "HYPERCAR": 33,
+    "LMGT3": 30
   },
   "PIT_WINDOW_LAPS": 5,
   "BUDGET_PER_CLASS": 3,
-  "TRACK_LAT": 42.337,
-  "TRACK_LON": -76.927,
+  "TRACK_LAT": -23.7036,
+  "TRACK_LON": -46.6997,
   "STOP_OUTLIER_MAD": 6.0,
   "CATCH_CLOSING_EFFICIENCY": 0.75,
   "DEV_SHOW_ALL_SESSIONS": false,

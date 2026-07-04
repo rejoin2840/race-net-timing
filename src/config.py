@@ -38,7 +38,10 @@ DEFAULTS = {
     "DC_NEAR_LAPS":           2,        # a stop is a driver-change stop if a change is within ±this
     "DEFAULT_STINT_FALLBACK": 30,       # fallback green-stint length (laps)
     "DEFAULT_STINT_LAPS": {             # per-class green-stint priors (laps)
-        "GTP": 28, "LMP2": 30, "GTD": 32, "GTDPRO": 32},
+        "GTP": 28, "LMP2": 30, "GTD": 32, "GTDPRO": 32,
+        # WEC priors (Interlagos-ish; self-correct once a real stint is
+        # observed — tune live via config.json during FP/race)
+        "HYPERCAR": 33, "LMGT3": 30},
     "PIT_WINDOW_LAPS":        5,        # fuel-laps-left at/under which the pit window is "open"
     "BUDGET_PER_CLASS":       1,        # max NET-overlay highlights allowed per class on the calm board (0 = monochrome)
     "TRACK_LAT":              42.337,   # circuit latitude  (Watkins Glen — first race)

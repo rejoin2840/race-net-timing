@@ -82,13 +82,92 @@ field-mapping loop, ready before FP1.
   a 999.0 ms value would misread as 999 s. Only matters if Griiip ever sends
   float fields — check against the FP1 capture before using it for sectors.
 
-## 4. Tier 2 — whole-repo architecture pass (PENDING, fill work 07-05→07-09)
+## 4. Tier 2 — whole-repo architecture pass (done 2026-07-04)
 
-First thing cut under time pressure (feeds Epic 9, which runs post-race-week).
-Planned scope: engine/display boundary (how cleanly could the PyQt6 layer be
-swapped for web tech — the Epic 9 phase-2 question), the two-process
-WAL/sqlite interface design, `dashboard_calm.py` (1571 lines) structure,
-config hot-reload pattern, dead-code sweep after the F1/IndyCar deletion
-(`inspect_page.py`, `intercept_ws.py`, `weekend_conductor.py`,
-`session_healthcheck.py` — confirm still used), `alkameldp.py` review
-(IMSA-proven live, lowest priority). Findings land here when done.
+Log-only. Primary customer: Epic 9 (product definition + front-end direction).
+
+### 4.1 Engine/display boundary — the Epic 9 phase-2 answer
+
+**The boundary is already good.** PyQt6 imports are confined to exactly four
+modules: `dashboard.py`, `dashboard_calm.py`, `timing_table.py`,
+`session_picker.py`. Everything else — `calculator`, `db`, `catchup`,
+`penalties`, `race_control`, `series_profiles`, `config`, `predictor`,
+`timing71`, `replay`, `evaluator`, `wec_live`, `alkameldp` — is Qt-free and
+would survive a front-end swap untouched. The valuable IP (the calculator) is
+fully display-agnostic.
+
+**One leak, and it's the whole pre-work for a web front end:** `Poller`,
+`Row`, `_build_rows`, and the class/flag constants live in `dashboard.py` (a
+UI module), and `dashboard_calm` imports them from there. `Poller` itself is
+pure data logic (sqlite + deques, zero Qt) — extracting Poller + row-building
+(~350 lines) into an engine-side `poller.py` is mechanical and would make
+`dashboard.py` deletable-in-principle. Recommend doing that extraction as the
+FIRST commit of whatever Epic 9 decides — it pays off in both futures
+(PyQt6-kept or web).
+
+**Web-swap cost estimate:** moderate and well-contained. `_row_vm()` in
+`dashboard_calm.py` already builds a plain-dict view-model per row — that is
+90% of a JSON contract for a web UI. The sqlite-WAL two-process pattern means
+a display layer could be fed by a thin local HTTP/WS bridge reading the same
+DB the Qt board reads today; engine untouched. The real Epic 9 cost is
+re-implementing the *widgets* (cards, rails, animations), not the data path.
+
+### 4.2 Two-process sqlite design — sound
+
+Scraper writes / dashboard reads+predicts, WAL + `busy_timeout=5000` on both
+sides (`db.py:243`, `dashboard.py:109`), history tables idempotent by schema.
+This is a solid little architecture and the reason replay/live/evaluator all
+compose. Keep it regardless of front-end direction.
+
+### 4.3 Config hot-reload — sound, two content gaps (fixed)
+
+Schema-gated (`config.py` DEFAULTS is the schema), mtime-checked once per
+cycle, malformed-JSON-safe. Pattern is right. Content gaps found and fixed
+07-04 since they're race-day-relevant, values-only, freeze-compatible:
+`DEFAULT_STINT_LAPS` had no WEC classes (HYPERCAR/LMGT3 fell to the generic
+30-lap fallback; priors 33/30 added — **Paul: sanity-check against FP1**),
+and `TRACK_LAT/LON` still pointed at Watkins Glen (weather card) — now
+Interlagos. Post-race-week idea: move per-track values into event/series data
+so a stale manual edit can't ship (logged, low priority).
+
+### 4.4 dashboard_calm.py (1571 lines) — big but not tangled
+
+Clear internal strata: pure helpers → view-model builders (`_row_vm`,
+`_columns`) → self-contained card/row widgets → `CalmDashboard` orchestration
+(`refresh()` is the only place everything meets). If PyQt6 stays, a
+3-file split (viewmodel / widgets / window) is low-risk; if web wins, only
+the view-model layer ports. No action until Epic 9 decides — the structure
+does not block either path.
+
+### 4.5 Dead code (post-F1/IndyCar-deletion sweep)
+
+Import-orphans, all from the pre-DDP browser-scraping era:
+- `scraper.py` (334 ln) + `inspect_page.py` (211 ln, only imported by
+  scraper) — superseded by `alkameldp.py`. Safe to delete post-race-week
+  (recovery: git history).
+- `intercept_ws.py` (167 ln) — orphaned, BUT it is generic WS-interception
+  tooling and race-week fallback #3 is "browser HAR/WS capture" — **keep at
+  least through São Paulo**, then decide.
+Alive and correctly wired: `weekend_conductor` → `session_healthcheck` +
+`headless_predictor` (via session_picker), `telemetry_capture` (Epic 2),
+`predictor` (5 consumers).
+
+### 4.6 Misc (logged)
+
+- Importing `wec_live`/`alkameldp` has side effects: logging file handlers
+  created at import time — every test run drops a `weclive_*.log` in `logs/`
+  (visible: dozens of near-empty logs from today's runs). Move handler setup
+  into `main()`/client start post-race-week.
+- `laptime_ms` in wec_live is currently unused by handlers (fields arrive as
+  int ms) — it exists for field corrections; fine, but delete after Commit 5
+  if still unused.
+- `alkameldp.py` structure reviewed at outline level only (IMSA-proven live;
+  same _parse/_state/_client strata as wec_live). No concerns worth the read
+  before race week.
+
+### 4.7 What Tier 2 did NOT find
+
+No race-day-critical issues beyond the two config content gaps. Nothing in
+the architecture blocks Epic 9's web option; nothing demands it either. The
+honest summary for the Epic 9 spike: the code is *ready* for either decision,
+so the decision can be made purely on product/UX grounds.

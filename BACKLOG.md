@@ -92,10 +92,14 @@ Raw capture = must-have; live board = nice-to-have for race day.
 
 **Race-week fill queue (07-04→07-12, between Epic 8 checklist items — all
 freeze-compatible, reviewed 2026-07-04):**
-1. **São Paulo WEC entry-list JSON** (`data/entries_wec_saopaulo_2026.json`, car# →
-   class/team/drivers from the FIA WEC entry list PDF, mirroring the Monterey
-   pattern + `_load_entries()` merge) — makes the live board readable on race day.
-   PDF likely 403s to curl: Paul downloads in browser → ~/Downloads.
+1. ✅ **São Paulo WEC entry-list JSON** (07-04, commit d96547f): 35 cars from the
+   FIA provisional entry list v1. Found + fixed along the way: 9 car numbers
+   collide with the IMSA Monterey entries file and `_load_entries()` merges flat —
+   static entries are now trusted only when their class matches the feed's class.
+   Also 07-04: WEC stint priors (HYPERCAR 33 / LMGT3 30 — sanity-check at FP1) and
+   Interlagos weather coords in config. Fable Tier-2 architecture review done same
+   day — see `FABLE_REVIEW.md` §4 (headline: engine/display boundary is clean;
+   Poller/_build_rows extraction from dashboard.py should be Epic 9's first commit).
 2. **Driver-change / min-drive-time rules research, WEC sporting regs first**
    (promotes the unscheduled research item) — São Paulo-relevant, and replaces the
    `(lineup_size − 1)` heuristic eventually. Pure research, survives any UI direction.
