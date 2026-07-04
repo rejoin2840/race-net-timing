@@ -868,7 +868,7 @@ class LegendCard(QFrame):
 class CalmDashboard(QMainWindow):
     def __init__(self, force_oid=None):
         super().__init__()
-        self.setWindowTitle("IMSA Strategy — Catch-up")
+        self.setWindowTitle("Overcut — Catch-up")
         self.resize(1180, 760)
         self.poller = dash.Poller(force_oid=force_oid)
         self._rows: dict[str, RowWidget] = {}

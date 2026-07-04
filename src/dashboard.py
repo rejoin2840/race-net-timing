@@ -246,7 +246,7 @@ class Poller:
 class Dashboard(QMainWindow):
     def __init__(self, force_oid=None, series=None):
         super().__init__()
-        self.setWindowTitle("IMSA Strategy — Net Position")
+        self.setWindowTitle("Overcut — Net Position")
         self.resize(1500, 880)
         self.poller = Poller(force_oid=force_oid, series=series)
         self.proc: Optional[QProcess] = None
