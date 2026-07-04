@@ -417,6 +417,141 @@ class TestItemsUnwrapping(unittest.TestCase):
         self.assertEqual(c.state.car_laps["7"]["lap"], 5)
 
 
+class _DbTestCase(unittest.TestCase):
+    """Base for tests that need a real RaceDB behind the client."""
+
+    def setUp(self):
+        import tempfile
+        import db as dbmod
+        self._tmp = tempfile.TemporaryDirectory()
+        self.client = WecLiveClient(db_path="", no_db=True)
+        self.client.db = dbmod.RaceDB(os.path.join(self._tmp.name, "test.db"))
+        self.client._handle_session_info({
+            "sid": 999, "eventName": "Test 6H", "sessionName": "Race",
+            "sessionType": "Race",
+        })
+
+    def tearDown(self):
+        self.client.db.close()
+        self._tmp.cleanup()
+
+    def _query(self, sql, *args):
+        return self.client.db.conn.execute(sql, args).fetchall()
+
+
+class TestPitStopFlow(_DbTestCase):
+    """A live-observed pit-in/pit-out pair must record a pit_events row — the
+    IMSA baseline rule (first lastPitHour = pre-connect stop, don't count) must
+    NOT swallow WEC's first stop per car."""
+
+    def test_first_stop_is_recorded(self):
+        self.client._handle_pit_in({"carNumber": "7"})
+        self.client._handle_pit_out({"carNumber": "7"})
+        rows = self._query(
+            "SELECT stop_number, stop_duration_ms FROM pit_events WHERE car_number='7'")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["stop_number"], 1)
+        self.assertIsNotNone(rows[0]["stop_duration_ms"])
+
+    def test_second_stop_increments(self):
+        import time as _time
+        for _ in range(2):
+            self.client._handle_pit_in({"carNumber": "7"})
+            self.client._handle_pit_out({"carNumber": "7"})
+            _time.sleep(0.002)  # distinct entry epoch ms per stop (db dedupes
+                                # identical lastPitHour values as the same stop)
+        rows = self._query(
+            "SELECT stop_number FROM pit_events WHERE car_number='7' ORDER BY stop_number")
+        self.assertEqual([r["stop_number"] for r in rows], [1, 2])
+
+    def test_pit_out_without_pit_in_records_nothing(self):
+        self.client._handle_pit_out({"carNumber": "7"})
+        self.assertEqual(len(self._query("SELECT 1 FROM pit_events")), 0)
+
+
+class TestStatusMerge(_DbTestCase):
+    """db.update_status overwrites every session_status column from the dict it
+    gets — wec_live's partial updates (flag-only, clock-only, length-only) must
+    be merged so they don't null each other's fields out."""
+
+    def test_flag_update_preserves_session_length(self):
+        self.client._handle_session_length(
+            {"sessionLengthType": "TimeOnly", "timeLimitSeconds": 21600})
+        self.client._handle_race_flags({"flag": "Green", "lapNumber": 1})
+        row = self._query("SELECT current_flag, final_type, final_time_s "
+                          "FROM session_status")[0]
+        self.assertEqual(row["current_flag"], "GF")
+        self.assertEqual(row["final_type"], "BY_TIME")
+        self.assertEqual(row["final_time_s"], 21600)
+
+    def test_clock_z_suffix_parses_on_py39(self):
+        self.client._handle_session_clock({"startTime": "2026-07-12T11:00:00Z"})
+        row = self._query("SELECT start_time_s FROM session_status")[0]
+        self.assertIsNotNone(row["start_time_s"])
+        self.assertGreater(row["start_time_s"], 0)
+
+    def test_new_session_clears_accumulator(self):
+        self.client._handle_race_flags({"flag": "Green", "lapNumber": 1})
+        self.assertIn("currentFlag", self.client.state.status_acc)
+        self.client._handle_session_info({
+            "sid": 1000, "eventName": "Next Event", "sessionName": "Race",
+        })
+        self.assertEqual(self.client.state.status_acc, {})
+
+
+class TestBestLapLive(unittest.TestCase):
+    """Live laps must keep best_ms current — bootstrap only seeds it once."""
+
+    def _make_client(self):
+        c = WecLiveClient(db_path="", no_db=True)
+        c.state = WecLiveState(sid=1, session_oid="wec_live_1")
+        return c
+
+    def test_faster_lap_updates_best(self):
+        c = self._make_client()
+        c._handle_laps({"carNumber": "7", "lapNumber": 1, "lapTimeMillis": 92000})
+        c._handle_laps({"carNumber": "7", "lapNumber": 2, "lapTimeMillis": 91000})
+        self.assertEqual(c.state.car_laps["7"]["best_ms"], 91000)
+        self.assertEqual(c.state.car_laps["7"]["best_num"], 2)
+
+    def test_slower_lap_keeps_best(self):
+        c = self._make_client()
+        c._handle_laps({"carNumber": "7", "lapNumber": 1, "lapTimeMillis": 91000})
+        c._handle_laps({"carNumber": "7", "lapNumber": 2, "lapTimeMillis": 95000})
+        self.assertEqual(c.state.car_laps["7"]["best_ms"], 91000)
+        self.assertEqual(c.state.car_laps["7"]["best_num"], 1)
+
+    def test_invalid_lap_not_counted_as_best(self):
+        c = self._make_client()
+        c._handle_laps({"carNumber": "7", "lapNumber": 1, "lapTimeMillis": 92000,
+                        "isValid": True})
+        c._handle_laps({"carNumber": "7", "lapNumber": 2, "lapTimeMillis": 85000,
+                        "isValid": False})
+        self.assertEqual(c.state.car_laps["7"]["best_ms"], 92000)
+
+
+class TestDetectSeries(unittest.TestCase):
+    """Timing71 DVR fallback: a WEC archive must load with the WEC profile."""
+
+    def test_wec_manifest(self):
+        from types import SimpleNamespace
+        import replay as replaymod
+        r = SimpleNamespace(series_name="FIA World Endurance Championship")
+        self.assertEqual(replaymod._detect_series(r), "wec")
+
+    def test_imsa_manifest(self):
+        from types import SimpleNamespace
+        import replay as replaymod
+        r = SimpleNamespace(series_name="IMSA WeatherTech SportsCar Championship")
+        self.assertEqual(replaymod._detect_series(r), "imsa")
+
+    def test_empty_manifest_defaults_imsa(self):
+        from types import SimpleNamespace
+        import replay as replaymod
+        r = SimpleNamespace(series_name="")
+        self.assertEqual(replaymod._detect_series(r), "imsa")
+
+
 class TestRecordFrameFlush(unittest.TestCase):
     """--record is billed as mandatory race-day insurance; a frame must be
     flushed to disk immediately so a hard process kill can lose at most the

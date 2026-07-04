@@ -559,12 +559,16 @@ class RaceDB:
         )
 
     # ── pit detection (the real one) ─────────────────────────────────────────
-    def update_pit_info(self, car: str, pit: dict) -> None:
+    def update_pit_info(self, car: str, pit: dict, live_observed: bool = False) -> None:
         """
         Detect pit stops off session_pit_info.lastPitHour — a real per-stop epoch.
         A *changed* lastPitHour means a new completed stop. The first value seen
         for a car is taken as a baseline (a stop that may predate our connect, so
         not counted) — matching the long-standing "only live-observed stops" rule.
+
+        live_observed=True skips that baseline rule: the caller generated the
+        timestamp from pit events it watched happen (WEC pit-in/pit-out), so the
+        first stop per car is real and must be counted, not swallowed.
 
         lastPitTime is that stop's duration; totalPitTime the cumulative pit time.
         """
@@ -575,7 +579,7 @@ class RaceDB:
             return
         prev = self._last_pit_hour.get(car)
         self._last_pit_hour[car] = hour
-        if prev is None:
+        if prev is None and not live_observed:
             return                      # baseline — don't count a pre-connect stop
         if hour == prev:
             return                      # same stop, nothing new

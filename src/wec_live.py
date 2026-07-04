@@ -268,8 +268,10 @@ class WecLiveState:
 
     entries_written: set = field(default_factory=set)
     pit_in_times: dict = field(default_factory=dict)   # car -> entry epoch ms
-
-PIT_DEBOUNCE = 2
+    # accumulated session_status fields — db.update_status() overwrites EVERY
+    # column from the dict it's given, so partial updates (flag-only, clock-only)
+    # must be merged here first or they null each other's fields out.
+    status_acc: dict = field(default_factory=dict)
 
 
 def _int_or(v, default):
@@ -440,6 +442,13 @@ class WecLiveClient:
 
     # ── channel handlers ─────────────────────────────────────────────────
 
+    def _push_status(self, partial: dict):
+        """Merge a partial status update into the accumulator and persist the
+        full merged dict — see WecLiveState.status_acc for why."""
+        self.state.status_acc.update(partial)
+        if self.db:
+            self.db.update_status(dict(self.state.status_acc))
+
     def _handle_session_info(self, data):
         if not isinstance(data, dict):
             return
@@ -459,6 +468,7 @@ class WecLiveClient:
 
         self.state.session_oid = oid
         self.state.entries_written.clear()
+        self.state.status_acc.clear()
         self.state.is_finished = data.get("hasSeenChequered", False)
         self.state.is_running = data.get("isStarted", False)
         log.info("Session: %s — %s (oid=%s, type=%s)", event, session_name, oid, stype)
@@ -474,12 +484,14 @@ class WecLiveClient:
     def _handle_session_clock(self, data):
         if not isinstance(data, dict):
             return
-        elapsed = data.get("elapsedTimeMillis")
         start_time = data.get("startTime")
         if self.db and start_time:
             try:
-                start_s = int(datetime.fromisoformat(str(start_time)).timestamp())
-                self.db.update_status({"startTime": start_s})
+                # Griiip sends JS-style 'Z'-suffixed ISO timestamps, which
+                # fromisoformat() can't parse before Python 3.11.
+                iso = str(start_time).replace("Z", "+00:00")
+                start_s = int(datetime.fromisoformat(iso).timestamp())
+                self._push_status({"startTime": start_s})
             except (ValueError, TypeError):
                 pass
 
@@ -499,7 +511,7 @@ class WecLiveClient:
                 status["finalType"] = "BY_TIME"
                 status["finalTime"] = secs
         if status:
-            self.db.update_status(status)
+            self._push_status(status)
             self.db.commit()
 
     def _handle_race_flags(self, data):
@@ -514,7 +526,7 @@ class WecLiveClient:
         if flag == "CH":
             self.state.is_finished = True
         if self.db:
-            self.db.update_status({
+            self._push_status({
                 "currentFlag": self.state.current_flag,
                 "isFinished": self.state.is_finished,
             })
@@ -572,14 +584,20 @@ class WecLiveClient:
             existing = self.state.car_laps.get(car, {})
             existing["lap"] = lap_num
             existing["last_ms"] = lap_ms
+            # keep the live best lap current (bootstrap only seeds it once);
+            # laps explicitly marked invalid don't count as a best
+            if lap_ms and data.get("isValid") is not False:
+                best = existing.get("best_ms")
+                if best is None or lap_ms < best:
+                    existing["best_ms"] = lap_ms
+                    existing["best_num"] = lap_num
             self.state.car_laps[car] = existing
             if lap_num > self.state.current_lap:
                 self.state.current_lap = lap_num
-                if self.db:
-                    self.db.update_status({
-                        "currentLap": self.state.current_lap,
-                        "isSessionRunning": True,
-                    })
+                self._push_status({
+                    "currentLap": self.state.current_lap,
+                    "isSessionRunning": True,
+                })
         self._flush_car(car)
 
     def _handle_participants(self, data):
@@ -624,11 +642,14 @@ class WecLiveClient:
         entry_ms = self.state.pit_in_times.pop(car, None)
         if entry_ms and self.db:
             now_ms = int(time.time() * 1000)
+            # live_observed: this stop was seen happen (pit-in + pit-out events),
+            # so the first stop per car is real — don't apply the IMSA baseline
+            # rule, which exists for feed values that may predate our connect.
             self.db.update_pit_info(car, {
                 "lastPitHour": entry_ms,
                 "lastPitTime": max(0, now_ms - entry_ms),
                 "totalPitTime": None,
-            })
+            }, live_observed=True)
             self.db.commit()
         log.info("Pit OUT: #%s", car)
 
@@ -661,7 +682,7 @@ class WecLiveClient:
     def _handle_session_closed(self, data):
         self.state.is_finished = True
         if self.db:
-            self.db.update_status({"isFinished": True})
+            self._push_status({"isFinished": True})
             self.db.commit()
         log.info("Session closed")
 
@@ -855,6 +876,7 @@ class WecLiveClient:
 def discover_mode(sid: Optional[int] = None):
     """List live sessions, optionally connect to one for 30s, dump everything."""
     log.info("=== Live sessions ===")
+    sessions = []
     try:
         r = requests.get(SCHEDULE_URL, timeout=15, headers=_http_headers())
         sessions = r.json()

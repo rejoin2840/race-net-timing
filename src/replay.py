@@ -56,9 +56,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _detect_series(replay: timing71.Replay) -> str:
-    """Map the archive's manifest.name to our series key.
-    Currently only IMSA archives are used; extend for WEC when its Timing71
-    archive format is confirmed."""
+    """Map the archive's manifest.name to our series key. WEC matters for the
+    race-day fallback ladder: a Timing71 DVR capture of a WEC session must load
+    with the WEC profile (HYPERCAR/LMGT3), not default to IMSA."""
+    name = (replay.series_name or "").lower()
+    if "wec" in name or "world endurance" in name:
+        return "wec"
     return "imsa"
 
 
