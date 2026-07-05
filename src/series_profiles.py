@@ -81,13 +81,16 @@ IMSA = SeriesProfile(
 WEC = SeriesProfile(
     key="wec",
     display_name="FIA WEC",
-    classes=("HYPERCAR", "LMGT3"),
-    class_order={"HYPERCAR": 0, "LMGT3": 1},
+    # LMP2 only appears at Le Mans, but the palette is permanent so its colour
+    # never depends on which classes happen to be entered at a given round.
+    classes=("HYPERCAR", "LMP2", "LMGT3"),
+    class_order={"HYPERCAR": 0, "LMP2": 1, "LMGT3": 2},
     class_colors={
         "HYPERCAR": "#E8102E",
+        "LMP2":     "#1E5BD6",
         "LMGT3":    "#00A651",
     },
-    spine={"HYPERCAR": "#F01744", "LMGT3": "#1EC96A"},
+    spine={"HYPERCAR": "#F01744", "LMP2": "#2E6FF0", "LMGT3": "#1EC96A"},
     spine_default="#5F6B7A",
     pit_model="refuel",
     identity="car_class",

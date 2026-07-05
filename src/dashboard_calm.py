@@ -274,7 +274,11 @@ def _row_vm(r, ca, current_lap, cycle_active=True, since=None, allow_net=True,
     # in-box cars are mid-stop (position/gap in flux, row dimmed) — keep net quiet.
     # allow_net = this car won the per-class attention budget (the global cap that stops
     # the board lighting up field-wide); when it didn't, stay "—" even if the gates pass.
-    if cycle_active and gap_ok and not in_box and net and trk and net != trk and allow_net:
+    # net_settled = class's final stops are done and no pending penalty on this car
+    # → net has collapsed to track order, so the overlay stays quiet (07-04 rule).
+    settled = bool(ca is not None and getattr(ca, "net_settled", False))
+    if (cycle_active and gap_ok and not in_box and not settled
+            and net and trk and net != trk and allow_net):
         if net < trk:  net_text, net_color = f"▲P{net}", GREEN  # effective spot is higher → gaining
         else:          net_text, net_color = f"▼P{net}", RED    # effective spot is lower → dropping
     else:
@@ -1415,7 +1419,7 @@ class CalmDashboard(QMainWindow):
             by_class = {}
             for r in due:
                 by_class.setdefault(r.cls, []).append(r)
-            for cls in sorted(by_class, key=lambda k: (dash.CLASS_ORDER.get(k, 9), k)):
+            for cls in sorted(by_class, key=lambda k: (self._profile.class_order.get(k, 9), k)):
                 cdue = sorted(by_class[cls], key=lambda r: r.trk_overall or 99)
                 cars = [r.car for r in cdue[:10]]
                 cextra = len(cdue) - 10
@@ -1527,7 +1531,8 @@ class CalmDashboard(QMainWindow):
             self.raill.addSpacing(14)
             pp = self._rail_label("PROJECTED PODIUM")
             pp.setToolTip("Track-anchored finish blend, typically ±2–3 spots — "
-                          "a gauge, not a promise. Colour = differs from current position.")
+                          "a gauge, not a promise. ▲ projected to gain vs current "
+                          "position, ▼ projected to drop.")
             self.raill.addWidget(pp)
             self.raill.addSpacing(6)
             pod: dict = {}
@@ -1538,15 +1543,19 @@ class CalmDashboard(QMainWindow):
                 if ca is not None and ca.projected_finish is not None:
                     pod.setdefault(r.cls, []).append(ca)
             if pod:
-                for cls in sorted(pod, key=lambda k: (dash.CLASS_ORDER.get(k, 9), k)):
+                for cls in sorted(pod, key=lambda k: (self._profile.class_order.get(k, 9), k)):
                     parts = []
                     for ca in sorted(pod[cls], key=lambda c: c.projected_finish)[:3]:
                         cur = ca.pos_in_class
+                        # number stays neutral so it can't read as a class colour;
+                        # only the delta arrow carries green/red (gain/drop vs now)
                         if cur is None or ca.projected_finish == cur:
-                            col = DIM
+                            arrow = ""
+                        elif ca.projected_finish < cur:
+                            arrow = f'<span style="color:{GREEN};">▲</span>'
                         else:
-                            col = GREEN if ca.projected_finish < cur else RED
-                        parts.append(f'<span style="color:{col};">#{ca.car_number}</span>')
+                            arrow = f'<span style="color:{RED};">▼</span>'
+                        parts.append(f'<span style="color:{TXT};">#{ca.car_number}</span>{arrow}')
                     lab = QLabel(f'<span style="color:{_spine(cls, self._profile)};">{cls}</span>  '
                                  + "  ".join(parts))
                     lab.setTextFormat(Qt.TextFormat.RichText); lab.setFont(QFont(MONO, 11))

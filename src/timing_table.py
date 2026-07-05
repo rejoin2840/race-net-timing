@@ -91,6 +91,7 @@ class Row:
     cls: str = ""
     cls_color: str = "#555B66"     # resolved from ctx.profile at build time
     net: Optional[int] = None
+    net_settled: bool = False      # class's final stops done → net ≡ track, shown dim
     trend: int = 0                 # +1 gaining, -1 losing, 0 flat/unknown
     trk: Optional[int] = None      # on-track position WITHIN class (for the Δ vs net)
     trk_overall: Optional[int] = None  # overall on-track position (whole field)
@@ -227,7 +228,7 @@ def _build_rows(ctx, cars, trend_map: dict, filter_cls: Optional[str],
 
             rows.append(Row(
                 car=c.car_number, team=(c.team or ""), cls=cls, cls_color=color,
-                net=c.net_position,
+                net=c.net_position, net_settled=c.net_settled,
                 trend=trend_map.get(c.car_number, 0),
                 trk=(c.effective_pos_in_class or c.pos_in_class), trk_overall=c.track_position,
                 driver=(c.driver or c.team or "?"),
@@ -337,6 +338,9 @@ class StrategyModel(QAbstractTableModel):
 
     def _tooltip(self, r: Row, col: int):
         if col == C_NET:
+            if r.net_settled:
+                return ("Final pit stops complete — net equals track position from "
+                        "here unless a late penalty lands.")
             return ("Net position — where this car ends up once everyone has taken "
                     "their remaining pit stops. This is the real running order. "
                     "Double-click for full detail.")
@@ -349,6 +353,8 @@ class StrategyModel(QAbstractTableModel):
                     -1: "Losing net positions vs 5 minutes ago.",
                     0: "Net position steady over the last 5 minutes."}[r.trend]
         if col == C_DELTA:
+            if r.net_settled:
+                return "Final stops complete — no pit swing left to model."
             if r.net and r.trk:
                 d = r.trk - r.net
                 if d > 0:
@@ -395,7 +401,11 @@ class StrategyModel(QAbstractTableModel):
         return s
 
     def _display(self, r: Row, col: int):
-        if r.net and r.trk:
+        if r.net_settled:
+            # final stops taken — the pit model has nothing left to add, so net
+            # collapses to track position and the Δ column goes quiet
+            delta = "·"
+        elif r.net and r.trk:
             d = r.trk - r.net
             delta = f"+{d}" if d > 0 else (str(d) if d < 0 else "·")
         else:
@@ -403,7 +413,7 @@ class StrategyModel(QAbstractTableModel):
         car_cell = f"#{r.car}  {r.team}" if r.team else f"#{r.car}"
         trend_cell = "■" if r.in_box else {1: "▲", -1: "▼", 0: ""}[r.trend]
         return [
-            (str(r.net) if r.net else "—"),
+            (str(r.trk) if r.net_settled and r.trk else str(r.net) if r.net else "—"),
             trend_cell,
             delta,
             car_cell, r.cls, r.driver, r.last, r.best, r.pace,
@@ -434,6 +444,8 @@ class StrategyModel(QAbstractTableModel):
         if col == C_DELTA and r.net and r.trk:
             d = r.trk - r.net
             return QColor(GREEN if d > 0 else RED if d < 0 else TEXT_DIM)
+        if col == C_NET and r.net_settled:
+            return QColor(TEXT_DIM)
         if col == C_NET and r.net_leader:
             return QColor(ACCENT)
         return QColor(TEXT)

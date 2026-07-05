@@ -201,6 +201,8 @@ class CarAnalysis:
     dq:               bool = False
     # derived
     net_position:     Optional[int] = None       # net position in class (headline)
+    net_settled:      bool = False                # class's final pit cycle done and no pending
+                                                  # penalty on this car → net ≡ track position
     net_gap_ms:       Optional[float] = None
     net_gap_band_ms:  Optional[float] = None      # ± uncertainty on net gap
     pit_now_position: Optional[int] = None
@@ -860,6 +862,13 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
                        c.net_gap_ms if c.net_gap_ms is not None else 9e12))
     for i, ca in enumerate(net_order, 1):
         ca.net_position = i
+    # ── settled: once every car in class has taken its final stop, the pit model
+    #    has nothing left to say and net collapses to track order — displays dim it
+    #    (decisions log 07-04). A pending penalty keeps that car's net live: the
+    #    served/added time is still coming. ──
+    cls_settled = all(ca.est_stops_left <= 0 for ca in group_sorted if not ca.dq)
+    for ca in group_sorted:
+        ca.net_settled = cls_settled and ca.penalty_s == 0 and not ca.dq
 
     # ── pit-now projection: cost = this car's predicted stop, scaled cheap if we're
     #    currently under caution (field bunched) ──
