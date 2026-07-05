@@ -89,7 +89,7 @@ fallback. The ladder below is robustness insurance, not the plan.**
 ## Launch commands
 
 ```bash
-cd "/Users/paulkassan/Claude projects/race-net-timing"
+# run from the project root
 venv/bin/python src/wec_live.py --discover                 # list live sessions
 venv/bin/python src/wec_live.py --record data/wec_raw.jsonl.gz   # auto-discover WEC, record
 venv/bin/python src/wec_live.py --sid <sid> --no-db --record F.jsonl.gz  # rehearsal/dry run

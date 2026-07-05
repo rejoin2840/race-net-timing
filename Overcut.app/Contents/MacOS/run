@@ -1,16 +1,16 @@
 #!/bin/bash
 # Double-click launcher for Overcut — the endurance net-position strategy dashboard.
 # Created locally (no download quarantine) so Gatekeeper won't block it.
-# If you move the project folder, update ROOT below.
+# ROOT is resolved relative to the .app bundle, so moving the project folder works.
 
-ROOT="/Users/paulkassan/Claude projects/race-net-timing"
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 PY="$ROOT/venv/bin/python"
 APP="$ROOT/src/dashboard_calm.py"
 
 mkdir -p "$ROOT/logs"
 
 if [ ! -x "$PY" ]; then
-    osascript -e 'display alert "Overcut" message "Python venv not found. Expected at ~/Claude projects/race-net-timing/venv. Re-create it or update ROOT in the launcher."'
+    osascript -e 'display alert "Overcut" message "Python venv not found. Run setup.sh from the project folder first."'
     exit 1
 fi
 

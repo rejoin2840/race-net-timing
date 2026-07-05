@@ -1,12 +1,6 @@
 # Race Strategy Dashboard
 
-## About Me
-- Product management + IT background (not a software engineer)
-- Learning why AI makes decisions—explain the reasoning
-- Want to understand trade-offs and design choices
-- Tinkering hobbyist with technical depth
-
-## My Preferences
+## Preferences
 - Show planning and reasoning before executing (keep it brief)
 - Explain decisions in 1-2 sentences (non-technical when possible)
 - Tell me which subagent/tool and why (concise)

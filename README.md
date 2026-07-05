@@ -43,19 +43,32 @@ Validated on 6 complete IMSA replay archives (`src/validate_races.py`):
 
 ## Quick start
 
-```bash
-python3 -m venv venv
-./venv/bin/pip install -r requirements.txt
+### Prerequisites
+- Python 3.11+ (3.12 recommended)
+- macOS or Linux (Windows untested)
+- For live IMSA races: nothing extra — feed is public
+- For offline replay: a Timing71 `.zip` archive (two sample races are included, see below)
 
-# main UI (calm board) — use the session picker button to launch feeds/replays
+First-time setup: run `./setup.sh`. This creates the Python environment and launches the dashboard. Ignore `Overcut.app` on machines other than the original dev machine (hardcoded path inside).
+
+```bash
+./setup.sh
+```
+
+After first setup, launch directly:
+```bash
 ./venv/bin/python src/dashboard_calm.py
 
 # or the dense pit-wall table
 ./venv/bin/python src/dashboard.py
 ```
 
-No-terminal launch: `Overcut.app` at the project root (path is hardcoded inside
-`Contents/MacOS/run` — update it if the folder moves).
+### Try it immediately (no live race needed)
+Two complete IMSA sprint-race archives are included in `sample-archives/` (Long Beach 2026 · Detroit 2026). To load one: launch the dashboard, click **Session** in the top-left header, choose **IMSA → Replay**, and select a file from `sample-archives/`.
+
+If the replay picker doesn't find them automatically, copy the zips to `~/Downloads` — that's the default `ARCHIVE_DIR` in `config.json`.
+
+New here? Read [USER_GUIDE.md](USER_GUIDE.md) for a screen-by-screen walkthrough. Developers, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Common commands
 
