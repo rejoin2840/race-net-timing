@@ -77,6 +77,10 @@ buffered chunk could be lost instead of just the one in-flight frame. Regression
 
 ## Fallback ladder
 
+**Posture (Paul, 07-04): if live WEC timing is broken during practice, the plan is
+to debug and FIX it together during FP sessions — not to lean on the Timing71
+fallback. The ladder below is robustness insurance, not the plan.**
+
 1. Raw frame capture (`--record`) → post-race parsing.
 2. Timing71 post-session archive → existing `timing71.py` / `replay.py` path
    (IMSA-proven; data-only — no live board, archive available only after the session).
