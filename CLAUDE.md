@@ -32,14 +32,15 @@
 ## Git Workflow
 
 ### Before every commit — anonymization check (REQUIRED)
-This is a public repo. Run this scan before staging anything:
+This is a public repo. Run both scans before staging anything:
 ```bash
 grep -ri "kassan" --include="*.md" --include="*.sh" --include="*.py" --include="*.plist" --include="*.json" --include="*.txt" -l .
+grep -rn "\bPaul\b" --include="*.md" --include="*.sh" --include="*.py" --include="*.json" --include="*.txt" . | grep -v "São Paulo\|Paul Miller\|Paul-Loup\|Paul Di Resta"
 ```
-Must return nothing. Also check any new file for:
+Both must return nothing. Also check any new file for:
 - Hardcoded `/Users/<name>/...` paths — replace with relative paths or `~`
 - Personal email addresses
-- Real names in comments, docstrings, or config values
+- Real names (first or last) in comments, docstrings, decisions logs, or config values
 
 The repo author identity is `rejoin2840` — no real name should appear anywhere in tracked files or commit metadata. Repo-local git config is already set to `rejoin2840 <rejoin2840@users.noreply.github.com>`.
 

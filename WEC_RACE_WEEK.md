@@ -27,9 +27,9 @@ commit-by-commit history).
 - [ ] **Reconnect test.** A hard kill (`SIGTERM`) stopped the process but did **not**
   exercise the app's own auto-reconnect loop (that fires on connection-level errors, not
   process death). A true "kill wifi mid-session" test needs a live network interruption
-  on Paul's machine — do this manually once real WEC traffic is up (~07-07+), not via a
+  on the dev machine — do this manually once real WEC traffic is up (~07-07+), not via a
   sandboxed process kill.
-- [ ] **Timing71 archive fallback.** *(Corrected 07-04, per Paul: the Timing71 app
+- [ ] **Timing71 archive fallback.** *(Corrected 07-04, per owner: the Timing71 app
   does NOT record live — it provides an archive file after the session ends.)* So
   fallback #2 rescues the DATA (post-session archive → `timing71.py`/`replay.py`,
   IMSA-proven) but NOT the live board mid-race — if `wec_live` fails live, watch
@@ -77,7 +77,7 @@ buffered chunk could be lost instead of just the one in-flight frame. Regression
 
 ## Fallback ladder
 
-**Posture (Paul, 07-04): if live WEC timing is broken during practice, the plan is
+**Posture (07-04): if live WEC timing is broken during practice, the plan is
 to debug and FIX it together during FP sessions — not to lean on the Timing71
 fallback. The ladder below is robustness insurance, not the plan.**
 

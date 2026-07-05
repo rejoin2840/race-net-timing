@@ -1,5 +1,5 @@
 {
-  "source": "wec_imsa_2026_regulations.md (Paul, 2026-07-04)",
+  "source": "wec_imsa_2026_regulations.md (owner, 2026-07-04)",
   "universal": {
     "max_drive_rolling_window": {"max_h": 4.0, "window_h": 6.0,
       "note": "no driver may exceed 4h seat time in any rolling 6h window"}
