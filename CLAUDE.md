@@ -29,6 +29,35 @@
 4. **Summary (brief)**: What changed, key learnings (1-2 sentences each)
 5. **Concise**: Outside of what I requested you to explain or summarize, Output strictly tool calls and code. Zero conversational text, zero pleasantries, unless explicitly requested.
 
+## Git Workflow
+
+### Before every commit — anonymization check (REQUIRED)
+This is a public repo. Run this scan before staging anything:
+```bash
+grep -ri "kassan" --include="*.md" --include="*.sh" --include="*.py" --include="*.plist" --include="*.json" --include="*.txt" -l .
+```
+Must return nothing. Also check any new file for:
+- Hardcoded `/Users/<name>/...` paths — replace with relative paths or `~`
+- Personal email addresses
+- Real names in comments, docstrings, or config values
+
+The repo author identity is `rejoin2840` — no real name should appear anywhere in tracked files or commit metadata. Repo-local git config is already set to `rejoin2840 <rejoin2840@users.noreply.github.com>`.
+
+### After every commit — push to GitHub
+```bash
+git push origin feature/endurance-refocus
+```
+
+### When merging to main (stable share branch)
+```bash
+git checkout main
+git merge feature/endurance-refocus --no-ff -m "<message>"
+git push origin main
+git checkout feature/endurance-refocus
+```
+
+Always push both branches after a merge. The GitHub remote is `https://github.com/rejoin2840/race-net-timing`. Use `/opt/homebrew/bin/gh` if `gh` is not on PATH.
+
 ## Important Notes
 - Real-time accuracy is critical (predictions must be reliable)
 - Visual/UX feedback matters (dashboard needs to be readable under pressure)
