@@ -115,9 +115,9 @@ CREATE TABLE IF NOT EXISTS standings_current (
     last_pit_lap      INTEGER,  -- car's own lap on which it last pitted (live-observed)
     fuel_pct          REAL,     -- virtual fuel tank %, real telemetry (None if no data)
     fuel_flag         TEXT,     -- IMSA low-fuel warning: '' / 'yellow' / 'red'
-    tire_compound     TEXT,     -- F1 tyre compound this stint (SOFT/MEDIUM/HARD/INTERMEDIATE/WET); NULL for IMSA
-    tire_age          INTEGER,  -- F1 laps on the current tyre set; NULL for IMSA
-    override_state    TEXT,     -- F1 2026 energy state (override/boost); live-only, NULL in replay/IMSA
+    tire_compound     TEXT,     -- tyre compound this stint (series-specific codes); NULL when not available
+    tire_age          INTEGER,  -- laps on the current tyre set; NULL when not available
+    override_state    TEXT,     -- energy/override state (series-specific); NULL when not available
     is_running        INTEGER,
     updated_at        TEXT,
     PRIMARY KEY (session_oid, car_number)
@@ -219,39 +219,12 @@ CREATE TABLE IF NOT EXISTS predictions (
     PRIMARY KEY (session_oid, ts, car_number)
 );
 
--- F1 knockout-qualifying (Q1/Q2/Q3) — separate from standings_current, which is
--- race-shaped (pit stops, fuel, net position) and doesn't fit a "best lap this
--- segment" ranking board. See src/quali.py for the read-side model.
-CREATE TABLE IF NOT EXISTS quali_standings (
-    session_oid   TEXT,
-    segment       TEXT,       -- 'Q1' / 'Q2' / 'Q3'
-    car_number    TEXT,
-    best_lap_ms   INTEGER,    -- best lap set so far IN THIS SEGMENT (not overall)
-    last_lap_ms   INTEGER,
-    laps          INTEGER,    -- timed laps completed this segment
-    rank          INTEGER,    -- live rank within segment (1 = provisional fastest)
-    updated_at    TEXT,
-    PRIMARY KEY (session_oid, segment, car_number)
-);
-
-CREATE TABLE IF NOT EXISTS quali_status (
-    session_oid        TEXT PRIMARY KEY,
-    segment             TEXT,     -- current live segment: 'Q1' / 'Q2' / 'Q3'
-    entries             INTEGER,  -- cars taking part this session — drives the cut-line formula
-    segment_elapsed_s   INTEGER,
-    segment_total_s     INTEGER,  -- nominal segment duration (18/15/12 min), for a countdown
-    is_finished         INTEGER,
-    updated_at          TEXT
-);
-
 CREATE INDEX IF NOT EXISTS idx_lap_history_car
     ON lap_history (session_oid, car_number, lap_number DESC);
 CREATE INDEX IF NOT EXISTS idx_pit_events_car
     ON pit_events (session_oid, car_number, stop_number DESC);
 CREATE INDEX IF NOT EXISTS idx_predictions_car
     ON predictions (session_oid, car_number, ts);
-CREATE INDEX IF NOT EXISTS idx_quali_standings_seg
-    ON quali_standings (session_oid, segment, best_lap_ms);
 """
 
 
@@ -396,7 +369,7 @@ class RaceDB:
         if "fuel_flag" not in cols:
             self.conn.execute(
                 "ALTER TABLE standings_current ADD COLUMN fuel_flag TEXT")
-        # F1 tyre + 2026 energy telemetry (NULL for IMSA / historical replay)
+        # tyre + energy telemetry columns (series-specific, NULL when not available)
         if "tire_compound" not in cols:
             self.conn.execute(
                 "ALTER TABLE standings_current ADD COLUMN tire_compound TEXT")
@@ -586,12 +559,16 @@ class RaceDB:
         )
 
     # ── pit detection (the real one) ─────────────────────────────────────────
-    def update_pit_info(self, car: str, pit: dict) -> None:
+    def update_pit_info(self, car: str, pit: dict, live_observed: bool = False) -> None:
         """
         Detect pit stops off session_pit_info.lastPitHour — a real per-stop epoch.
         A *changed* lastPitHour means a new completed stop. The first value seen
         for a car is taken as a baseline (a stop that may predate our connect, so
         not counted) — matching the long-standing "only live-observed stops" rule.
+
+        live_observed=True skips that baseline rule: the caller generated the
+        timestamp from pit events it watched happen (WEC pit-in/pit-out), so the
+        first stop per car is real and must be counted, not swallowed.
 
         lastPitTime is that stop's duration; totalPitTime the cumulative pit time.
         """
@@ -602,7 +579,7 @@ class RaceDB:
             return
         prev = self._last_pit_hour.get(car)
         self._last_pit_hour[car] = hour
-        if prev is None:
+        if prev is None and not live_observed:
             return                      # baseline — don't count a pre-connect stop
         if hour == prev:
             return                      # same stop, nothing new
@@ -614,41 +591,6 @@ class RaceDB:
         self._record_pit(car, n, pit_lap, self._last_flag,
                          hour, _scalar(pit.get("lastPitTime")),
                          _scalar(pit.get("totalPitTime")))
-
-    # ── knockout qualifying (F1) ────────────────────────────────────────────
-    def write_quali_status(self, segment: str, entries: int, elapsed_s: int,
-                           total_s: int, is_finished: bool = False) -> None:
-        if not self.session_oid:
-            return
-        self.conn.execute(
-            """INSERT INTO quali_status
-                 (session_oid, segment, entries, segment_elapsed_s, segment_total_s,
-                  is_finished, updated_at)
-               VALUES (?,?,?,?,?,?,?)
-               ON CONFLICT(session_oid) DO UPDATE SET
-                 segment=excluded.segment, entries=excluded.entries,
-                 segment_elapsed_s=excluded.segment_elapsed_s,
-                 segment_total_s=excluded.segment_total_s,
-                 is_finished=excluded.is_finished, updated_at=excluded.updated_at""",
-            (self.session_oid, segment, entries, elapsed_s, total_s,
-             1 if is_finished else 0, _now()),
-        )
-
-    def write_quali_row(self, segment: str, car: str, best_lap_ms, last_lap_ms,
-                        laps: int, rank: int) -> None:
-        if not self.session_oid or not car:
-            return
-        self.conn.execute(
-            """INSERT INTO quali_standings
-                 (session_oid, segment, car_number, best_lap_ms, last_lap_ms,
-                  laps, rank, updated_at)
-               VALUES (?,?,?,?,?,?,?,?)
-               ON CONFLICT(session_oid, segment, car_number) DO UPDATE SET
-                 best_lap_ms=excluded.best_lap_ms, last_lap_ms=excluded.last_lap_ms,
-                 laps=excluded.laps, rank=excluded.rank, updated_at=excluded.updated_at""",
-            (self.session_oid, segment, car, best_lap_ms, last_lap_ms,
-             laps, rank, _now()),
-        )
 
     # ── lifecycle ────────────────────────────────────────────────────────────
     def commit(self) -> None:

@@ -1,6 +1,6 @@
 # Race Net Timing
 
-An **endurance race strategy companion** for watching IMSA (and eventually WEC) at home.
+An **endurance race strategy companion** for watching IMSA and WEC at home.
 It answers the question TV timing can't: **who is really winning once everyone's
 remaining pit stops are accounted for?** — with honest confidence signaling, plus a
 "while you were away" catch-up card for when you step away mid-race.
@@ -36,32 +36,39 @@ Validated on 6 complete IMSA replay archives (`src/validate_races.py`):
 
 ## Series support
 
-| Series  | Live | Replay | Strategy model | Status |
-|---------|------|--------|----------------|--------|
-| IMSA    | ✅ `alkameldp.py` (Al Kamel DDP) | ✅ Timing71 zips | full (refuel + DC + penalties) | primary target; 1 live race validated |
-| IndyCar | ✅ `indycar_live.py` (INDYCAR Azure blob) | ✅ Timing71 zips | refuel path | **frozen** after 2026-07-05 (one held-out validation run, then no further investment) |
-| F1      | ✅ `f1_live.py` (SignalR) | ✅ `replay_f1.py` (FastF1) | none — net = track | **frozen**: live feed + quali panel only, no strategy depth |
-| WEC     | — | — | — | designed-not-built; research spike pending (likely Al Kamel, same as IMSA) |
+| Series | Live | Replay | Strategy model | Status |
+|--------|------|--------|----------------|--------|
+| IMSA   | ✅ `alkameldp.py` (Al Kamel DDP) | ✅ Timing71 zips | full (refuel + DC + penalties) | primary; 1 live race validated |
+| WEC    | 🔧 `wec_live.py` in progress (SignalR + MessagePack) | Timing71 zips (TBD) | refuel path planned | Epic 8 — targeting São Paulo 07-12 |
 
 ## Quick start
 
-```bash
-python3 -m venv venv
-./venv/bin/pip install -r requirements.txt
+### Prerequisites
+- Python 3.11+ (3.12 recommended)
+- macOS or Linux (Windows untested)
+- For live IMSA races: nothing extra — feed is public
+- For offline replay: a Timing71 `.zip` archive (two sample races are included, see below)
 
-# main UI (calm board) — use the session picker button to launch feeds/replays
+First-time setup: run `./setup.sh`. This creates the Python environment and launches the dashboard. Ignore `Overcut.app` on machines other than the original dev machine (hardcoded path inside).
+
+```bash
+./setup.sh
+```
+
+After first setup, launch directly:
+```bash
 ./venv/bin/python src/dashboard_calm.py
 
 # or the dense pit-wall table
 ./venv/bin/python src/dashboard.py
 ```
 
-No-terminal launch: `IMSA Strategy.app` at the project root (path is hardcoded inside
-`Contents/MacOS/run` — update it if the folder moves).
+### Try it immediately (no live race needed)
+Two complete IMSA sprint-race archives are included in `sample-archives/` (Long Beach 2026 · Detroit 2026). To load one: launch the dashboard, click **Session** in the top-left header, choose **IMSA → Replay**, and select a file from `sample-archives/`.
 
-> **fastf1 + Python 3.9 caveat:** the venv's `fastf1/internals/f1auth.py` carries two
-> local patches for Python-3.9 crashes. A fresh `pip install` wipes them — re-patch if F1
-> auth starts crashing after a venv rebuild.
+If the replay picker doesn't find them automatically, copy the zips to `~/Downloads` — that's the default `ARCHIVE_DIR` in `config.json`.
+
+New here? Read [USER_GUIDE.md](USER_GUIDE.md) for a screen-by-screen walkthrough. Developers, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Common commands
 
@@ -77,8 +84,7 @@ No-terminal launch: `IMSA Strategy.app` at the project root (path is hardcoded i
 ./venv/bin/python src/evaluator.py --db /tmp/x.db --session replay --force
 
 # multi-race regression suite (any calculator/replay change MUST pass this)
-./venv/bin/python src/validate_races.py                   # IMSA set
-./venv/bin/python src/validate_races.py --series indycar  # held-out IndyCar set
+./venv/bin/python src/validate_races.py
 
 # unattended race-weekend supervisor (own Terminal tab, AC power, lid open)
 caffeinate -s venv/bin/python src/weekend_conductor.py
@@ -88,14 +94,13 @@ caffeinate -s venv/bin/python src/weekend_conductor.py
 ```
 
 Replay archives are Timing71 zips. IMSA archives live in `ARCHIVE_DIR` (config.json,
-default `~/Downloads`); IndyCar archives live in `indycar archives/` in the repo.
-**Only complete run-to-chequered archives belong in regression sets** — truncated ones
-skew the numbers.
+default `~/Downloads`). **Only complete run-to-chequered archives belong in regression
+sets** — truncated ones skew the numbers.
 
 ## Architecture
 
 ```
-adapters (alkameldp / indycar_live / f1_live / replay*)  →  SQLite data/race.db
+adapters (alkameldp / wec_live / replay)  →  SQLite data/race.db
     →  calculator.analyse()  (pure, read-only math; hot-reloads config.json)
     →  PyQt6 dashboards (dashboard_calm = main; dashboard = dense table)
     →  predictor → evaluator → validate_races  (the accuracy loop)

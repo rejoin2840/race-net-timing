@@ -9,8 +9,8 @@ cars show up, do the pit stops it recorded look sane. Meant to be run once,
 after a session's window has closed, pointed at the conductor's own captured
 scraper log + the DB.
 
-Run:  venv/bin/python src/session_healthcheck.py --db data/race.db --series indycar \
-          --scraper-log logs/conductor_indycar_fp1_20260703.log
+Run:  venv/bin/python src/session_healthcheck.py --db data/race.db --series imsa \
+          --scraper-log logs/conductor_imsa_fp1_20260710.log
 """
 
 import argparse
@@ -114,7 +114,7 @@ def check(db_path: str, series: str, scraper_log: "str | None") -> str:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(DEFAULT_DB_PATH))
-    ap.add_argument("--series", required=True, choices=["f1", "indycar", "imsa"])
+    ap.add_argument("--series", required=True, choices=["imsa", "wec"])
     ap.add_argument("--scraper-log", default=None,
                     help="path to the redirected stdout/log of the scraper process")
     args = ap.parse_args()

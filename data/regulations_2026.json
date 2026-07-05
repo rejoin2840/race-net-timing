@@ -1,0 +1,33 @@
+{
+  "source": "wec_imsa_2026_regulations.md (Paul, 2026-07-04)",
+  "universal": {
+    "max_drive_rolling_window": {"max_h": 4.0, "window_h": 6.0,
+      "note": "no driver may exceed 4h seat time in any rolling 6h window"}
+  },
+  "wec": {
+    "note": "minimums are required to SCORE championship points; LMGT3 minimums target the Bronze/Silver drivers",
+    "events": {
+      "24h":      {"drivers_min": 3, "drivers_max": 3, "min_drive_h": {"HYPERCAR": 1.0,  "LMGT3": 6.0},  "total_max_h": 14.0},
+      "8h_1812km":{"drivers_min": 3, "drivers_max": 3, "min_drive_h": {"HYPERCAR": 1.0,  "LMGT3": 2.25}, "total_max_h": 5.25},
+      "6h":       {"drivers_min": 2, "drivers_max": 3, "lmgt3_drivers_required": 3,
+                   "min_drive_h": {"HYPERCAR": 1.0,  "LMGT3": 1.75}, "total_max_h": 4.0}
+    }
+  },
+  "imsa": {
+    "note": "red flags in the 2nd half, or cumulative red >25% of distance, cut all minimums by 50%; 2026 Daytona exception: Bronze in GTD PRO owes 3.5h min",
+    "events": {
+      "24h":  {"drivers_min": 3, "drivers_max": 5, "gtp_max_drivers": 4,
+               "min_drive_h": {"GTP": 2.0,  "GTDPRO": 2.0,  "LMP2": 4.5,  "GTD": 4.5},  "total_max_h": 13.0},
+      "12h":  {"drivers_min": 3, "drivers_max": 4,
+               "min_drive_h": {"GTP": 1.0,  "GTDPRO": 1.0,  "LMP2": 3.0,  "GTD": 3.0},  "total_max_h": 8.0},
+      "10h":  {"drivers_min": 3, "drivers_max": 4,
+               "min_drive_h": {"GTP": 0.75, "GTDPRO": 0.75, "LMP2": 2.5,  "GTD": 2.5},  "total_max_h": 7.0},
+      "6h":   {"drivers_min": 2, "drivers_max": 3,
+               "min_drive_h": {"GTP": 0.5,  "GTDPRO": 0.5,  "LMP2": 1.5,  "GTD": 1.5},  "total_max_h": 4.5},
+      "2h40m":{"drivers_min": 2, "drivers_max": 2,
+               "min_drive_h": {"GTP": 0.167,"GTDPRO": 0.167,"LMP2": 0.75, "GTD": 0.75}},
+      "100m": {"drivers_min": 2, "drivers_max": 2,
+               "min_drive_h": {"GTP": 0.083,"GTDPRO": 0.083,"LMP2": 0.583,"GTD": 0.583}}
+    }
+  }
+}

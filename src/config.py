@@ -30,17 +30,23 @@ DEFAULTS = {
     "CATCH_GAP_S":            2.0,      # only flag "catching" when within this in-class gap (s)
     "CATCH_TREND_LAPS":       3,        # …and the gap has been closing for this many green laps
     "BATTLE_GAP_S":           2.0,      # in-class gap (s) at/under which a pair counts as a battle to watch
+    "BATTLE_TREND_LAPS":      3,        # BATTLES-rail-only closing gate: green laps required (looser than CATCH_TREND_LAPS)
+    "BATTLE_MIN_DROP_MS":     80,       # …minimum net gap drop over that window to call it "catching"
+    "BATTLE_NOISE_TOL_MS":    120,      # …per-lap noise tolerance (vs the main board's stricter 50ms)
     "MIN_FIT_POINTS":         3,        # min stops before trusting a fuel-fill regression
     "STOP_OUTLIER_MAD":       4.0,      # reject stop durations beyond median + this·(robust σ) before fitting (garage/repair stops)
     "DC_NEAR_LAPS":           2,        # a stop is a driver-change stop if a change is within ±this
     "DEFAULT_STINT_FALLBACK": 30,       # fallback green-stint length (laps)
     "DEFAULT_STINT_LAPS": {             # per-class green-stint priors (laps)
-        "GTP": 28, "LMP2": 30, "GTD": 32, "GTDPRO": 32},
+        "GTP": 28, "LMP2": 30, "GTD": 32, "GTDPRO": 32,
+        # WEC priors (Interlagos-ish; self-correct once a real stint is
+        # observed — tune live via config.json during FP/race)
+        "HYPERCAR": 33, "LMGT3": 30},
     "PIT_WINDOW_LAPS":        5,        # fuel-laps-left at/under which the pit window is "open"
     "BUDGET_PER_CLASS":       1,        # max NET-overlay highlights allowed per class on the calm board (0 = monochrome)
     "TRACK_LAT":              42.337,   # circuit latitude  (Watkins Glen — first race)
     "TRACK_LON":             -76.927,   # circuit longitude (edit per round for weather)
-    "DEV_SHOW_ALL_SESSIONS":  False,    # picker shows Race/Sprint only; True re-exposes practice/quali for endpoint validation
+    "DEV_SHOW_ALL_SESSIONS":  False,    # picker shows Race sessions only; True re-exposes all session types for debugging
     "ARCHIVE_DIR":            "~/Downloads",  # where IMSA Timing71 replay zips live (validate_races.py; ~ expanded)
 }
 

@@ -17,6 +17,7 @@ The original dashboard.py is left intact as the fallback. Run:
   ./venv/bin/python src/dashboard_calm.py
 """
 
+import re
 import sys
 import time
 from datetime import datetime
@@ -26,7 +27,7 @@ from PyQt6.QtCore import (Qt, QTimer, QPropertyAnimation, pyqtProperty,
 from PyQt6.QtGui import QColor, QFont, QPainter, QFontMetrics
 from PyQt6.QtWidgets import (QApplication, QFrame, QGraphicsOpacityEffect,
                              QHBoxLayout, QLabel, QMainWindow, QPushButton,
-                             QScrollArea, QStackedWidget, QVBoxLayout, QWidget)
+                             QScrollArea, QVBoxLayout, QWidget)
 
 import json
 import pathlib
@@ -36,11 +37,10 @@ import calculator
 import config
 import race_control
 import catchup
+import penalties
 import series_profiles
-import quali
 import dashboard as dash   # reuse Poller, Row, _build_rows, FLAG_STYLE, CLASS_ORDER
-import dashboard_quali as dq   # F1 knockout-qualifying cut-line panel (Phase 2b)
-import session_picker          # F1 race/session picker dialog
+import session_picker          # race/session picker dialog
 
 # ── static entry-list fallback (team/driver names when feed is silent) ────────
 def _load_entries() -> dict:
@@ -60,10 +60,8 @@ _ENTRIES: dict = _load_entries()
 
 
 # ── driver-identity team tables (car# → TLA/team/colour) for "driver"-identity
-# series (F1, IndyCar). F1's is scripted off FastF1 (src/build_f1_team_table.py);
-# IndyCar has no equivalent auto-scraper so data/indycar_*.json is hand-built.
-# Falls back to the generic team/driver text below when a car isn't in the
-# table (e.g. a mid-season reserve driver).
+# series. Loaded on demand per-series prefix (e.g. "wec_2026.json" when WEC is added).
+# Falls back to the generic team/driver text when a car isn't in the table.
 def _load_driver_teams(prefix: str) -> dict:
     out = {}
     data_dir = pathlib.Path(__file__).parent.parent / "data"
@@ -75,7 +73,7 @@ def _load_driver_teams(prefix: str) -> dict:
             pass
     return out
 
-_DRIVER_TEAMS: dict = {"f1": _load_driver_teams("f1"), "indycar": _load_driver_teams("indycar")}
+_DRIVER_TEAMS: dict = {}
 
 # ── calm palette (nudged ~8% brighter; row LINE more visible per feel-test) ───
 BG      = "#10141A"
@@ -94,15 +92,15 @@ BLUE    = "#8CB9F2"   # strategy (undercut/overcut/in-pit)
 
 # brighter class spines than the dense-table palette (calm screen wants a touch more pop).
 # Canonical values live on the IMSA SeriesProfile; re-exported so references are unchanged.
-# Phase 2 flips this to the ACTIVE session's profile so F1/WEC/IndyCar bring their own.
+# Flips to the ACTIVE session's profile so WEC and future series bring their own.
 SPINE = dict(series_profiles.IMSA.spine)
 
 MONO = "Menlo"
 SANS = "Helvetica Neue"
 
-OVERRIDE = "#FFD166"   # F1 2026 manual-override/boost active — distinct from every other cue
+OVERRIDE = "#FFD166"   # energy/override state active — distinct from every other cue
 
-# FIA-standard tyre-compound colours (F1 only; NULL for IMSA — no chip painted).
+# Tyre-compound colours (NULL when series doesn't populate tire_compound — no chip painted).
 # Third element: use dark text on the chip (light backgrounds only).
 TIRE_STYLE = {
     "SOFT":         ("S", "#F2444A", False),
@@ -110,8 +108,7 @@ TIRE_STYLE = {
     "HARD":         ("H", "#F5F5F5", True),
     "INTERMEDIATE": ("I", "#3FAE4E", False),
     "WET":          ("W", "#3B82F6", False),
-    # IndyCar/Firestone: no compound-hardness naming, just Primary (black
-    # sidewall) vs Alternate (red sidewall) — the feed's own "P"/"O" letters.
+    # Primary/Alternate compounds (Firestone style: "P"/"O" from feed)
     "PRIMARY":      ("P", "#D8D8D8", True),
     "ALTERNATE":    ("O", "#E8384F", False),
 }
@@ -121,6 +118,31 @@ def _spine(cls: str, profile=None) -> str:
     if profile is not None:
         return profile.spine_of(cls)
     return SPINE.get(cls, "#5F6B7A")
+
+
+_NUM_RE = re.compile(r"[0-9]+")
+
+
+def _colorize_car_refs(msg: str, camap: dict, profile=None) -> str:
+    """Wrap the car number(s) in a "CAR 96" / "CARS 23 & 60" clause with each car's
+    class-spine color, matching the rest of the app. Leaves the message untouched if it
+    doesn't match that shape or none of the numbers are known cars (e.g. already
+    retired/removed from the field)."""
+    m = penalties._CARS_RE.search(msg)
+    if not m:
+        return msg
+    start, end = m.span(1)
+
+    def repl(nm: "re.Match") -> str:
+        num = nm.group(0)
+        ca = camap.get(num)
+        if ca is None:
+            return num
+        return (f'<span style="color:{_spine(ca.car_class, profile)}; '
+                f'font-weight:bold;">{num}</span>')
+
+    colored = _NUM_RE.sub(repl, msg[start:end])
+    return msg[:start] + colored + msg[end:]
 
 
 # ── catch-up ("while you were away") tone → palette + compact inline labels ────
@@ -252,7 +274,11 @@ def _row_vm(r, ca, current_lap, cycle_active=True, since=None, allow_net=True,
     # in-box cars are mid-stop (position/gap in flux, row dimmed) — keep net quiet.
     # allow_net = this car won the per-class attention budget (the global cap that stops
     # the board lighting up field-wide); when it didn't, stay "—" even if the gates pass.
-    if cycle_active and gap_ok and not in_box and net and trk and net != trk and allow_net:
+    # net_settled = class's final stops are done and no pending penalty on this car
+    # → net has collapsed to track order, so the overlay stays quiet (07-04 rule).
+    settled = bool(ca is not None and getattr(ca, "net_settled", False))
+    if (cycle_active and gap_ok and not in_box and not settled
+            and net and trk and net != trk and allow_net):
         if net < trk:  net_text, net_color = f"▲P{net}", GREEN  # effective spot is higher → gaining
         else:          net_text, net_color = f"▼P{net}", RED    # effective spot is lower → dropping
     else:
@@ -273,11 +299,9 @@ def _row_vm(r, ca, current_lap, cycle_active=True, since=None, allow_net=True,
     since_text = _since_short(since) if since is not None else ""
     since_tone = TONE_HEX.get(since.tone, MUTE) if since is not None else MUTE
 
-    # identity slot: "driver"-identity series (F1, IndyCar) lead with the TLA in team
-    # colour and push the full team name to the dim slot — the IMSA "team · driver"
-    # reading flipped to match how these boards are actually read. Falls back to the
-    # generic team/driver text when the car isn't in the scripted table (e.g. a
-    # mid-season reserve driver).
+    # identity slot: "driver"-identity series lead with the TLA in team colour and push
+    # the full team name to the dim slot. Falls back to the generic team/driver text
+    # when the car isn't in the scripted table (e.g. a mid-season reserve driver).
     team_text, driver_text = r.team, r.driver
     team_color = MUTE if dim else DIM
     driver_color = FAINT if dim else MUTE
@@ -300,6 +324,11 @@ def _row_vm(r, ca, current_lap, cycle_active=True, since=None, allow_net=True,
     # (2026 field names are provisional; see series_profiles.py docstring).
     override_on = bool(ca is not None and ca.override_state)
 
+    # band — net gap uncertainty suffix, only when NET overlay is active and band < 20s
+    band_text = ""
+    if ca is not None and ca.net_gap_band_ms and 0 < ca.net_gap_band_ms < 20_000:
+        band_text = f"±{ca.net_gap_band_ms/1000:.0f}"
+
     return {
         "net": net, "has_penalty": r.has_penalty,          # net drives the breath (filters pit-shuffle)
         "pos_text": pos_text, "pos_color": pos_color,
@@ -314,6 +343,7 @@ def _row_vm(r, ca, current_lap, cycle_active=True, since=None, allow_net=True,
         "gap_text": gap_text, "gap_color": gap_color,
         "call_text": call_text, "call_color": call_color,
         "since_text": since_text, "since_tone": since_tone,
+        "band_text": band_text,
     }
 
 
@@ -439,6 +469,12 @@ class RowWidget(QWidget):
         # NET overlay — speaks only when effective position differs (▲P / ▼P)
         p.setFont(self.f_delta); p.setPen(QColor(vm["net_color"]))
         p.drawText(QRect(c["net_x"], 0, 46, H), L | VC, vm["net_text"])
+        # BAND — ± uncertainty suffix, dim, only when NET overlay is active
+        if vm.get("band_text") and vm["net_text"] != "—":
+            bx = c["net_x"] + QFontMetrics(self.f_delta).horizontalAdvance(vm["net_text"]) + 3
+            if bx + 20 < c["car_x"]:
+                p.setFont(self.f_stint); p.setPen(QColor(FAINT))
+                p.drawText(QRect(bx, 0, c["car_x"] - bx, H), L | VC, vm["band_text"])
 
         # CALL (the one strategic note; mostly empty)
         if vm["call_text"]:
@@ -469,8 +505,8 @@ class RowWidget(QWidget):
         p.drawText(QRect(x, 0, car_r - x, H), L | VC, vm["car_num"])
         x += fm_num.horizontalAdvance(vm["car_num"]) + 10
 
-        # TYRE chip — compound letter in a small rounded box + stint age. F1 only;
-        # blank (no chip) whenever tire_compound is NULL, e.g. every IMSA row.
+        # TYRE chip — compound letter in a small rounded box + stint age.
+        # Blank (no chip) whenever tire_compound is NULL (series that don't report it).
         if vm["tire_letter"] and x < car_r:
             chip_w = 18
             p.setPen(Qt.PenStyle.NoPen)
@@ -540,7 +576,7 @@ class ColumnHeader(QWidget):
         c = _columns(W)
         p.drawText(QRect(c["pos_x"], 0, 40, H), L | VC, "POS")
         p.drawText(QRect(c["net_x"], 0, 46, H), L | VC, "NET")
-        # driver identity (F1) leads with TLA, so the label flips to match
+        # driver-identity series leads with TLA, so the label flips to match
         identity_label = ("DRIVER · TEAM" if self.profile is not None
                           and self.profile.identity == "driver" else "TEAM · DRIVER")
         p.drawText(QRect(c["car_x"], 0, c["car_r"] - c["car_x"], H), L | VC, identity_label)
@@ -818,7 +854,7 @@ class LegendCard(QFrame):
             row(sw("RACE AT A GLANCE", DIM), "actionable calls (penalty/undercut/catch)"),
             row(sw("RACE CONTROL", DIM), "official messages"),
             row(sw("DUE TO PIT", DIM), "cars near their fuel window"),
-            row(sw("BATTLES", DIM), "close in-class fights · ▼ = gap closing"),
+            row(sw("BATTLES", DIM), "close in-class fights · says \"catching\" + s/lap when a gap is actually shrinking"),
         ]
         return (f'<table cellspacing="0" cellpadding="0"><tr>'
                 f'<td valign="top" style="padding-right:30px;">{col(left)}</td>'
@@ -836,7 +872,7 @@ class LegendCard(QFrame):
 class CalmDashboard(QMainWindow):
     def __init__(self, force_oid=None):
         super().__init__()
-        self.setWindowTitle("IMSA Strategy — Catch-up")
+        self.setWindowTitle("Overcut — Catch-up")
         self.resize(1180, 760)
         self.poller = dash.Poller(force_oid=force_oid)
         self._rows: dict[str, RowWidget] = {}
@@ -885,7 +921,7 @@ class CalmDashboard(QMainWindow):
                 f"QPushButton{{color:{'#FFFFFF' if on else MUTE}; background:{'#2A323D' if on else 'transparent'};"
                 f"border:none; border-radius:6px; padding:0 14px; font-size:12px;}}")
             sl.addWidget(b)
-        self.tab_time.clicked.connect(self._timing_stub)
+        self.tab_time.clicked.connect(self._open_timing_window)
 
         # race name + lap (restored from mockup) — centre block
         self.event = QLabel(""); self.event.setFont(QFont(SANS, 13))
@@ -914,11 +950,11 @@ class CalmDashboard(QMainWindow):
             f"font-size:14px;}} QPushButton:hover{{color:{TXT};}}")
         self.help_btn.clicked.connect(self._toggle_legend)
 
-        # session picker — launch an F1/IndyCar live feed or historical replay
-        # by clicking instead of hand-editing CLI args (backlog item 10)
+        # session picker — launch a live feed or historical replay without
+        # editing CLI args
         self.f1_btn = QPushButton("Session ▾"); self.f1_btn.setFlat(True)
         self.f1_btn.setFixedHeight(26)
-        self.f1_btn.setToolTip("Pick an F1/IndyCar live feed or replay session")
+        self.f1_btn.setToolTip("Pick a live feed or replay session")
         self.f1_btn.setStyleSheet(
             f"QPushButton{{color:{MUTE}; background:#171C24; border:none; border-radius:6px;"
             f"padding:0 10px; font-size:12px;}} QPushButton:hover{{color:{TXT};}}")
@@ -952,72 +988,32 @@ class CalmDashboard(QMainWindow):
         self.colheader = ColumnHeader()
         leftv.addWidget(self.colheader); leftv.addWidget(self.scroll, 1)
 
-        self.rail = QFrame(); self.rail.setFixedWidth(238)
+        self.rail = QFrame(); self.rail.setFixedWidth(340)
         self.rail.setStyleSheet(f"background:{RAIL};")
         self.raill = QVBoxLayout(self.rail); self.raill.setContentsMargins(15, 13, 15, 13); self.raill.setSpacing(0)
 
         body.addWidget(leftcol, 1); body.addWidget(self.rail)
         self.race_body = QWidget(); self.race_body.setLayout(body)
-
-        # F1 knockout-qualifying swaps in here in place of the race body (see
-        # refresh()) — a session either has race-shaped standings or quali
-        # segment data, never both, so a stacked page is a clean either/or.
-        self.quali_panel = dq.QualiListPanel()
-        self.stack = QStackedWidget()
-        self.stack.addWidget(self.race_body)
-        self.stack.addWidget(self.quali_panel)
-        root.addWidget(self.stack, 1)
+        root.addWidget(self.race_body, 1)
         self.setCentralWidget(central)
 
-    def _timing_stub(self):
-        self.sub.setText("Timing view — coming next")
+    def _open_timing_window(self):
+        if hasattr(self, "_timing_win") and self._timing_win is not None:
+            self._timing_win.raise_()
+            self._timing_win.activateWindow()
+            return
+        oid = self.poller.force_oid
+        series = getattr(self.poller, "series", None)
+        self._timing_win = dash.Dashboard(force_oid=oid, series=series)
+        self._timing_win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self._timing_win.destroyed.connect(lambda: setattr(self, "_timing_win", None))
+        self._timing_win.show()
 
     def _open_session_picker(self):
         dlg = session_picker.SessionPickerDialog(self)
         if dlg.exec() == session_picker.SessionPickerDialog.DialogCode.Accepted:
             self._f1_proc = dlg.proc   # keep the QProcess alive for the app's lifetime
             self.poller = dash.Poller(force_oid=dlg.force_oid, series=dlg.series)
-
-    # ---- F1 knockout qualifying (Q1/Q2/Q3) ----
-    def _is_quali_session(self) -> bool:
-        """A session either has race-shaped standings or quali segment data,
-        never both — quali_status having a row for this oid is the signal."""
-        oid, conn = self.poller.last_oid, self.poller.conn
-        if not oid or conn is None:
-            return False
-        try:
-            row = conn.execute(
-                "SELECT 1 FROM quali_status WHERE session_oid=? LIMIT 1", (oid,)
-            ).fetchone()
-        except sqlite3.Error:
-            return False   # older DB without the quali tables — definitely not quali
-        return row is not None
-
-    def _refresh_quali(self):
-        self.stack.setCurrentWidget(self.quali_panel)
-        qctx, qcars = quali.analyse(self.poller.conn, self.poller.last_oid)
-        self._render_header_quali(qctx)
-        self.quali_panel.render(qctx, qcars)
-
-    def _render_header_quali(self, qctx):
-        neutral = "#3A4150"
-        if qctx is None:
-            self.flag.setText("  Q  ")
-            self.flag.setStyleSheet(f"background:{neutral}; color:#FFFFFF; border-radius:5px;")
-            self.sub.setText("waiting for data")
-            return
-        self.flag.setText(f"  {qctx.segment}  ")
-        self.flag.setStyleSheet(f"background:{neutral}; color:#FFFFFF; border-radius:5px;")
-        self.event.setText(qctx.event)
-        self.eventsub.setText("Qualifying")
-        remaining = max(0, qctx.segment_total_s - qctx.segment_elapsed_s)
-        if qctx.is_finished:
-            self.clock.setText("—")
-            self.sub.setText("SEGMENT COMPLETE")
-        else:
-            self.clock.setText(f"{remaining // 60}:{remaining % 60:02d}")
-            self.sub.setText(f"CUT: TOP {qctx.advance_n}" if qctx.advance_n is not None
-                             else f"{qctx.entries} CARS")
 
     # ---- refresh ----
     def refresh(self):
@@ -1026,12 +1022,8 @@ class CalmDashboard(QMainWindow):
             self.sub.setText("waiting for data")
             return
 
-        if self._is_quali_session():
-            self._refresh_quali()
-            return
-
+        config.CONFIG.reload_if_changed()    # one reload per cycle, before any config read
         ctx, cars, rc, _age, trend = res
-        self.stack.setCurrentWidget(self.race_body)
         self._profile = ctx.profile          # active series' palette/single-class-ness
         self.colheader.set_profile(self._profile)
         # freeze the diff-relevant slice every tick so a mark (manual or on blur) and the
@@ -1039,18 +1031,28 @@ class CalmDashboard(QMainWindow):
         self._snap_now = catchup.snapshot(ctx, cars)
         self._rc_now = list(rc or [])
         rows = dash._build_rows(ctx, cars, trend, None, poller=self.poller)
+        camap = {c.car_number: c for c in cars}
         # patch missing team/driver from static entry list
         for r in rows:
             if r.is_header:
                 continue
             e = _ENTRIES.get(r.car)
+            # car numbers collide across series' entry files (e.g. IMSA #7 vs
+            # WEC #7) — trust a static entry only if its class matches the
+            # feed's class for this car. Class codes are disjoint across series
+            # (GTP/GTD... vs HYPERCAR/LMGT3), so this picks the right file.
+            ca = camap.get(r.car)
+            if e and ca and e.get("class") and ca.car_class:
+                norm = lambda s: re.sub(r"[^A-Z0-9]", "", str(s).upper())
+                if norm(e["class"]) != norm(ca.car_class):
+                    e = None
             roster = e.get("drivers") if e else None
             if e and (not r.team or r.team == "?"):
                 r.team = e["team"]
             # show only the driver currently in the car, as "F. Lastname"
             r.driver = _short_driver(r.driver, roster)
-        camap = {c.car_number: c for c in cars}
         self._current_lap = ctx.current_lap
+        self._is_race = bool(ctx.is_race)    # rail's PROJECTED PODIUM is race-only
         # per-class "out of sequence on stops?" — net overlay only speaks when the
         # field has diverged on stop counts (a pit cycle is in play). Include cars up
         # to 1 lap down: during a cycle the cars that just pitted often read +1L
@@ -1208,10 +1210,13 @@ class CalmDashboard(QMainWindow):
                 self.clock.setText(f"{s//3600}:{(s%3600)//60:02d}:{s%60:02d}")
             else:
                 self.clock.setText("—")
-            self.sub.setText(f"LAP {ctx.current_lap}")
+            lap_text = f"LAP {ctx.current_lap}"
+            if ctx.is_race and ctx.pit_model.thin:
+                lap_text += "  ·  LOW PIT DATA"
+            self.sub.setText(lap_text)
 
     TOP_N = 5                  # per-class row cap before the "+N more" accordion (multi-class)
-    TOP_N_SINGLE_CLASS = 30    # F1-style single-class grid: show the whole field by default
+    TOP_N_SINGLE_CLASS = 30    # single-class grid: show the whole field by default
 
     @property
     def _top_n(self) -> int:
@@ -1232,7 +1237,6 @@ class CalmDashboard(QMainWindow):
         suppressed); only the unbounded signal (net moves) is governed. BUDGET_PER_CLASS
         is a live config knob (0 = pure monochrome)."""
         try:
-            config.CONFIG.reload_if_changed()
             per_class = int(config.CONFIG.BUDGET_PER_CLASS)
         except Exception:
             per_class = 1
@@ -1309,8 +1313,8 @@ class CalmDashboard(QMainWindow):
             # TRACK-led board: show in real on-track order (gaps then climb down the list)
             cars.sort(key=lambda r: (r.trk if r.trk else 99))
             if not single_class:
-                # a single-class series (F1) has exactly one group — the "F1 · 20 cars"
-                # header is pure redundancy on a board that's already flat; the field
+                # a single-class series has exactly one group — the class header
+                # is pure redundancy on a board that's already flat; the field
                 # header (event name) already tells you what you're looking at.
                 self.listl.addWidget(ClassHeader(cls, str(len(cars)), self._profile))
             collapsed = self._collapsed.get(cls, True)
@@ -1415,7 +1419,7 @@ class CalmDashboard(QMainWindow):
             by_class = {}
             for r in due:
                 by_class.setdefault(r.cls, []).append(r)
-            for cls in sorted(by_class, key=lambda k: (dash.CLASS_ORDER.get(k, 9), k)):
+            for cls in sorted(by_class, key=lambda k: (self._profile.class_order.get(k, 9), k)):
                 cdue = sorted(by_class[cls], key=lambda r: r.trk_overall or 99)
                 cars = [r.car for r in cdue[:10]]
                 cextra = len(cdue) - 10
@@ -1434,33 +1438,46 @@ class CalmDashboard(QMainWindow):
         self.raill.addSpacing(10)
         self.raill.addWidget(self._rail_label("RACE CONTROL"))
         self.raill.addSpacing(6)
-        rc_box = QLabel(); rc_box.setTextFormat(Qt.TextFormat.RichText); rc_box.setWordWrap(False)
+        rc_box = QLabel(); rc_box.setTextFormat(Qt.TextFormat.RichText); rc_box.setWordWrap(True)
         rc_box.setFont(QFont(SANS, 11))
         # colour reserved for what matters: penalties loud, a rescind reads as relief,
         # everything kept-but-quiet (reviews / yellow-cause incidents) stays dim.
         RC_COLOR = {"penalty": AMBER, "dq": RED, "rescinded": GREEN,
                     "retired": TXT, "flag": TXT,
-                    "review": DIM, "warning": DIM, "incident": DIM}
-        lines = []
+                    "review": DIM, "warning": DIM, "incident": DIM,
+                    "unparsed_penalty": AMBER_SOFT}
+        # table with a bullet column: keeps wrapped continuation lines visually distinct
+        # from the next message's bullet, instead of every wrapped line looking like a
+        # new item.
+        rows_html = []
         for msg, _tier, kind in race_control.feed(rc, limit=6):
             c = RC_COLOR.get(kind, DIM)
-            short = msg[:40] + "…" if len(msg) > 40 else msg
-            lines.append(f'<div style="color:{c}; padding:2px 0;">{short}</div>')
-        rc_box.setText("".join(lines) or f'<span style="color:{MUTE};">no messages</span>')
+            short = msg[:160] + "…" if len(msg) > 160 else msg
+            short = _colorize_car_refs(short, camap, self._profile)
+            rows_html.append(
+                f'<tr><td style="padding:2px 6px 2px 0; color:{c}; vertical-align:top;">•</td>'
+                f'<td style="padding:2px 0; color:{c};">{short}</td></tr>')
+        rc_box.setText(
+            f'<table cellspacing="0" cellpadding="0">{"".join(rows_html)}</table>'
+            if rows_html else f'<span style="color:{MUTE};">no messages</span>')
         self.raill.addWidget(rc_box)
 
         # BATTLES — the close in-class fights actually worth watching (replaces the old
         # "ON TRACK overall", which was just the GTP leaders). Adjacent same-class,
-        # same-lap pairs within BATTLE_GAP_S; a ▼ marks a gap that's been closing (reuses
-        # the catching trend gate so it can't fire on caution bunching).
+        # same-lap pairs within BATTLE_GAP_S; says "catching" + a s/lap rate when a gap
+        # is actually closing. Uses its own (looser) trend gate than the main-board
+        # "catching" call — this rail is a glance-worthy hint, not a firm prediction, so
+        # it can afford more noise tolerance to actually be visible in practice.
         self.raill.addSpacing(14)
         self.raill.addWidget(self._rail_label("BATTLES"))
         self.raill.addSpacing(6)
         try:
             gap_s = float(config.CONFIG.BATTLE_GAP_S)
-            trend_laps = int(config.CONFIG.CATCH_TREND_LAPS)
+            trend_laps = int(config.CONFIG.BATTLE_TREND_LAPS)
+            min_drop_ms = float(config.CONFIG.BATTLE_MIN_DROP_MS)
+            noise_tol_ms = float(config.CONFIG.BATTLE_NOISE_TOL_MS)
         except Exception:
-            gap_s, trend_laps = 2.0, 3
+            gap_s, trend_laps, min_drop_ms, noise_tol_ms = 2.0, 3, 80, 120
         oid = getattr(self.poller, "last_oid", None)
         cur_lap = getattr(self, "_current_lap", 0)
         by_cls: dict = {}
@@ -1478,21 +1495,74 @@ class CalmDashboard(QMainWindow):
                 gap = (chaser.class_gap_ms or 0) - (ahead.class_gap_ms or 0)
                 if 0 < gap <= gap_s * 1000:
                     closing = bool(oid and calculator._gap_closing(
-                        oid, chaser.car_number, ahead.car_number, cur_lap, trend_laps))
-                    battles.append((gap, cls, ahead.car_number, chaser.car_number, closing))
+                        oid, chaser.car_number, ahead.car_number, cur_lap, trend_laps,
+                        min_drop_ms=min_drop_ms, noise_tol_ms=noise_tol_ms))
+                    rate = (calculator._gap_close_rate_s(
+                                oid, chaser.car_number, ahead.car_number, cur_lap, trend_laps)
+                            if closing else None)
+                    battles.append((gap, cls, ahead.car_number, chaser.car_number, closing, rate))
         battles.sort(key=lambda b: b[0])                  # tightest first
         if battles:
-            for gap, cls, a, c, closing in battles[:6]:
-                arrow = f' <span style="color:{AMBER};">▼</span>' if closing else ""
-                lab = QLabel(
-                    f'<span style="color:{_spine(cls, self._profile)};">{cls}</span>  '
-                    f'#{a} <span style="color:{MUTE};">▸</span> #{c}  '
-                    f'<span style="color:{TXT};">{gap/1000:.1f}s</span>{arrow}')
+            for gap, cls, a, c, closing, rate in battles[:6]:
+                spine = f'<span style="color:{_spine(cls, self._profile)};">{cls}</span>'
+                if closing and rate:
+                    # plain-English: who's catching whom, current gap, how fast it's closing
+                    lab_text = (f'{spine}  #{c} '
+                                f'<span style="color:{AMBER};">catching</span> #{a}  '
+                                f'<span style="color:{TXT};">{gap/1000:.1f}s</span> '
+                                f'<span style="color:{MUTE};">(-{rate:.1f}s/lap)</span>')
+                else:
+                    lab_text = (f'{spine}  #{a} <span style="color:{MUTE};">▸</span> #{c}  '
+                                f'<span style="color:{TXT};">{gap/1000:.1f}s</span>')
+                lab = QLabel(lab_text)
                 lab.setTextFormat(Qt.TextFormat.RichText); lab.setFont(QFont(MONO, 11))
                 self.raill.addWidget(lab); self.raill.addSpacing(2)
         else:
             bn = QLabel("none close"); bn.setFont(QFont(SANS, 11)); bn.setStyleSheet(f"color:{MUTE};")
             self.raill.addWidget(bn)
+
+        # PROJECTED PODIUM — the visible honest home for projected_finish. It's the
+        # track-anchored blend (calculator.finish_score): early race the blend IS the
+        # running order, so every number reads dim; a number only takes colour when the
+        # projection disagrees with the car's current in-class spot — green projected
+        # gain, red projected drop. A situational gauge, not a promise (decisions log
+        # 06-28), hence race-only and never louder than a rail line.
+        if getattr(self, "_is_race", False):
+            self.raill.addSpacing(14)
+            pp = self._rail_label("PROJECTED PODIUM")
+            pp.setToolTip("Track-anchored finish blend, typically ±2–3 spots — "
+                          "a gauge, not a promise. ▲ projected to gain vs current "
+                          "position, ▼ projected to drop.")
+            self.raill.addWidget(pp)
+            self.raill.addSpacing(6)
+            pod: dict = {}
+            for r in rows:
+                if r.is_header:
+                    continue
+                ca = camap.get(r.car)
+                if ca is not None and ca.projected_finish is not None:
+                    pod.setdefault(r.cls, []).append(ca)
+            if pod:
+                for cls in sorted(pod, key=lambda k: (self._profile.class_order.get(k, 9), k)):
+                    parts = []
+                    for ca in sorted(pod[cls], key=lambda c: c.projected_finish)[:3]:
+                        cur = ca.pos_in_class
+                        # number stays neutral so it can't read as a class colour;
+                        # only the delta arrow carries green/red (gain/drop vs now)
+                        if cur is None or ca.projected_finish == cur:
+                            arrow = ""
+                        elif ca.projected_finish < cur:
+                            arrow = f'<span style="color:{GREEN};">▲</span>'
+                        else:
+                            arrow = f'<span style="color:{RED};">▼</span>'
+                        parts.append(f'<span style="color:{TXT};">#{ca.car_number}</span>{arrow}')
+                    lab = QLabel(f'<span style="color:{_spine(cls, self._profile)};">{cls}</span>  '
+                                 + "  ".join(parts))
+                    lab.setTextFormat(Qt.TextFormat.RichText); lab.setFont(QFont(MONO, 11))
+                    self.raill.addWidget(lab); self.raill.addSpacing(2)
+            else:
+                pn = QLabel("—"); pn.setFont(QFont(SANS, 11)); pn.setStyleSheet(f"color:{MUTE};")
+                self.raill.addWidget(pn)
         self.raill.addStretch(1)
 
 

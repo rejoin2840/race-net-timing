@@ -49,7 +49,8 @@ def classify(message) -> tuple:
     # reviews / investigations resolve to CONTEXT before the penalty parser
     # runs — "...REVIEWED POST-RACE" would otherwise trip parse()'s post-race
     # branch and look like a served penalty when it's only a notice that stewards
-    # are looking at it. F1 uses "UNDER INVESTIGATION" where IMSA says "REVIEW".
+    # are looking at it. Different series may word investigations differently;
+    # this pattern accepts both "REVIEW" and "UNDER INVESTIGATION" forms.
     if "review" in low or "reviewed" in low or "investigation" in low:
         return (CONTEXT, "review")
 
@@ -69,13 +70,13 @@ def classify(message) -> tuple:
     if "checkered" in low or "chequered" in low:
         return (ALERT, "flag")
 
-    # F1: SC/VSC deployment is a major race event, VSC ending is situational context
+    # SC/VSC deployment is a major race event; VSC ending is situational context
     if "safety car deployed" in low:
         return (ALERT, "flag")
     if "safety car ending" in low or "safety car in this lap" in low:
         return (CONTEXT, "flag")
 
-    # F1: lap time deleted is a track-limits consequence — not a scoring penalty,
+    # lap time deleted is a track-limits consequence — not a scoring penalty,
     # but a strategist wants to see it (marks which drivers are pushing the limits)
     if "deleted" in low and "track limits" in low:
         return (CONTEXT, "warning")
@@ -90,6 +91,12 @@ def classify(message) -> tuple:
     # yellow-cause incidents (Paul: keep so a glance tells you WHY a caution is out)
     if any(k in low for k in _YELLOW_CAUSE):
         return (CONTEXT, "incident")
+
+    # a message mentioning a penalty that wasn't scored by parse() and doesn't
+    # contain "warning" is likely a lap-time invalidation or an unknown penalty
+    # format — surface it dimly rather than silently suppressing it.
+    if "penalt" in low and "warning" not in low:
+        return (CONTEXT, "unparsed_penalty")
 
     # everything else = procedural admin / routine warning / resolved chatter
     return (SUPPRESS, "")

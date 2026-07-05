@@ -166,18 +166,20 @@ def test_predict_stop_car_scope_wins():
     m._fit_car = {"7": (40000.0, 0.0, 1000.0)}     # flat fit, mean 40000
     m._fit_cls = {"GTD": (45000.0, 0.0, 1500.0)}
     m._fit_all = (50000.0, 0.0, 2000.0)
-    mean, std = m.predict_stop("7", "GTD", stint_laps=30, owes_dc=False)
+    mean, std, scope = m.predict_stop("7", "GTD", stint_laps=30, owes_dc=False)
     assert close(mean, 40000.0)
     assert close(std, 1000.0)
+    assert scope == "car"
 
 
 def test_predict_stop_class_beats_field():
     m = PitCostModel()
     m._fit_cls = {"GTD": (45000.0, 0.0, 1500.0)}
     m._fit_all = (50000.0, 0.0, 2000.0)
-    mean, std = m.predict_stop("99", "GTD", stint_laps=30, owes_dc=False)
+    mean, std, scope = m.predict_stop("99", "GTD", stint_laps=30, owes_dc=False)
     assert close(mean, 45000.0)
     assert close(std, 1500.0)
+    assert scope == "class"
 
 
 def test_predict_stop_field_then_floor_and_dc():
@@ -186,17 +188,32 @@ def test_predict_stop_field_then_floor_and_dc():
     m.dc_delta_ms = calculator.DRIVER_CHANGE_DELTA_MS   # +12000 on a driver change
     m._fit_all = (10000.0, 0.0, 800.0)                  # below the transit floor
     # floored up to transit, then driver-change delta added
-    mean, std = m.predict_stop("5", "LMP2", stint_laps=25, owes_dc=True)
+    mean, std, scope = m.predict_stop("5", "LMP2", stint_laps=25, owes_dc=True)
     assert close(mean, calculator.DEFAULT_GREEN_PIT_MS + calculator.DRIVER_CHANGE_DELTA_MS)
     assert close(std, 800.0)
+    assert scope == "field"
 
 
 def test_predict_stop_std_fallback():
     m = PitCostModel()
     m._flat_all = (40000.0, None)                       # fit carries no usable std
-    mean, std = m.predict_stop("5", "LMP2", stint_laps=25, owes_dc=False)
+    mean, std, scope = m.predict_stop("5", "LMP2", stint_laps=25, owes_dc=False)
     assert close(mean, 40000.0)
     assert close(std, calculator.DEFAULT_STOP_STD_MS)
+    assert scope == "field"
+
+
+def test_predict_stop_default_scope():
+    m = PitCostModel()
+    _, _, scope = m.predict_stop("99", "LMP2", stint_laps=25, owes_dc=False)
+    assert scope == "default"
+
+
+def test_pit_model_thin():
+    m = PitCostModel()
+    assert m.thin is True
+    m._fit_all = (50000.0, 0.0, 2000.0)
+    assert m.thin is False
 
 
 # ── PitCostModel.build (end-to-end fuel regression over in-memory DB) ──────────
@@ -230,8 +247,9 @@ def test_build_learns_fuel_slope():
     # transit floor = fastest green stop observed
     assert close(m.transit_ms, 34000.0)
     # predicted cost at a 30-lap stint follows the learned line: 30000 + 200*30
-    mean, _ = m.predict_stop("7", "GTD", stint_laps=30, owes_dc=False)
+    mean, _, scope = m.predict_stop("7", "GTD", stint_laps=30, owes_dc=False)
     assert close(mean, 36000.0, abs_tol=1.0)
+    assert scope == "car"
 
 
 if __name__ == "__main__":

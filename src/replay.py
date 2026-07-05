@@ -56,10 +56,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _detect_series(replay: timing71.Replay) -> str:
-    """Map the archive's manifest.name to our series key. IndyCar archives have
-    no Class/PIC/VFT columns (single class, no fuel telemetry) — everything
-    downstream (series_profiles, dashboard rendering) branches on this key."""
-    return "indycar" if "indycar" in replay.series_name.lower() else "imsa"
+    """Map the archive's manifest.name to our series key. WEC matters for the
+    race-day fallback ladder: a Timing71 DVR capture of a WEC session must load
+    with the WEC profile (HYPERCAR/LMGT3), not default to IMSA."""
+    name = (replay.series_name or "").lower()
+    if "wec" in name or "world endurance" in name:
+        return "wec"
+    return "imsa"
 
 
 # ── shared helpers ──────────────────────────────────────────────────────────
@@ -140,9 +143,9 @@ def _init_db(replay: timing71.Replay, db_path: str, oid: str):
         "eventName": replay.name, "champName": "Timing71 replay",
     }, series=series)
     col = replay.col
-    # single-class archives (IndyCar) carry no Class column — everything is one
-    # class, matching series_profiles.INDYCAR.classes = ("INDYCAR",)
-    default_class = "INDYCAR" if series == "indycar" else None
+    # single-class archives carry no Class column — default_class fills that gap.
+    # IMSA archives always have a Class column, so this stays None for now.
+    default_class = None
 
     # ── entries ──────────────────────────────────────────────────────────────
     finals    = replay.final_cars()
@@ -190,7 +193,7 @@ def _init_db(replay: timing71.Replay, db_path: str, oid: str):
             return "GF"
         i   = bisect.bisect_right(flag_ts_, ts_ms) - 1
         raw = flags[max(0, i)][1]
-        # IMSA's flagState uses "fcy"/"yellow"; IndyCar uses "caution".
+        # IMSA's flagState uses "fcy"/"yellow"; some archives use "caution".
         return "FCY" if "fcy" in raw or "yellow" in raw or "caution" in raw else "GF"
 
     # ── pit events ─────────────────────────────────────────────────────────────
@@ -253,7 +256,7 @@ def _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at):
     sess    = fr.get("session") or {}
     elapsed_s = sess.get("timeElapsed")
     remain_s  = sess.get("timeRemain")
-    laps_remain = sess.get("lapsRemain")   # IndyCar: lap-limited, no timeRemain
+    laps_remain = sess.get("lapsRemain")   # lap-limited archives: no timeRemain
 
     current_lap = max(
         (timing71._num(r[col["Laps"]]) or 0)
@@ -293,7 +296,7 @@ def _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at):
     # the GTP leader), collapsing intra-class gaps to ~0; the Int column (interval to
     # the car directly ahead) sums cleanly. Non-numeric Int ("1 lap") contributes 0.
     # Use _num() (not a bare isinstance check) — IMSA's Int cells are JSON floats,
-    # but IndyCar's are numeric strings ("1.7297"); _num() coerces either.
+    # but some archives carry numeric strings ("1.7297"); _num() coerces either.
     cum_int: dict[str, float] = {}
     running = 0.0
     for r in ordered:
@@ -301,11 +304,11 @@ def _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at):
         running += iv if iv is not None else 0.0
         cum_int[r[col["Num"]]] = running
 
-    # Columns that don't exist on every archive (IndyCar has no Class/PIC/VFT —
-    # single class, no fuel telemetry — but adds T for tyre compound). Resolved
-    # once per frame rather than per row.
+    # Columns that don't exist on every archive (single-class series carry no
+    # Class/PIC/VFT; some add T for tyre compound). Resolved once per frame
+    # rather than per row.
     cls_i, pic_i, vft_i, tyre_i = col.get("Class"), col.get("PIC"), col.get("VFT"), col.get("T")
-    default_class = "INDYCAR" if cls_i is None else None
+    default_class = "ALL" if cls_i is None else None
 
     for r in rows:
         car  = r[col["Num"]]
@@ -324,16 +327,16 @@ def _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at):
         # virtual fuel tank telemetry: VFT cell is [percent, flag] where flag is
         # '' / 'yellow' / 'red' (IMSA's own low-fuel warning). Populated for
         # GTP/GTDPRO/GTD; empty (['','']) for LMP2. None for archives with no
-        # VFT column at all (IndyCar has no fuel telemetry, same as F1 v1).
+        # VFT column at all.
         vft = r[vft_i] if vft_i is not None else None
         fuel_pct  = (vft[0] if isinstance(vft, (list, tuple)) and vft
                      and isinstance(vft[0], (int, float)) else None)
         fuel_flag = (vft[1] if isinstance(vft, (list, tuple)) and len(vft) > 1
                      and vft[1] else None)
 
-        # IndyCar tyre compound: T cell is ["P", "tyre-medium"] (Primary/Black)
-        # or ["O", "tyre-soft"] (Alternate/Red) — Firestone has no hardness
-        # naming, just the two compounds. Age = laps run since the car's last
+        # T-column tyre compound (spec-tyre archives; absent from IMSA/WEC):
+        # cell is ["P", "tyre-medium"] (Primary) or ["O", "tyre-soft"]
+        # (Alternate). Age = laps run since the car's last
         # detected pit stop (or since the green flag if it hasn't pitted yet) —
         # db._last_pit_lap was just set above for this car this frame.
         tire_compound = tire_age = None

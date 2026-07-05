@@ -1,5 +1,5 @@
 """
-weekend_conductor.py — unattended supervisor for this weekend's live sessions.
+weekend_conductor.py — unattended supervisor for a race weekend's live sessions.
 
 Sleeps until each scheduled session, launches the right live scraper (and,
 for races, the headless predictor logger) as subprocesses writing to the
@@ -12,17 +12,18 @@ Design choices (see BACKLOG.md at the project root for the "why"):
     while this is running just shows the live session, no picker action
     needed. Don't click "Launch Live Feed" for a series this is covering;
     the picker will warn if you try (lock file check).
-  - One thread per scheduled session (they can overlap, e.g. Sat IndyCar
-    FP2 vs F1 Quali) rather than a single sequential loop.
+  - One thread per scheduled session so overlapping sessions run in parallel.
   - Generous start-early / stop-late buffers, because sessions commonly
     run behind the posted time (TV coverage, red flags, etc).
   - Every failure is caught and logged per-session; one session going wrong
     never takes down the rest of the weekend.
 
+Edit SCHEDULE below before each event weekend.
+
 Run (leave this in its own Terminal tab, ideally under caffeinate):
   caffeinate -s venv/bin/python src/weekend_conductor.py
 
-Dry run (fires ONE short fake IndyCar session ~1 min from now, ~2 min
+Dry run (fires ONE short fake IMSA session ~1 min from now, ~2 min
 window, to prove the whole start/log/stop/healthcheck cycle end-to-end
 before trusting it with the real schedule):
   venv/bin/python src/weekend_conductor.py --test-now
@@ -88,26 +89,25 @@ WINDOW_MIN = {
 }
 
 SCRAPER = {
-    "f1": "f1_live.py",
-    "indycar": "indycar_live.py",
+    "imsa": "alkameldp.py",
+    "wec":  "wec_live.py",   # Epic 8 — wec_live.py not yet built; add entry now
 }
 
-# ── schedule (Paul-provided, EDT, 2026-07-02) ────────────────────────────────
+# ── schedule — edit before each event weekend ────────────────────────────────
+# Example WEC São Paulo (times approximate; verify from the official schedule):
+#
+#   ("wec", "FP1",  "practice", _dt(7, 10, 10, 0)),
+#   ("wec", "FP2",  "practice", _dt(7, 11,  8, 0)),
+#   ("wec", "Race", "race",     _dt(7, 12,  9, 0)),
+#
 def _dt(month, day, hour, minute):
     return datetime(2026, month, day, hour, minute)
 
 
-SCHEDULE = [
-    # series,     label,             kind,          start
-    ("f1",       "FP1",              "practice",     _dt(7, 3, 7, 30)),
-    ("f1",       "Sprint Quali",     "quali",        _dt(7, 3, 11, 30)),
-    ("indycar",  "FP1",              "practice",     _dt(7, 3, 15, 0)),
-    ("f1",       "Sprint Race",      "sprint_race",  _dt(7, 4, 7, 0)),
-    ("f1",       "GP Quali",         "quali",        _dt(7, 4, 11, 0)),
-    ("indycar",  "FP2",              "practice",     _dt(7, 4, 10, 0)),
-    ("indycar",  "Qualifying",       "quali",        _dt(7, 4, 14, 30)),
-    ("f1",       "Race",             "race",         _dt(7, 5, 10, 0)),
-    ("indycar",  "Race",             "race",         _dt(7, 5, 12, 30)),
+SCHEDULE: list = [
+    # Fill in before each race weekend.  Format:
+    # (series, label, kind, start_datetime)
+    # kind: "practice" | "quali" | "sprint_race" | "race"
 ]
 
 
@@ -240,7 +240,7 @@ def run_session(series: str, label: str, kind: str, start: datetime):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--test-now", action="store_true",
-                    help="ignore SCHEDULE; run one short fake IndyCar session "
+                    help="ignore SCHEDULE; run one short fake IMSA session "
                          "starting ~1 min from now to smoke-test the whole cycle")
     args = ap.parse_args()
 
@@ -282,11 +282,11 @@ def main():
 
     if args.test_now:
         start = datetime.now() + timedelta(minutes=1)
-        schedule = [("indycar", "DryRun", "practice", start)]
+        schedule = [("imsa", "DryRun", "practice", start)]
         WINDOW_MIN["practice"] = 2   # shrink the window for a fast test
         global START_BUFFER_MIN
         START_BUFFER_MIN = 1
-        _log("TEST MODE: one short IndyCar dry-run session, ~1 min from now")
+        _log("TEST MODE: one short IMSA dry-run session, ~1 min from now")
     else:
         schedule = SCHEDULE
 

@@ -7,10 +7,9 @@ table. Use it to (a) confirm a tuning change generalises across tracks/lengths
 rather than overfitting one race, and (b) guard against silent regressions when
 the algorithms change.
 
-  python src/validate_races.py                    # runs the default (IMSA) RACES set
-  python src/validate_races.py --series indycar   # runs the built-in INDYCAR_RACES set
-  python src/validate_races.py <zip> <zip> …      # ad-hoc set
-  python src/validate_races.py --keep-dbs         # leave the temp DBs for inspection
+  python src/validate_races.py                # runs the default IMSA RACES set
+  python src/validate_races.py <zip> <zip> …  # ad-hoc set
+  python src/validate_races.py --keep-dbs    # leave the temp DBs for inspection
 
 Reads the live config.json, so it reflects whatever tuning is currently active.
 """
@@ -39,29 +38,6 @@ RACES = [
     f"{DL}/2026-05-30 19-57 IMSA WeatherTech SportsCar Championship - Chevrolet Detroit Sports Car Classic - Race.zip",
 ]
 
-# IndyCar regression set — 2026 season archives, tagged by track type since
-# pit/fuel/caution dynamics differ sharply between them (see weekend_qa.md
-# "Do we need more IndyCar archives?"). Deliberately NOT run yet as of
-# 2026-07-02 — first validation happens post-weekend against the fresh
-# Sunday 07-05 race archive, so the model's performance on genuinely unseen
-# data is measured honestly rather than after already having been tuned
-# against this same set.
-IC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "indycar archives")
-INDYCAR_RACES = [
-    # ovals
-    f"{IC}/2026-05-24 16-42 IndyCar - 110th Running of the Indianapolis 500 - Race.zip",
-    f"{IC}/2026-06-08 01-22 IndyCar - 10th Annual Bommarito Automotive Group 500 - Race.zip",
-    f"{IC}/2026-03-07 20-17 IndyCar - Good Ranchers 250 - Race.zip",           # Texas Motor Speedway
-    # street circuits
-    f"{IC}/2026-03-01 17-26 IndyCar - Firestone Grand Prix of St Petersburg - Race.zip",
-    f"{IC}/2026-03-15 16-14 IndyCar - Java House Grand Prix of Arlington - Race.zip",
-    f"{IC}/2026-04-19 21-54 IndyCar - ACURA Grand Prix of Long Beach - Race.zip",
-    f"{IC}/2026-05-31 16-49 IndyCar - Chevrolet Detroit Grand Prix - Race.zip",
-    # road courses
-    f"{IC}/2026-03-29 17-14 IndyCar - Children's of Alabama Indy Grand Prix - Race.zip",  # Barber Motorsports Park
-    f"{IC}/2026-05-09 20-54 IndyCar - SONSIO GRAND PRIX - Race.zip",           # road course, exact circuit unconfirmed — verify if metrics look off
-    f"{IC}/2026-06-21 18-24 IndyCar - XPEL Grand Prix at Road America - Race.zip",
-]
 
 
 def _short(name: str) -> str:
@@ -96,13 +72,10 @@ def run_one(zip_path: str, keep: bool):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("zips", nargs="*", help="replay zips (default: built-in RACES)")
-    ap.add_argument("--series", choices=["imsa", "indycar"], default="imsa",
-                     help="which built-in regression set to use when no zips are given")
+    ap.add_argument("zips", nargs="*", help="replay zips (default: built-in IMSA RACES)")
     ap.add_argument("--keep-dbs", action="store_true", help="leave temp DBs in place")
     args = ap.parse_args()
-    default_set = INDYCAR_RACES if args.series == "indycar" else RACES
-    zips = args.zips or default_set
+    zips = args.zips or RACES
 
     rows = []
     for z in zips:

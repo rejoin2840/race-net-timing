@@ -1,0 +1,24 @@
+#!/bin/bash
+# Double-click launcher for Overcut — the endurance net-position strategy dashboard.
+# Created locally (no download quarantine) so Gatekeeper won't block it.
+# ROOT is resolved relative to the .app bundle, so moving the project folder works.
+
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+PY="$ROOT/venv/bin/python"
+APP="$ROOT/src/dashboard_calm.py"
+
+mkdir -p "$ROOT/logs"
+
+if [ ! -x "$PY" ]; then
+    osascript -e 'display alert "Overcut" message "Python venv not found. Run setup.sh from the project folder first."'
+    exit 1
+fi
+
+# Launch the dashboard; log output so failures are diagnosable without a terminal.
+# Force arm64: the Python is a universal binary and LaunchServices may otherwise
+# start it as x86_64, which can't load the arm64-only PyQt6 libraries.
+# Detect Apple Silicon by HARDWARE (uname -m lies under x86_64 emulation, which is
+# exactly the case Finder/LaunchServices triggers here).
+ARCHFLAG=""
+if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then ARCHFLAG="arch -arm64"; fi
+exec $ARCHFLAG "$PY" "$APP" >> "$ROOT/logs/dashboard.log" 2>&1
