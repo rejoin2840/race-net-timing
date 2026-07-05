@@ -88,7 +88,7 @@ def classify(message) -> tuple:
     # early signal
     if "final warning" in low:
         return (CONTEXT, "warning")
-    # yellow-cause incidents (Paul: keep so a glance tells you WHY a caution is out)
+    # yellow-cause incidents (owner: keep so a glance tells you WHY a caution is out)
     if any(k in low for k in _YELLOW_CAUSE):
         return (CONTEXT, "incident")
 

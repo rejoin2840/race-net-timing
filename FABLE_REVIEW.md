@@ -1,7 +1,7 @@
 # Fable code & architecture review — 2026-07-04
 
 Two-tier review run by Claude Fable 5 ahead of São Paulo race week (07-12),
-per Paul's call: deep race-day-path review first, whole-repo architecture pass
+per owner's call: deep race-day-path review first, whole-repo architecture pass
 second. Fix policy: race-day bugs fixed immediately (check.sh-gated), all other
 findings logged here. Recovery tag: `pre-fable-review`.
 
@@ -125,7 +125,7 @@ Schema-gated (`config.py` DEFAULTS is the schema), mtime-checked once per
 cycle, malformed-JSON-safe. Pattern is right. Content gaps found and fixed
 07-04 since they're race-day-relevant, values-only, freeze-compatible:
 `DEFAULT_STINT_LAPS` had no WEC classes (HYPERCAR/LMGT3 fell to the generic
-30-lap fallback; priors 33/30 added — **Paul: sanity-check against FP1**),
+30-lap fallback; priors 33/30 added — **owner: sanity-check against FP1**),
 and `TRACK_LAT/LON` still pointed at Watkins Glen (weather card) — now
 Interlagos. Post-race-week idea: move per-track values into event/series data
 so a stale manual edit can't ship (logged, low priority).

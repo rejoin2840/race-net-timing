@@ -1,17 +1,17 @@
 # Backlog
 
 Epic-structured roadmap, reconciled 2026-07-03 from the original phased plan + an
-external (Cursor) audit + Paul's feedback. This file is the single source of truth for
+external (Cursor) audit + owner feedback. This file is the single source of truth for
 "what's next and why" — code comments should point here, not at phase numbers.
 
 **Product identity:** primary = *endurance race strategy companion* (IMSA → WEC) with
 honest confidence signaling. Secondary = *strategy learning lab* (replay → evaluate →
-tune). Paul's top pain points, which shape acceptance criteria everywhere:
+tune). top pain points, which shape acceptance criteria everywhere:
 **#1 wrong class-leader gap · #2 DUE TO PIT called too early.**
 
 ## Decisions log (do not relitigate without new information)
 
-- **2026-07-04 — NET suppresses itself once the final pit cycle is done.** Paul's call
+- **2026-07-04 — NET suppresses itself once the final pit cycle is done.** owner's call
   (replay session): end-of-race net positions are knowingly wrong once no stops remain
   to model, so a per-car `net_settled` flag (calculator.py) collapses NET to track
   position (dim in the table, overlay quiet on the calm board). Exception: a pending
@@ -19,26 +19,26 @@ tune). Paul's top pain points, which shape acceptance criteria everywhere:
   validated against the archived IMSA replay (3 penalty cars correctly stayed live).
 - **2026-07-04 — Projection colours never ride on car numbers.** The green/red
   projected-gain/drop colouring on PROJECTED PODIUM numbers read as broken class
-  colours (Paul misread it in replay). Rule going forward: class colours are permanent
+  colours (misread in testing it in replay). Rule going forward: class colours are permanent
   per class code via SeriesProfile (WEC now includes LMP2 blue for Le Mans), and any
   gain/drop signal is carried by a separate ▲/▼ glyph, not by recolouring the number.
   Ships in the same 1ce501b batch (exempt from the Epic 9 UI freeze as a
   comprehension/bug fix, same class as the NET rule above).
 - **2026-07-04 — Race-day-only tool; practice/quali sessions are DATA-VALIDATION ONLY,
-  never a supported dashboard mode.** Paul's call, made while scoping the fuel-telemetry
+  never a supported dashboard mode.** owner's call, made while scoping the fuel-telemetry
   wiring (Epic 2): practice/qualifying will be used solely to confirm we can consume and
   display new live data streams (IMSA `telemetry.imsa.com` GTP/GTD/GTDPRO fuel feed, WEC
   `VET` column). Every other dashboard feature (catch-up, battles, projected podium, DUE
   TO PIT, net position) is designed around race conditions and won't be meaningfully
-  exercised outside a race — so no practice/quali UI/mode will ever be surfaced. If Paul
+  exercised outside a race — so no practice/quali UI/mode will ever be surfaced. If the owner
   wants live timing for practice/quali, he'll use Timing71 directly ("already nearly
   perfect" for that). Do not build session-type toggles or practice-specific features.
-- **2026-07-04 — UI code frozen until the direction spike (Epic 9) decides.** Paul's
+- **2026-07-04 — UI code frozen until the direction spike (Epic 9) decides.** Owner's
   call: "do it right the first time." No new visual/cosmetic work (placement, wording,
   styling, brightness) until Epic 9 answers product purpose + front-end direction.
   NOT frozen: behavioral tuning via config knobs (Epic 7 B2 — values transfer to any
   front end), catch-up *logic* refinements, and all Epic 8 WEC work.
-- **2026-07-03 — F1 and IndyCar scrapped entirely (supersedes 07-02 freeze).** Paul's
+- **2026-07-03 — F1 and IndyCar scrapped entirely (supersedes 07-02 freeze).** Owner's
   call. Full delete of source, tests, data, docs, and archive folders. Recovery path:
   `git checkout pre-endurance-refocus -- <file>` or `git show pre-endurance-refocus:src/f1_live.py`.
 - **2026-07-03 — Epic W cancelled.** F1 British GP / IndyCar Mid-Ohio live-validation
@@ -186,7 +186,7 @@ module-level IMSA dicts remain only as a fallback for callers without a live con
 ### Epic 2 — IMSA + WEC fuel telemetry (biggest accuracy lever; do it right the first time)
 
 **IMSA side** — capture blocked on next IMSA practice/qualifying session:
-- Capture with `src/telemetry_capture.py` at next IMSA practice. **First verify Paul's
+- Capture with `src/telemetry_capture.py` at next IMSA practice. **First verify owner's
   report that GTD + GTD Pro now have live telemetry** (feed was GTP-only when captured;
   only LMP2 confirmed without).
 - Then `src/telemetry_adapter.py` → `standings_current.fuel_pct/fuel_flag` → `fuel_due`
@@ -246,7 +246,7 @@ consume + display these new streams — see the 2026-07-04 decisions-log entry
   all pick up live edits reliably).
 - ✅ **B2 knob-tuning session (2026-07-04)** — fresh Monterey stream (923 frames) +
   evaluator run (`logs/eval_20260704_090013.txt`) informed the values:
-  - `BUDGET_PER_CLASS`: 1 → **3**. Paul's call: capping at 1 net-overlay highlight
+  - `BUDGET_PER_CLASS`: 1 → **3**. owner's call: capping at 1 net-overlay highlight
     per class hides real shakeups — after a long absence, several cars in one
     class can have changed order for different reasons. Caveat carried forward:
     evaluator shows NET currently *less* accurate than plain track position
@@ -254,10 +254,10 @@ consume + display these new streams — see the 2026-07-04 decisions-log entry
     presently underperforming; revisit once Epic 2 telemetry firms up net
     accuracy.
   - `CATCH_TREND_LAPS`: 3 → **5**. Evaluator: catches landed 10.5 laps later than
-    predicted (78% hit-rate) — matches Paul's observation that multi-class
+    predicted (78% hit-rate) — matches observed that multi-class
     traffic makes a chaser look like it's flying up only to have that reversed
     once it hits the same traffic. Requiring a longer sustained trend before
-    calling "catching" should cut the false-early fires. Paul open to further
+    calling "catching" should cut the false-early fires. open to further
     data validation — check the next evaluator run's CATCH lateness number
     against this baseline (10.5 laps late) once a new stream/eval pair exists.
   - `CATCH_GAP_S` / `BATTLE_GAP_S`: **unchanged** (2.0 each) this session —
@@ -293,20 +293,20 @@ consume + display these new streams — see the 2026-07-04 decisions-log entry
     baseline (small sample, n=8, treat as directional not final). NET MAE
     unchanged (2.48 vs 2.37 track) as expected — nothing this round touched
     that path. `BUDGET_PER_CLASS` isn't evaluator-measurable (display-only,
-    no accuracy metric applies) — still just Paul's-call, not re-litigated.
-    `CATCH_GAP_S`/`BATTLE_GAP_S` themselves: still unchanged/untuned — Paul
+    no accuracy metric applies) — still just owner's-call, not re-litigated.
+    `CATCH_GAP_S`/`BATTLE_GAP_S` themselves: still unchanged/untuned  
     explicitly deferred further calibration to the live WEC race (07-06+),
     same as the new `BATTLE_TREND_LAPS`/`BATTLE_MIN_DROP_MS`/
     `BATTLE_NOISE_TOL_MS` knobs added this session (see below).
 
-- ✅ **B3 session (2026-07-04), BATTLES rail:** live-paced 60x replay + Paul at
+- ✅ **B3 session (2026-07-04), BATTLES rail:** live-paced 60x replay + the owner at
   keyboard. Landed: plain-English "catching #X — Ns (Ys/lap)" text replacing
   the ambiguous bare `▼` (too easily confused with the unrelated `▼P{n}`
   net-position arrow); a rail-local closing gate (`BATTLE_TREND_LAPS`=3,
   `BATTLE_MIN_DROP_MS`=80, `BATTLE_NOISE_TOL_MS`=120, all hot-reloadable) so
   the signal is actually visible in practice, separate from the stricter
   main-board `catching` call (untouched); a rate-calc sign bug (`--0.0s/lap`)
-  fixed along the way. Paul: "fine for now, will fine-tune more once I know
+  fixed along the way. owner: "fine for now, will fine-tune more once I know
   what's actually happening in a real race" — expect further BATTLE_* +
   BATTLE_GAP_S adjustment during the live WEC race (07-06+).
 - ✅ **B3 session, RACE CONTROL rail:** was truncating mid-word at 340px even
@@ -314,13 +314,13 @@ consume + display these new streams — see the 2026-07-04 decisions-log entry
   (matches the existing legend's `row()`/`col()` idiom) so wrapped
   continuation lines stay visually distinct from the next message's bullet.
   Also color-codes car numbers in RC text to each car's class-spine color
-  (reuses `penalties._CARS_RE`, no new parsing), bolded per Paul's follow-up.
+  (reuses `penalties._CARS_RE`, no new parsing), bolded per follow-up.
 - ✅ **B3 session, evaluator bug found + fixed:** `CAUTION_PENALTY_FACTOR` was
   never able to inform the STOP TIME caution-bias metric it was suggesting
   changes to — see the correction note above. Suggestion text and the
   `--auto` autotune branch both fixed; TUNE_BOUNDS entry removed.
 
-**Open (needs Paul at keyboard — streaming session):**
+**Open (needs manual testing — streaming session):**
 - Catch-up LOGIC refinements (event ranking/selection in `catchup.py`) —
   **not started this session.** `MIN_POS_MOVE`, `MAX_EVENTS`, and the `_RANK`
   floors are all still at stock defaults (2, 8, and the original per-tone
@@ -328,28 +328,28 @@ consume + display these new streams — see the 2026-07-04 decisions-log entry
   displaced by the BATTLES/RC rail work above. Allowed (behavioral, not
   frozen). Cosmetic card/board tweaks — **frozen until Epic 9 decides**
   (07-04 decision).
-  **Tabled (07-04):** Paul's call — no automated/evaluator path exists for
+  **Tabled (07-04):** owner's call — no automated/evaluator path exists for
   this one. Unlike `CAUTION_PENALTY_FACTOR`/`CATCH_TREND_LAPS`, there's no
   ground truth to grade a "while you were away" brief against (existing unit
   tests only check the code does what it's told — cap enforced, dedup,
   sort order — not whether the *values* feel right). Requires watching a real
   race. Tabled until the live WEC race (07-06+ practice, or São Paulo race
   07-12) rather than another replay session.
-- Same session doubles as UX-input gathering: Paul screenshots/notes whatever bugs
+- Same session doubles as UX-input gathering: screenshot/note whatever bugs
   him visually → raw material for Epic 9's design phase.
 - **Gate for any code change:** `./check.sh` + `replay.py --stream` feel-test;
   evaluator report (`logs/stream_*.txt`) as the honesty check metrics didn't slip.
 
 ### Epic 9 — Product definition + UI direction spike *(gates all cosmetic UI work; run after São Paulo race week)*
 
-Paul (2026-07-04): research and decide before investing more in UI code — "do it
+owner (2026-07-04): research and decide before investing more in UI code — "do it
 right the first time." Two phases, one spike; phase 1 feeds phase 2.
 
 **Phase 1 — nail the product's main purpose.** Pressure-test the existing one-liners
 (North Star = "catch up at a glance after stepping away"; BACKLOG identity =
 "endurance strategy companion with honest confidence signaling / strategy learning
 lab") into answers concrete enough to drive architecture: one screen or several?
-race-day tool vs between-races study tool? solo-Paul or ever shared? does the
+race-day tool vs between-races study tool? solo-use or ever shared? does the
 broadcast-video "final boss" make the cut? Sounding-board format (options/mockups,
 not open questions — per the UX-redesign playbook).
 
@@ -359,15 +359,15 @@ phase 1/2, not yet actioned (cosmetics frozen):
   a penalty explanation) — cut off mid-sentence.
 - WYWA is "too basic" for longer absences (30+ min): it lists lead changes but
   doesn't convey magnitude/story — no sense of *how much* happened or how
-  significant the gap in time was. Paul wants a "tell the story" version —
+  significant the gap in time was. goal: a "tell the story" version —
   probably both a ranked highlights list ("biggest things that happened") and
   a stat summary (laps run, cautions, lead changes) with drill-down. **Needs a
-  planning/mockup pass, not a quick tweak** — Paul flagged he may be gold-plating
+  planning/mockup pass, not a quick tweak** — flagged he may be gold-plating
   an already-working feature, so scope this carefully in Epic 9 phase 1/2
   rather than assuming it needs a rebuild.
   **Scope refinement (07-04, later in session):** WYWA should stay narrowly
   about on-track order/position changes and *why* they happened — explaining
-  the shuffle since Paul last watched the live TV feed. It should NOT fold in
+  the shuffle since last watching the live TV feed. It should NOT fold in
   net-position projections — those already live on the main calm board and
   would just duplicate/complicate the card. Narrows the phase 1/2 design
   problem considerably. Principle: WYWA = retrospective narration (what a
@@ -380,7 +380,7 @@ phase 1/2, not yet actioned (cosmetics frozen):
   currently-boxed cars by real time gap instead of the feed's stale frozen
   slot, so it matches live-broadcast reality rather than projecting it. No
   conflict found — implementation already matches the principle.
-  **Scope input (07-04, Epic 7 B3 session):** Paul's current thinking on what
+  **Scope input (07-04, Epic 7 B3 session):** current thinking on what
   WYWA needs to cover, ahead of an Epic 9 mockup pass — not a spec, a starting
   point for that discussion:
   - More than one event per class (current `MAX_EVENTS`=8 field-wide cap is too
@@ -391,12 +391,12 @@ phase 1/2, not yet actioned (cosmetics frozen):
     the top 5 that will surface once cycles resolve).
   - Pit stops, cars stopped on track, incidents, and penalties that happened
     while away.
-  Paul's own framing: "this is going to be a lot of info... which means we need
+  framing: "this is going to be a lot of info... which means we need
   to discuss and come up with a great UX plan before implementing changes" —
   he does not want this built from this note alone. Treat as raw input for the
   Epic 9 phase 1/2 mockup/planning pass, same as the other WYWA gripes above.
 - Net position display (the `±18` / arrow / P7 cluster) is unclear at a glance —
-  **both** a comprehension problem (Paul isn't sure what it's measuring: time
+  **both** a comprehension problem (unclear what it's measuring: time
   gap? positions gained/lost? track position vs. net-of-pits?) **and** a
   legibility problem (cramped, no labels, requires already knowing the app to
   parse). Together these defeat the "calm, at-a-glance" design goal — this is
@@ -405,7 +405,7 @@ phase 1/2, not yet actioned (cosmetics frozen):
 - **Keepers, validated:** Battles rail and Projected Podium rail — liked as-is.
   Notes column message copy — liked the look, thinks it's "fairly accurate,"
   wording will still need refinement pass.
-- Pit / Race Control / Race-at-a-Glance cards — Paul can't judge relevance/
+- Pit / Race Control / Race-at-a-Glance cards — hard to judge relevance/
   accuracy without a concurrent video stream to check against; deferred until
   that's available (ties to the parked broadcast-video north star below).
 
@@ -415,7 +415,7 @@ steal-audit (MIT, github.com/npanu420/F1OpenViewer v1.2.0, Electron/React/Tailwi
 (b) its **video↔timing sync engine** — MIT prior art for the broadcast-video north
 star; (c) MultiViewer = closed source, inspiration by use only. Decide: keep
 polishing PyQt6 vs move display layer to web tech (engine/data layer unaffected
-either way). Every look Paul likes (Timing71, F1OpenViewer, MultiViewer) is
+either way). Preferred looks (Timing71, F1OpenViewer, MultiViewer) is
 web-tech — weigh honestly, decide once.
 
 **Output:** a decision-log entry + a scoped plan for the chosen direction.
@@ -423,8 +423,8 @@ Until then: cosmetic UI work frozen (see 07-04 decision).
 
 ## Research items (unscheduled)
 
-- ✅ **Driver-change / min-drive-time rules (resolved 07-04, source: Paul).**
-  `wec_imsa_2026_regulations.md` (Paul's research) → codified in
+- ✅ **Driver-change / min-drive-time rules (resolved 07-04, source: owner).**
+  `wec_imsa_2026_regulations.md` (owner's research) → codified in
   `data/regulations_2026.json` (both series, all event durations, plus the universal
   4h-per-rolling-6h max). **Analysis: the `(lineup_size − 1)` heuristic is
   count-correct for WEC 6H** — every legal lineup (2/3-driver Hypercar, mandatory
@@ -442,7 +442,7 @@ Until then: cosmetic UI work frozen (see 07-04 decision).
 ## Parked north star (no work — direction only)
 
 - **Broadcast video linkage:** connect the app to the livestream and pull video clips of
-  notable overtakes/incidents, feeding the "while you were away" card. Paul's "final
+  notable overtakes/incidents, feeding the "while you were away" card. "final
   boss" idea — everything WYWA-related should avoid foreclosing it. Prior art:
   F1OpenViewer's MIT sync engine anchors video playback to live timing (see the
   steal-audit spike under Research items).

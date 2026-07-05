@@ -1,7 +1,7 @@
 """
 catchup.py — the "while you were away" diff engine.
 
-Paul's #1 job-to-be-done is glancing back at the board after stepping away and
+The #1 job-to-be-done is glancing back at the board after stepping away and
 instantly seeing WHAT CHANGED — not re-reading the whole screen. This module marks a
 moment (a Snapshot of the field) and, on return, diffs it against the current Snapshot
 to produce a short, ranked brief of the meaningful changes: class-lead changes, served
