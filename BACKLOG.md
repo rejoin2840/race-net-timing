@@ -11,6 +11,19 @@ tune). Paul's top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-04 — NET suppresses itself once the final pit cycle is done.** Paul's call
+  (replay session): end-of-race net positions are knowingly wrong once no stops remain
+  to model, so a per-car `net_settled` flag (calculator.py) collapses NET to track
+  position (dim in the table, overlay quiet on the calm board). Exception: a pending
+  in-race penalty keeps that car's NET live until served. Shipped commit 1ce501b,
+  validated against the archived IMSA replay (3 penalty cars correctly stayed live).
+- **2026-07-04 — Projection colours never ride on car numbers.** The green/red
+  projected-gain/drop colouring on PROJECTED PODIUM numbers read as broken class
+  colours (Paul misread it in replay). Rule going forward: class colours are permanent
+  per class code via SeriesProfile (WEC now includes LMP2 blue for Le Mans), and any
+  gain/drop signal is carried by a separate ▲/▼ glyph, not by recolouring the number.
+  Ships in the same 1ce501b batch (exempt from the Epic 9 UI freeze as a
+  comprehension/bug fix, same class as the NET rule above).
 - **2026-07-04 — Race-day-only tool; practice/quali sessions are DATA-VALIDATION ONLY,
   never a supported dashboard mode.** Paul's call, made while scoping the fuel-telemetry
   wiring (Epic 2): practice/qualifying will be used solely to confirm we can consume and
