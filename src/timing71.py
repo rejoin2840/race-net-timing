@@ -97,9 +97,11 @@ class Replay:
             elif typ == "out" or "has left the pits" in text:
                 ps = open_stop.pop(car, None) or PitStop(car=car)
                 ps.out_ts = ts
-                m = _PIT_DUR.search(text)
-                if m:
-                    ps.duration_s = int(m.group(1)) * 60 + int(m.group(2))
+                dur_match = _PIT_DUR.search(text)
+                if dur_match:
+                    ps.duration_s = int(dur_match.group(1)) * 60 + int(dur_match.group(2))
+                elif ps.in_ts and ps.out_ts:
+                    ps.duration_s = (ps.out_ts - ps.in_ts) / 1000
                 stops.setdefault(car, []).append(ps)
             dc = _DRIVER_CHANGE.search(text)
             if dc:
@@ -189,16 +191,20 @@ def _main():
     finals = r.final_cars()
     total = sum(len(v) for v in stops.values())
     print(f"  pit stops parsed: {total} across {len(stops)} cars")
-    print("  GTP pit counts (parsed vs replay's Pits column at last frame):")
-    for car in sorted(stops, key=lambda c: c.lstrip('0') or c):
-        fin = finals.get(car, {})
-        if fin.get("class") != "GTP":
-            continue
-        dur = [s.duration_s for s in stops[car] if s.duration_s]
-        avg = f"{sum(dur)/len(dur):.0f}s avg" if dur else "—"
-        dcs = sum(1 for s in stops[car] if s.is_driver_change)
-        print(f"    #{car:>3}  parsed={len(stops[car]):>2}  Pits_col={fin.get('pits')}"
-              f"  dchg={dcs}  {avg}")
+    # report the top class (GTP for IMSA, HYPERCAR for WEC, first alphabetically otherwise)
+    all_classes = {(fin.get("class") or "").upper() for fin in finals.values() if fin.get("class")}
+    top_class = next((c for c in ("GTP", "HYPERCAR") if c in all_classes), sorted(all_classes)[0] if all_classes else None)
+    if top_class:
+        print(f"  {top_class} pit counts (parsed vs replay's Pits column at last frame):")
+        for car in sorted(stops, key=lambda c: c.lstrip('0') or c):
+            fin = finals.get(car, {})
+            if (fin.get("class") or "").upper() != top_class:
+                continue
+            dur = [s.duration_s for s in stops[car] if s.duration_s]
+            avg = f"{sum(dur)/len(dur):.0f}s avg" if dur else "—"
+            dcs = sum(1 for s in stops[car] if s.is_driver_change)
+            print(f"    #{car:>3}  parsed={len(stops[car]):>2}  Pits_col={fin.get('pits')}"
+                  f"  dchg={dcs}  {avg}")
 
 
 if __name__ == "__main__":
