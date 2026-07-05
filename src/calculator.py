@@ -613,8 +613,10 @@ def _driver_obligation(conn: sqlite3.Connection, oid: str) -> dict[str, bool]:
     """
     Per car, does it still owe a mandatory driver change? Heuristic: every listed
     co-driver must drive at least once, so required changes ≈ (lineup size − 1).
-    (Minimum drive-time rules are ruleset-specific and not in the feed — this is a
-    deliberate approximation.)
+    Validated against the 2026 regs (data/regulations_2026.json): for WEC 6H every
+    legal lineup requires exactly lineup−1 changes, so the count is correct there;
+    time-based obligations (4h rolling cap, per-class minimums) are a future
+    upgrade — see BACKLOG research items.
     """
     import json as _json
     lineup: dict[str, int] = {}

@@ -410,9 +410,17 @@ Until then: cosmetic UI work frozen (see 07-04 decision).
 
 ## Research items (unscheduled)
 
-- **Driver-change / min-drive-time rules:** vary per race and per class; need a reliable
-  per-event source (IMSA supplementary regulations, WEC sporting regs). Until found, the
-  `(lineup_size − 1)` heuristic stays.
+- ✅ **Driver-change / min-drive-time rules (resolved 07-04, source: Paul).**
+  `wec_imsa_2026_regulations.md` (Paul's research) → codified in
+  `data/regulations_2026.json` (both series, all event durations, plus the universal
+  4h-per-rolling-6h max). **Analysis: the `(lineup_size − 1)` heuristic is
+  count-correct for WEC 6H** — every legal lineup (2/3-driver Hypercar, mandatory
+  3-driver LMGT3) requires exactly lineup−1 changes under the min/max constraints, so
+  no code change needed for São Paulo. **Future feature (unscoped, post-race-week):**
+  time-based obligations from the JSON — "change due soon" when the current driver
+  approaches the 4h cap or remaining mins can't otherwise be met; needs per-driver
+  seat-time accounting from `driver_changes` timestamps. Would upgrade
+  `_driver_obligation` (calculator.py:612) from count-based to time-based.
 - **WEC VET column:** hypothesis = Virtual Energy Tank % for Hypercar. Confirm from first
   São Paulo capture; if correct, scope as Epic 2 sibling for WEC.
 - **"+1 lap" flicker** — cosmetic; hysteresis fix idea documented in session notes.
