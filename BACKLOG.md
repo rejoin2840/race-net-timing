@@ -11,6 +11,20 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-05 — DRIVER_CHANGE_DELTA_MS=12s is too low for WEC; tune live at FP1.**
+  WEC archives show a consistent -7s to -24s stop under-prediction bias vs IMSA's
+  near-zero. Root cause: WEC driver-change stops run 30-40s longer than IMSA, not 12s.
+  Anomaly-heavy archives (Imola '26: penalties + wet weather; SP '25: 27-min + 57-min
+  garage repairs; Qatar: 10h distance race) explain the outlier MAEs — not model
+  failures. Decision: do not tune off archived data. Tune DRIVER_CHANGE_DELTA_MS live
+  via config.json during São Paulo FP1, watching actual vs predicted stop times.
+- **2026-07-05 — WEC regression set established (7 archives); Le Mans 24h excluded.**
+  7 complete (run-to-chequered) WEC archives verified and added to `validate_races.py`
+  WEC_RACES: SP 2024, SP 2025, COTA 2025, Fuji 2025, Bahrain 2025, Imola 2026, Qatar
+  2025. Le Mans 24h excluded permanently — different field size (62 cars), entry
+  structure, and overnight dynamics make it a poor regression baseline. Run with
+  `python src/validate_races.py --wec`. Baseline (2026-07-05, 6h races):
+  NET MAE 2.82–4.48, TRK MAE 2.01–4.20, CATCH% 78–100%.
 - **2026-07-04 — NET suppresses itself once the final pit cycle is done.** owner's call
   (replay session): end-of-race net positions are knowingly wrong once no stops remain
   to model, so a per-car `net_settled` flag (calculator.py) collapses NET to track
@@ -452,12 +466,16 @@ Until then: cosmetic UI work frozen (see 07-04 decision).
 - **IMSA (6 complete archives, the default gate):** Daytona 24h, Petit Le Mans 10h,
   Indy 6h, Monterey, Long Beach, Detroit — paths in `validate_races.py` under
   `ARCHIVE_DIR`.
-- **WEC:** São Paulo 2026-07-12 raw capture will be the first WEC archive. Add to
-  `validate_races.py` once the parser is proven against it.
+- **WEC (7 complete archives, `--wec` flag):** SP 2024, SP 2025, COTA 2025, Fuji 2025,
+  Bahrain 2025, Imola 2026, Qatar 2025 — paths in `validate_races.py` WEC_RACES under
+  `wec-archives/`. Verified complete 2026-07-05 (all end chequered). Le Mans 24h
+  permanently excluded. SP 2026-07-12 live capture added post-race once parser proven.
+  WEC baseline (6h races): NET MAE 2.82–4.48, TRK 2.01–4.20, CATCH% 78–100%.
 - Only complete run-to-chequered archives count; verify span + final flag before adding.
 
 ## Standing gates
 
 - Any calculator/replay/evaluator change → `./check.sh --full` (tests + IMSA suite).
+- WEC-specific changes → also run `python src/validate_races.py --wec`.
 - UI changes → offscreen render + `replay.py --stream` feel-test.
 - Finish-predictor changes → validated across ALL races, never a single archive.
