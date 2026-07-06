@@ -571,13 +571,26 @@ def _tire_deg(conn: sqlite3.Connection, oid: str, car: str,
 
 def _load_penalties(conn: sqlite3.Connection, oid: str) -> dict:
     """Parse race-control text into per-car penalty carry. Returns
-    {car: (pending_s, post_race_s, note, dq)}."""
+    {car: (pending_s, post_race_s, note, dq)}.
+
+    Pit-entry timestamps ride along so aggregate() can expire a pending penalty
+    once the car has served it in the pit lane (the feed never announces
+    serving) — without this a served drive-through double-counts in net for the
+    rest of the race and the car can never reach net_settled."""
     try:
         rows = conn.execute(
-            "SELECT message FROM race_control WHERE session_oid=?", (oid,)).fetchall()
+            "SELECT ts, message FROM race_control WHERE session_oid=?", (oid,)).fetchall()
+        pit_rows = conn.execute(
+            """SELECT car_number, pit_entry_hour_ms FROM pit_events
+                 WHERE session_oid=? AND pit_entry_hour_ms IS NOT NULL""",
+            (oid,)).fetchall()
     except sqlite3.Error:
         return {}
-    return penalties.aggregate(r["message"] for r in rows if r["message"])
+    pit_entries: dict[str, list] = {}
+    for r in pit_rows:
+        pit_entries.setdefault(r["car_number"], []).append(r["pit_entry_hour_ms"])
+    return penalties.aggregate(
+        ((r["ts"], r["message"]) for r in rows if r["message"]), pit_entries)
 
 
 def _load_cautions(conn: sqlite3.Connection, oid: str) -> list[tuple]:

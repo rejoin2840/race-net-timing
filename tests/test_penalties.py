@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import penalties  # noqa: E402
 
 STOP_GO_TRANSIT_S = penalties.STOP_GO_TRANSIT_S
+DRIVE_THROUGH_S   = penalties.DRIVE_THROUGH_S
 
 RC_FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "rc_messages_imsa.txt")
 
@@ -290,6 +291,53 @@ def test_wec_sec_penalty_added_format():
     assert p.seconds == 5.0
     assert p.timing == "pending"
     assert p.cars == ["22"]
+
+
+# ── penalty serving (pit-lane visit after the announcement expires pending) ──
+
+T0 = 1_720_000_000_000        # arbitrary epoch-ms base inside the sane range
+
+
+def test_served_drive_through_expires_from_pending():
+    """A pit-lane visit after the announcement clears the pending carry."""
+    msgs = [(T0, "CAR 7 - DRIVE THROUGH PENALTY - FCY PROCEDURES")]
+    acc = penalties.aggregate(msgs, {"7": [T0 + 120_000]})
+    assert acc.get("7", (0,))[0] == 0.0            # pending_s cleared
+
+
+def test_unserved_drive_through_still_pending():
+    """Pit visits BEFORE the announcement don't count as serving."""
+    msgs = [(T0, "CAR 7 - DRIVE THROUGH PENALTY - FCY PROCEDURES")]
+    acc = penalties.aggregate(msgs, {"7": [T0 - 300_000]})
+    assert acc["7"][0] == DRIVE_THROUGH_S
+
+
+def test_untimed_messages_keep_carry_forever():
+    """Plain-string messages (no ts) keep the old behaviour even with pit data."""
+    acc = penalties.aggregate(["CAR 7 - DRIVE THROUGH PENALTY"], {"7": [T0]})
+    assert acc["7"][0] == DRIVE_THROUGH_S
+
+
+def test_served_matches_zero_padded_car_numbers():
+    """'CAR 007' in RC text serves against pit rows keyed '7'."""
+    msgs = [(T0, "CAR 007 - 5 SECONDS ADDED TO THE NEXT PIT STOP - PIT STOP INFRINGEMENT")]
+    acc = penalties.aggregate(msgs, {"7": [T0 + 60_000]})
+    assert acc.get("007", (0,))[0] == 0.0
+
+
+def test_served_leaves_post_race_and_dq_alone():
+    """Serving only expires pending; post-race time and DQ are not pit-servable."""
+    msgs = [(T0, "CAR 9: PENALTY - CONTACT - STOP + 60 *POST RACE TIME"),
+            (T0, "CAR 9: DISQUALIFIED - TECHNICAL INFRACTION")]
+    acc = penalties.aggregate(msgs, {"9": [T0 + 60_000]})
+    assert acc["9"][1] == 60.0 and acc["9"][3] is True
+
+
+def test_seconds_ts_treated_as_unknown():
+    """A ts in epoch SECONDS (writer bug) must not clear penalties."""
+    msgs = [(1_720_000_000, "CAR 7 - DRIVE THROUGH PENALTY")]   # seconds, not ms
+    acc = penalties.aggregate(msgs, {"7": [T0 + 60_000]})
+    assert acc["7"][0] == DRIVE_THROUGH_S
 
 
 def test_wec_seconds_added_corpus_no_raises():

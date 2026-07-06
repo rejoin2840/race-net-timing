@@ -137,15 +137,42 @@ def parse(message: str) -> list:
     return []
 
 
-def aggregate(messages) -> dict:
+def _served(car: str, penalty_ts, pit_entries) -> bool:
+    """A pending penalty is served once the car makes a pit-lane visit AFTER the
+    penalty was announced: drive-throughs and stop-gos are served in the pit lane,
+    and 'N seconds added to the next pit stop' is by definition paid at the next
+    stop. The feed never posts a 'penalty served' notice (checked across the full
+    IMSA + WEC corpora), so this timestamp test is the only serving signal.
+    Both message ts and pit-entry ts are epoch ms from the same feed clock."""
+    # epoch-ms sanity: a ts in seconds (or lap numbers, or 0) would compare wrongly
+    # against epoch-ms pit entries and clear penalties too eagerly — treat any
+    # non-epoch-ms ts as "unknown" and keep the safe carry-forever behaviour.
+    if penalty_ts is None or penalty_ts < 1e11 or not pit_entries:
+        return False
+    for key in (car, car.lstrip("0") or car):     # '007' in RC text vs '7' in pit rows
+        if any(e > penalty_ts for e in pit_entries.get(key, ())):
+            return True
+    return False
+
+
+def aggregate(messages, pit_entries=None) -> dict:
     """Fold parsed race-control lines into per-car totals.
 
-    messages = iterable of message strings (newest order doesn't matter).
-    Returns {car: (pending_s, post_race_s, note, dq)}. Identical penalties are
-    de-duplicated (the feed logs each line twice — current + history)."""
+    messages = iterable of message strings, or (ts_ms, message) tuples (newest
+    order doesn't matter). Returns {car: (pending_s, post_race_s, note, dq)}.
+    Identical penalties are de-duplicated (the feed logs each line twice —
+    current + history).
+
+    pit_entries = optional {car: [pit_entry_epoch_ms, ...]}. When given together
+    with timed messages, a pending penalty stops counting once the car has
+    visited the pit lane after the announcement (see _served) — otherwise a
+    served drive-through double-counts forever: the ~22s it cost is already in
+    the car's real gap AND net keeps adding it. Untimed calls keep the old
+    carry-forever behaviour (safe fallback when no pit data exists)."""
     seen = set()
     acc: dict = {}
-    for msg in messages:
+    for item in messages:
+        ts, msg = item if isinstance(item, tuple) else (None, item)
         for p in parse(msg):
             for car in p.cars:
                 key = (car, p.kind, round(p.seconds, 1), p.timing)
@@ -160,6 +187,9 @@ def aggregate(messages) -> dict:
                     post += p.seconds
                     note = (note + " · " if note else "") + f"+{p.seconds:.0f}s post"
                 elif p.timing == "pending":
+                    if _served(car, ts, pit_entries):
+                        acc[car] = (pend, post, note, dq)   # paid on track — real gap has it
+                        continue
                     pend += p.seconds
                     label = {"DRIVE_THROUGH": "drive-thru", "STOP_GO": "stop/go",
                              "STOP_HOLD": "stop+hold"}.get(
