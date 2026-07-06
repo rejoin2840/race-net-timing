@@ -54,6 +54,20 @@ _apply_config()   # seed at import (defaults if no config.json yet)
 _GAP_HIST: dict[tuple, deque] = {}
 
 
+def reset_gap_history(oid: str) -> None:
+    """Clear the lap-aligned gap history for one session oid.
+
+    _GAP_HIST is module-level and keyed (oid, car), so back-to-back session
+    builds under the SAME oid in one process (validate_races.py runs every
+    race as oid="replay") otherwise inherit the previous race's end-of-race
+    samples: _sample_gap rejects the new race's lower lap numbers and the
+    catching gate reads stale gaps. Found 07-05 as run-to-run catch-metric
+    non-determinism. replay._init_db calls this before every build/stream.
+    """
+    for key in [k for k in _GAP_HIST if k[0] == oid]:
+        del _GAP_HIST[key]
+
+
 def _sample_gap(oid: str, car: str, lap: Optional[int], gap_ms: Optional[float]) -> None:
     if lap is None or gap_ms is None:
         return

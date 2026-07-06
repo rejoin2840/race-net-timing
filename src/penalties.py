@@ -34,6 +34,11 @@ class Penalty:
 
 
 _CARS_RE   = re.compile(r"\bcars?\s*#?\s*([0-9]+(?:\s*,\s*#?\s*[0-9]+)*(?:\s*(?:and|&)\s*#?\s*[0-9]+)?)", re.I)
+# WEC dash-separated multi-car list: "CAR 009 - 95 - DRIVE THROUGH". The negative
+# lookahead keeps a trailing duration out of the list ("CAR 12 - 30 SECONDS STOP
+# AND GO" must stay car 12 only — the regex backtracks off "30" and fails, so the
+# normal _CARS_RE takes over).
+_DASH_LIST_RE = re.compile(r"\bcars?\s*#?\s*([0-9]+(?:\s*-\s*[0-9]+)+\b)(?!\s*sec)", re.I)
 _HASH_RE   = re.compile(r"#\s*([0-9]+)")
 _SECONDS_RE = re.compile(r"\+?\s*(\d+(?:\.\d+)?)\s*(?:sec(?:ond)?s?)\b", re.I)
 # stationary "Stop + N" / "Stop and hold + N" / "Stop plus N" hold penalty.
@@ -46,7 +51,9 @@ _STOP_MMSS_RE = re.compile(r"stop\s*(?:\+|plus|and\s+hold|/?\s*hold)\s*\+?\s*(\d
 
 def _extract_cars(msg: str) -> list:
     cars = []
-    m = _CARS_RE.search(msg)
+    m = _DASH_LIST_RE.search(msg)      # WEC "CAR 009 - 95 - <penalty>" list first
+    if not m:
+        m = _CARS_RE.search(msg)
     if m:
         cars = re.findall(r"[0-9]+", m.group(1))
     if not cars:

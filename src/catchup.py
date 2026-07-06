@@ -212,7 +212,9 @@ def summarize(old: Snapshot, new: Snapshot, rc_since=None, cap: Optional[int] = 
 
 
 def race_control_under_caution(flag: str) -> bool:
-    """Local caution test (mirrors calculator._is_caution without importing it — keeps
-    this module dependency-light). Yellow / full-course-yellow / safety-car states."""
+    """Local caution test (mirrors calculator.CAUTION_FLAGS without importing it — keeps
+    this module dependency-light). Must cover the short feed codes (YF is the common
+    IMSA yellow, VSC the WEC virtual safety car) as well as the spelled-out forms."""
     f = (flag or "").upper()
-    return f in ("FCY", "FULL_COURSE_YELLOW", "YELLOW", "SC", "SAFETY_CAR", "CAUTION")
+    return f in ("YF", "FCY", "CY", "SC", "VSC", "FCY1", "SCS",
+                 "FULL_COURSE_YELLOW", "YELLOW", "SAFETY_CAR", "CAUTION")

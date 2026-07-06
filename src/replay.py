@@ -136,6 +136,10 @@ def _init_db(replay: timing71.Replay, db_path: str, oid: str):
         except sqlite3.OperationalError:
             pass   # table may not exist yet on a fresh DB / lacks session_oid
     db.conn.commit()
+    # same clean-slate rule for the calculator's in-process gap history — a prior
+    # build under this oid (validate_races runs every race as oid="replay") would
+    # otherwise leak its end-of-race gap samples into this race's catching gate
+    calculator.reset_gap_history(oid)
 
     series = _detect_series(replay)
     db.set_session(oid, {

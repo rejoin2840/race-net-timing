@@ -241,6 +241,30 @@ def test_post_race_stop_plus_extracts_seconds():
 
 # ── WEC-specific formats (from 2024-2026 WEC Timing71 archives) ──────────────
 
+def test_wec_dash_multi_car_drive_through():
+    """WEC corpus: 'CAR 009 - 95 - DRIVE THROUGH' penalises BOTH cars."""
+    result = penalties.parse("CAR 009 - 95 - DRIVE THROUGH - VSC PROCEDURES AT 1741")
+    assert len(result) == 1
+    assert result[0].cars == ["009", "95"]
+    assert result[0].kind == "DRIVE_THROUGH"
+
+
+def test_wec_dash_before_duration_is_single_car():
+    """'CAR 12 - 30 SECONDS STOP AND GO' — the 30 is a duration, not a car."""
+    result = penalties.parse("CAR 12 - 30 SECONDS STOP AND GO PENALTY - INCIDENT AT T4 AT 121029")
+    assert len(result) == 1
+    assert result[0].cars == ["12"]
+    assert result[0].kind == "STOP_GO"
+    assert result[0].seconds == 30.0 + STOP_GO_TRANSIT_S
+
+
+def test_wec_dash_seconds_added_single_car():
+    """'CAR 009 - 5 SECONDS ADDED...WITH CAR 5' — one penalised car, victim excluded."""
+    p = _one("CAR 009 - 5 SECONDS ADDED TO THE NEXT PIT STOP - INCIDENT AT 1102 WITH CAR 5")
+    assert p.cars == ["009"]
+    assert p.seconds == 5.0
+
+
 def test_wec_seconds_added_to_pit_stop_5s():
     """WEC corpus: 'N SECONDS ADDED TO THE NEXT PIT STOP' without 'PENALTY'."""
     p = _one("CAR 007 - 5 SECONDS ADDED TO THE NEXT PIT STOP - PIT STOP INFRINGEMENT AT 2107")
