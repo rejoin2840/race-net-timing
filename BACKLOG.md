@@ -11,6 +11,18 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-06 — Fable Tier-3 exit review (see `FABLE_REVIEW.md` §5).** Four fixes
+  shipped: (1) evaluator catch metrics were non-deterministic AND cross-race
+  contaminated in every validate_races run to date (`_GAP_HIST` never reset between
+  builds under the same oid) — **all pre-07-06 catch% numbers are suspect**; (2)
+  pending penalties never expired (feed never announces "served") — a served
+  drive-through double-counted in net forever; now expires at the car's next
+  pit-lane visit, WEC net MAE improved 5/7 races, IMSA unchanged; (3) WEC dash
+  multi-car penalties dropped all but the first car; (4) `SERIES_OVERRIDES` in
+  config.json — tune WEC knobs at FP1 without touching IMSA calibration.
+  External (Gemini) review triaged same day: ~90% already shipped/decided; its
+  three new items folded in (per-series config = fix 4; explainability panel →
+  Epic 9 phase-2 input; live-vs-replay expectation note → `WEC_RACE_WEEK.md`).
 - **2026-07-05 — DRIVER_CHANGE_DELTA_MS=12s is too low for WEC; tune live at FP1.**
   WEC archives show a consistent -7s to -24s stop under-prediction bias vs IMSA's
   near-zero. Root cause: WEC driver-change stops run 30-40s longer than IMSA, not 12s.
@@ -423,6 +435,12 @@ phase 1/2, not yet actioned (cosmetics frozen):
   accuracy without a concurrent video stream to check against; deferred until
   that's available (ties to the parked broadcast-video north star below).
 
+**Explainability panel (Gemini review, folded in 07-06):** tap/click a car →
+show the net-math breakdown (real gap, remaining-stop cost ± band, penalty
+carry, driver-change increment). Directly attacks the net-cluster
+comprehension gripe above — the number becomes inspectable instead of
+needing a legend. Phase-2 design input, not committed work.
+
 **Phase 2 — front-end direction.** Inputs: phase 1 answers + the F1OpenViewer
 steal-audit (MIT, github.com/npanu420/F1OpenViewer v1.2.0, Electron/React/Tailwind):
 (a) design-language audit — screenshots, Tailwind theme values, layout/typography;
@@ -470,7 +488,9 @@ Until then: cosmetic UI work frozen (see 07-04 decision).
   Bahrain 2025, Imola 2026, Qatar 2025 — paths in `validate_races.py` WEC_RACES under
   `wec-archives/`. Verified complete 2026-07-05 (all end chequered). Le Mans 24h
   permanently excluded. SP 2026-07-12 live capture added post-race once parser proven.
-  WEC baseline (6h races): NET MAE 2.82–4.48, TRK 2.01–4.20, CATCH% 78–100%.
+  **WEC baseline (re-run 2026-07-06 post Tier-3 fixes — supersedes the 07-05 numbers,
+  which predate the determinism + penalty-expiry fixes):** NET MAE 2.96–4.60,
+  TRK 2.01–4.20, CATCH% 84–100% (COTA is the one net-beats-track race, +11%).
 - Only complete run-to-chequered archives count; verify span + final flag before adding.
 
 ## Standing gates

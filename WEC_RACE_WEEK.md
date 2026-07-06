@@ -68,7 +68,18 @@ buffered chunk could be lost instead of just the one in-flight frame. Regression
 
 ## Phase 4 — race-week execution checklist
 
+**Expectation-setting (07-06):** live accuracy will read WORSE than the replay-suite
+baselines — replay archives have cleaner pit detection (message-log-driven) than live
+feed diffing. Judge the live board against the broadcast, not against the suite MAEs.
+
 - [ ] **07-10 FP1:** `--record` running through every session (non-negotiable).
+- [ ] **07-10/11: tune WEC stop costs via `SERIES_OVERRIDES`** (added 07-06) — the
+  suites show a −8…−24s stop under-prediction on WEC 6h races; prime suspect is the
+  12s `DRIVER_CHANGE_DELTA_MS` prior. Edit config.json live (hot-reloads):
+  ```json
+  "SERIES_OVERRIDES": {"wec": {"DRIVER_CHANGE_DELTA_MS": 45000}}
+  ```
+  IMSA calibration is untouched by anything inside the "wec" block.
 - [ ] **07-11:** Commit 5 — field corrections from the real capture (class names, VET
   `cars-energy-tanks` shape, pit timing); iterate parser offline against Friday's file.
 - [ ] **07-12 race:** `--record` = must-have; live board = best-effort.

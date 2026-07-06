@@ -171,3 +171,62 @@ No race-day-critical issues beyond the two config content gaps. Nothing in
 the architecture blocks Epic 9's web option; nothing demands it either. The
 honest summary for the Epic 9 spike: the code is *ready* for either decision,
 so the decision can be made purely on product/UX grounds.
+
+## 5. Tier 3 — Fable exit review (2026-07-06)
+
+Final Fable pass before race week, per owner: core math (never Fable-reviewed —
+Tier 1 only covered WEC data flow), recent commits, backlog, plus the Epic 9
+direction opinion (separate doc: `EPIC9_DIRECTION.md`). Trigger: an external
+Gemini review (owner-supplied, ~07-02 vintage) was triaged first — ~90% of it
+was already shipped or decided; the three genuinely new items are folded into
+this pass (explainability panel → Epic 9 input, per-series config split →
+implemented, live-vs-replay expectation note → `WEC_RACE_WEEK.md`).
+
+### 5.1 Fixed (commits 1389995, cdbb8ae, 11d0edb)
+
+1. **Evaluator non-determinism / cross-race contamination.** `_GAP_HIST`
+   (module-level, keyed oid+car) survived across builds under the same oid;
+   `validate_races.py` runs every race as oid="replay", so catch metrics for
+   races 2+ in every suite run to date were contaminated (net/stop unaffected —
+   they don't read gap history). Now reset per build; 3 consecutive runs
+   byte-identical. **All pre-07-06 catch% numbers in BACKLOG/logs are suspect;
+   fresh baselines recorded 07-06.**
+2. **Pending penalties never expired.** No feed ever announces "penalty
+   served" (verified across both RC corpora), so a served drive-through
+   double-counted in net forever and the car could never reach net_settled.
+   Now: a pit-lane visit after the announcement expires the pending carry.
+   WEC suite net MAE improved 5/7 races; IMSA suite unchanged (3.01/2.45 vs
+   3.00/2.44 baseline).
+3. **WEC dash multi-car penalties** ("CAR 009 - 95 - DRIVE THROUGH") dropped
+   every car but the first. Fixed with a duration guard ("CAR 12 - 30 SECONDS
+   STOP AND GO" stays one car).
+4. **catchup caution-set drift** — `race_control_under_caution` was missing
+   YF/VSC; now mirrors calculator.CAUTION_FLAGS.
+5. **Per-series config overrides** (`SERIES_OVERRIDES` in config.json) — FP1
+   can now tune `DRIVER_CHANGE_DELTA_MS` for WEC without clobbering IMSA.
+
+### 5.2 Logged — accuracy observations (post-race-week, need validation)
+
+- **predict_stop car-scope wins too easily:** a car's flat mean from a SINGLE
+  observed stop outranks a class fit built on 20+ stops (calculator.py
+  `_flat_car` is populated unconditionally). Suggest requiring ≥2 samples for
+  car-scope flat before it beats class scope. Validate across both suites.
+- **dc_delta_ms is pooled field-wide:** WEC HYPERCAR and LMGT3 driver-change
+  costs differ; a per-class dc delta is the natural refinement once FP1 data
+  exists. (SERIES_OVERRIDES covers the cross-series half of this already.)
+- **eval_catch grades only the first prediction per chaser→target pair** — a
+  pair that re-catches hours later isn't re-graded. By design, but worth
+  knowing when reading hit-rates on 6h+ races.
+- **WEC stop-time bias:** with pit durations now flowing (timestamp fallback),
+  the suites show a consistent under-prediction on WEC 6h races (−8 to −24s
+  bias) — the DRIVER_CHANGE_DELTA_MS=12s prior is the prime suspect; tune via
+  SERIES_OVERRIDES at FP1 against real stop data.
+
+### 5.3 What Tier 3 did NOT find
+
+No interaction bugs between the 07-05 class-case normalization, the entry-list
+class-match merge, and WEC penalty scoring (the merge normalizes case itself).
+net_settled logic is correct once penalties can expire (fix 2 above completes
+the 07-04 decision's intent). The projected-finish blend, effective-position
+re-rank, and stops-left estimator all read as designed; no changes warranted
+before the race.
