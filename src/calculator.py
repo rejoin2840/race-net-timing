@@ -42,8 +42,8 @@ DB_PATH = Path("data/race.db")
 # ── tunables (hot-reloaded from config.json — see config.py) ─────────────────
 # These names are module globals so existing references work unchanged; their
 # values are (re)applied from config.CONFIG each analysis cycle via _apply_config().
-def _apply_config():
-    globals().update(config.CONFIG.as_dict())
+def _apply_config(series: str = None):
+    globals().update(config.CONFIG.as_dict(series))
 
 _apply_config()   # seed at import (defaults if no config.json yet)
 
@@ -674,9 +674,10 @@ def _driver_obligation(conn: sqlite3.Connection, oid: str) -> dict[str, bool]:
 # ── core assembly ───────────────────────────────────────────────────────────
 def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAnalysis]]:
     config.CONFIG.reload_if_changed()   # pick up live config.json edits (~2s latency)
-    _apply_config()
+    series = session_series(conn, oid)
+    _apply_config(series)               # base knobs + this series' SERIES_OVERRIDES
     ctx = _load_context(conn, oid)
-    ctx.profile = series_profiles.get_profile(session_series(conn, oid))
+    ctx.profile = series_profiles.get_profile(series)
     observed_stints = _class_stint_laps(conn, oid)
     owes_dc = _driver_obligation(conn, oid)
     best_sectors = _best_sectors(conn, oid)

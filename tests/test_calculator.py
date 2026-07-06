@@ -252,6 +252,43 @@ def test_build_learns_fuel_slope():
     assert scope == "car"
 
 
+def test_series_overrides_merge_only_for_matching_series():
+    """as_dict(series) applies SERIES_OVERRIDES on top of base; as_dict() doesn't;
+    unknown keys inside an override are ignored (a typo can't inject a global)."""
+    import config
+    saved = config.CONFIG._vals
+    try:
+        config.CONFIG._vals = dict(saved)
+        config.CONFIG._vals["DRIVER_CHANGE_DELTA_MS"] = 12000
+        config.CONFIG._vals["SERIES_OVERRIDES"] = {
+            "wec": {"DRIVER_CHANGE_DELTA_MS": 45000, "NOT_A_KNOB": 1}}
+        assert config.CONFIG.as_dict()["DRIVER_CHANGE_DELTA_MS"] == 12000
+        assert config.CONFIG.as_dict("imsa")["DRIVER_CHANGE_DELTA_MS"] == 12000
+        wec = config.CONFIG.as_dict("wec")
+        assert wec["DRIVER_CHANGE_DELTA_MS"] == 45000
+        assert "NOT_A_KNOB" not in wec
+    finally:
+        config.CONFIG._vals = saved
+
+
+def test_apply_config_routes_series_to_module_globals():
+    """_apply_config('wec') lands the override in calculator's module globals
+    (what PitCostModel and every knob reference actually read)."""
+    import config
+    saved = config.CONFIG._vals
+    try:
+        config.CONFIG._vals = dict(saved)
+        config.CONFIG._vals["SERIES_OVERRIDES"] = {
+            "wec": {"DRIVER_CHANGE_DELTA_MS": 45000}}
+        calculator._apply_config("wec")
+        assert calculator.DRIVER_CHANGE_DELTA_MS == 45000
+        calculator._apply_config("imsa")
+        assert calculator.DRIVER_CHANGE_DELTA_MS == saved["DRIVER_CHANGE_DELTA_MS"]
+    finally:
+        config.CONFIG._vals = saved
+        calculator._apply_config()
+
+
 if __name__ == "__main__":
     # Runnable without pytest: execute every test_* function in this module.
     import traceback
