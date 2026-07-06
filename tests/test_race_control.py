@@ -90,6 +90,61 @@ def test_corpus_penalty_warning_still_suppressed():
        f"penalty+warning messages must stay suppressed, leaked: {leaked[:3]}")
 
 
+# ── WEC-specific formats ──────────────────────────────────────────────────────
+
+WEC_FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "rc_messages_wec.txt")
+
+
+def test_wec_seconds_added_is_alert_penalty():
+    """WEC 'N SECONDS ADDED TO THE NEXT PIT STOP' must surface as ALERT/penalty."""
+    msg = "CAR 007 - 5 SECONDS ADDED TO THE NEXT PIT STOP - PIT STOP INFRINGEMENT AT 2107"
+    tier, kind = rc.classify(msg)
+    ok(tier == rc.ALERT and kind == "penalty",
+       f"seconds-added-to-pit-stop should be ALERT/penalty, got {tier}/{kind!r}")
+
+
+def test_wec_warning_flag_track_limits_suppressed():
+    """WEC 'WARNING FLAG - TRACK LIMITS' is routine noise, must be suppressed."""
+    msg = "CAR 31 SHAHIN - WARNING FLAG - TRACK LIMITS"
+    tier, kind = rc.classify(msg)
+    ok(tier == rc.SUPPRESS,
+       f"track-limits warning flag should be SUPPRESS, got {tier}/{kind!r}")
+
+
+def test_wec_warning_flag_incident_is_context():
+    """WEC 'WARNING FLAG - INCIDENT' surfaces as CONTEXT/warning (not track limits)."""
+    msg = "CAR 20 - WARNING FLAG - INCIDENT WITH CAR 6 AT T16 AT 1125"
+    tier, kind = rc.classify(msg)
+    ok(tier == rc.CONTEXT and kind == "warning",
+       f"incident warning flag should be CONTEXT/warning, got {tier}/{kind!r}")
+
+
+def test_wec_reprimand_is_context_warning():
+    """WEC reprimand is a formal sanction — surfaces as CONTEXT/warning."""
+    msg = "CAR 10 - REPRIMAND - INCIDENT AT T1 AT 1122"
+    tier, kind = rc.classify(msg)
+    ok(tier == rc.CONTEXT and kind == "warning",
+       f"reprimand should be CONTEXT/warning, got {tier}/{kind!r}")
+
+
+def test_wec_fine_penalty_suppressed():
+    """WEC fine penalty is monetary only — no position effect, must be suppressed."""
+    msg = "CARS 94 - 93 - 63 - 92 - 83 - FINE PENALTY - STARTING PROCEDURES"
+    tier, kind = rc.classify(msg)
+    ok(tier == rc.SUPPRESS,
+       f"fine penalty should be SUPPRESS, got {tier}/{kind!r}")
+
+
+def test_wec_corpus_no_unparsed_penalty():
+    """WEC corpus must have zero unparsed_penalty hits after parser fixes."""
+    if not os.path.exists(WEC_FIXTURES):
+        return
+    msgs = open(WEC_FIXTURES).read().splitlines()
+    leaked = [m for m in msgs if rc.classify(m) == (rc.CONTEXT, "unparsed_penalty")]
+    ok(not leaked,
+       f"WEC corpus should have 0 unparsed_penalty, got {len(leaked)}: {leaked[:3]}")
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

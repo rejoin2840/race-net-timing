@@ -239,6 +239,49 @@ def test_post_race_stop_plus_extracts_seconds():
     assert p.seconds == 60.0
 
 
+# ── WEC-specific formats (from 2024-2026 WEC Timing71 archives) ──────────────
+
+def test_wec_seconds_added_to_pit_stop_5s():
+    """WEC corpus: 'N SECONDS ADDED TO THE NEXT PIT STOP' without 'PENALTY'."""
+    p = _one("CAR 007 - 5 SECONDS ADDED TO THE NEXT PIT STOP - PIT STOP INFRINGEMENT AT 2107")
+    assert p.kind == "TIME"
+    assert p.seconds == 5.0
+    assert p.timing == "pending"
+    assert p.cars == ["007"]
+
+
+def test_wec_seconds_added_to_pit_stop_10s():
+    """WEC corpus: 10-second variant."""
+    p = _one("CAR 10 - 10 SECONDS ADDED TO THE NEXT PIT STOP - PIT STOP INFRINGEMENT")
+    assert p.kind == "TIME"
+    assert p.seconds == 10.0
+    assert p.timing == "pending"
+    assert p.cars == ["10"]
+
+
+def test_wec_sec_penalty_added_format():
+    """WEC corpus: 'N SEC TIME PENALTY ADDED TO NEXT PIT STOP' (with PENALTY keyword)."""
+    p = _one("5 SEC TIME PENALTY ADDED TO NEXT PIT STOP - CAR 22 - UNSAFE RELEASE")
+    assert p.kind == "TIME"
+    assert p.seconds == 5.0
+    assert p.timing == "pending"
+    assert p.cars == ["22"]
+
+
+def test_wec_seconds_added_corpus_no_raises():
+    """parse() must not raise on any WEC corpus line."""
+    wec_fixture = os.path.join(os.path.dirname(__file__), "fixtures", "rc_messages_wec.txt")
+    if not os.path.exists(wec_fixture):
+        return
+    with open(wec_fixture) as f:
+        lines = [l.rstrip() for l in f if l.strip()]
+    for line in lines:
+        try:
+            penalties.parse(line)
+        except Exception as exc:
+            raise AssertionError(f"parse() raised on {line!r}: {exc}") from exc
+
+
 if __name__ == "__main__":
     # Runnable without pytest: execute every test_* function in this module.
     import traceback

@@ -101,6 +101,11 @@ def parse(message: str) -> list:
                 secs = float(mh.group(1))
         return [Penalty(cars, "TIME", secs, "post_race", message)]
 
+    # WEC format: "N SECONDS ADDED TO THE NEXT PIT STOP" — time added to pit stop
+    # dwell time, scored identically to a pending time penalty. No "penalty" keyword.
+    if "added to" in m and "pit stop" in m and secs > 0:
+        return [Penalty(cars, "TIME", secs, "pending", message)]
+
     # in-race penalties the car must serve → pending time loss
     if "drive" in m and "through" in m:
         return [Penalty(cars, "DRIVE_THROUGH", DRIVE_THROUGH_S, "pending", message)]
