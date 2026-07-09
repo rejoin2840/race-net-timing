@@ -11,6 +11,32 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-06 — Fable Tier-3 exit review (see `FABLE_REVIEW.md` §5).** Four fixes
+  shipped: (1) evaluator catch metrics were non-deterministic AND cross-race
+  contaminated in every validate_races run to date (`_GAP_HIST` never reset between
+  builds under the same oid) — **all pre-07-06 catch% numbers are suspect**; (2)
+  pending penalties never expired (feed never announces "served") — a served
+  drive-through double-counted in net forever; now expires at the car's next
+  pit-lane visit, WEC net MAE improved 5/7 races, IMSA unchanged; (3) WEC dash
+  multi-car penalties dropped all but the first car; (4) `SERIES_OVERRIDES` in
+  config.json — tune WEC knobs at FP1 without touching IMSA calibration.
+  External (Gemini) review triaged same day: ~90% already shipped/decided; its
+  three new items folded in (per-series config = fix 4; explainability panel →
+  Epic 9 phase-2 input; live-vs-replay expectation note → `WEC_RACE_WEEK.md`).
+- **2026-07-05 — DRIVER_CHANGE_DELTA_MS=12s is too low for WEC; tune live at FP1.**
+  WEC archives show a consistent -7s to -24s stop under-prediction bias vs IMSA's
+  near-zero. Root cause: WEC driver-change stops run 30-40s longer than IMSA, not 12s.
+  Anomaly-heavy archives (Imola '26: penalties + wet weather; SP '25: 27-min + 57-min
+  garage repairs; Qatar: 10h distance race) explain the outlier MAEs — not model
+  failures. Decision: do not tune off archived data. Tune DRIVER_CHANGE_DELTA_MS live
+  via config.json during São Paulo FP1, watching actual vs predicted stop times.
+- **2026-07-05 — WEC regression set established (7 archives); Le Mans 24h excluded.**
+  7 complete (run-to-chequered) WEC archives verified and added to `validate_races.py`
+  WEC_RACES: SP 2024, SP 2025, COTA 2025, Fuji 2025, Bahrain 2025, Imola 2026, Qatar
+  2025. Le Mans 24h excluded permanently — different field size (62 cars), entry
+  structure, and overnight dynamics make it a poor regression baseline. Run with
+  `python src/validate_races.py --wec`. Baseline (2026-07-05, 6h races):
+  NET MAE 2.82–4.48, TRK MAE 2.01–4.20, CATCH% 78–100%.
 - **2026-07-04 — NET suppresses itself once the final pit cycle is done.** owner's call
   (replay session): end-of-race net positions are knowingly wrong once no stops remain
   to model, so a per-car `net_settled` flag (calculator.py) collapses NET to track
@@ -409,6 +435,12 @@ phase 1/2, not yet actioned (cosmetics frozen):
   accuracy without a concurrent video stream to check against; deferred until
   that's available (ties to the parked broadcast-video north star below).
 
+**Explainability panel (Gemini review, folded in 07-06):** tap/click a car →
+show the net-math breakdown (real gap, remaining-stop cost ± band, penalty
+carry, driver-change increment). Directly attacks the net-cluster
+comprehension gripe above — the number becomes inspectable instead of
+needing a legend. Phase-2 design input, not committed work.
+
 **Phase 2 — front-end direction.** Inputs: phase 1 answers + the F1OpenViewer
 steal-audit (MIT, github.com/npanu420/F1OpenViewer v1.2.0, Electron/React/Tailwind):
 (a) design-language audit — screenshots, Tailwind theme values, layout/typography;
@@ -452,12 +484,18 @@ Until then: cosmetic UI work frozen (see 07-04 decision).
 - **IMSA (6 complete archives, the default gate):** Daytona 24h, Petit Le Mans 10h,
   Indy 6h, Monterey, Long Beach, Detroit — paths in `validate_races.py` under
   `ARCHIVE_DIR`.
-- **WEC:** São Paulo 2026-07-12 raw capture will be the first WEC archive. Add to
-  `validate_races.py` once the parser is proven against it.
+- **WEC (7 complete archives, `--wec` flag):** SP 2024, SP 2025, COTA 2025, Fuji 2025,
+  Bahrain 2025, Imola 2026, Qatar 2025 — paths in `validate_races.py` WEC_RACES under
+  `wec-archives/`. Verified complete 2026-07-05 (all end chequered). Le Mans 24h
+  permanently excluded. SP 2026-07-12 live capture added post-race once parser proven.
+  **WEC baseline (re-run 2026-07-06 post Tier-3 fixes — supersedes the 07-05 numbers,
+  which predate the determinism + penalty-expiry fixes):** NET MAE 2.96–4.60,
+  TRK 2.01–4.20, CATCH% 84–100% (COTA is the one net-beats-track race, +11%).
 - Only complete run-to-chequered archives count; verify span + final flag before adding.
 
 ## Standing gates
 
 - Any calculator/replay/evaluator change → `./check.sh --full` (tests + IMSA suite).
+- WEC-specific changes → also run `python src/validate_races.py --wec`.
 - UI changes → offscreen render + `replay.py --stream` feel-test.
 - Finish-predictor changes → validated across ALL races, never a single archive.

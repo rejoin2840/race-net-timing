@@ -48,6 +48,12 @@ DEFAULTS = {
     "TRACK_LON":             -76.927,   # circuit longitude (edit per round for weather)
     "DEV_SHOW_ALL_SESSIONS":  False,    # picker shows Race sessions only; True re-exposes all session types for debugging
     "ARCHIVE_DIR":            "~/Downloads",  # where IMSA Timing71 replay zips live (validate_races.py; ~ expanded)
+    # per-series knob overrides, applied on top of the base values when the
+    # active session's series matches: {"wec": {"DRIVER_CHANGE_DELTA_MS": 45000}}.
+    # Lets race-day tuning for one series (WEC driver changes run far longer than
+    # IMSA's) leave the other series' calibration untouched. Hot-reloads like
+    # every other knob; unknown keys inside an override are ignored.
+    "SERIES_OVERRIDES":       {},
 }
 
 
@@ -80,8 +86,15 @@ class _Config:
             self._mtime = m
             self._load()
 
-    def as_dict(self) -> dict:
-        return dict(self._vals)
+    def as_dict(self, series: str = None) -> dict:
+        """Base knob values, optionally with the given series' overrides applied
+        (only keys that exist in DEFAULTS are honoured — a typo in an override
+        can't inject a new global)."""
+        out = dict(self._vals)
+        if series:
+            ov = (self._vals.get("SERIES_OVERRIDES") or {}).get(series) or {}
+            out.update({k: v for k, v in ov.items() if k in DEFAULTS})
+        return out
 
     def __getattr__(self, key):
         # only reached for names not found normally; _vals is a real instance attr

@@ -68,10 +68,27 @@ buffered chunk could be lost instead of just the one in-flight frame. Regression
 
 ## Phase 4 — race-week execution checklist
 
-- [ ] **07-10 FP1:** `--record` running through every session (non-negotiable).
+**Expectation-setting (07-06):** live accuracy will read WORSE than the replay-suite
+baselines — replay archives have cleaner pit detection (message-log-driven) than live
+feed diffing. Judge the live board against the broadcast, not against the suite MAEs.
+
+- [ ] **07-10/11 FP1-FP2/quali:** `--record` running through every session
+  (non-negotiable). **Data-validation only** (BACKLOG 07-04 decision) — confirm
+  team/class names resolve, RC messages flow, and telemetry/VET populates.
+  Practice pit stops are setup/tire/fuel-load experiments with arbitrary
+  durations and non-strategy driver swaps — comparing predicted vs actual stop
+  time against them is meaningless noise, not a tuning signal. Do NOT touch
+  `SERIES_OVERRIDES`/`DRIVER_CHANGE_DELTA_MS` from anything seen in practice.
 - [ ] **07-11:** Commit 5 — field corrections from the real capture (class names, VET
   `cars-energy-tanks` shape, pit timing); iterate parser offline against Friday's file.
-- [ ] **07-12 race:** `--record` = must-have; live board = best-effort.
+- [ ] **07-12 race:** `--record` = must-have; live board = best-effort. This is the
+  first legitimate stop-cost signal — if early green-flag stops show the suite's
+  −8…−24s WEC stop-time bias holding, tune live via `SERIES_OVERRIDES` (prime
+  suspect: the 12s `DRIVER_CHANGE_DELTA_MS` prior):
+  ```json
+  "SERIES_OVERRIDES": {"wec": {"DRIVER_CHANGE_DELTA_MS": 45000}}
+  ```
+  IMSA calibration is untouched by anything inside the "wec" block.
 - [ ] **Post-race:** add the São Paulo archive to `validate_races.py`'s held-out set once
   the parser is proven against it; run the standard post-event memory-QA pass.
 

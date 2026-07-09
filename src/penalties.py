@@ -34,6 +34,11 @@ class Penalty:
 
 
 _CARS_RE   = re.compile(r"\bcars?\s*#?\s*([0-9]+(?:\s*,\s*#?\s*[0-9]+)*(?:\s*(?:and|&)\s*#?\s*[0-9]+)?)", re.I)
+# WEC dash-separated multi-car list: "CAR 009 - 95 - DRIVE THROUGH". The negative
+# lookahead keeps a trailing duration out of the list ("CAR 12 - 30 SECONDS STOP
+# AND GO" must stay car 12 only — the regex backtracks off "30" and fails, so the
+# normal _CARS_RE takes over).
+_DASH_LIST_RE = re.compile(r"\bcars?\s*#?\s*([0-9]+(?:\s*-\s*[0-9]+)+\b)(?!\s*sec)", re.I)
 _HASH_RE   = re.compile(r"#\s*([0-9]+)")
 _SECONDS_RE = re.compile(r"\+?\s*(\d+(?:\.\d+)?)\s*(?:sec(?:ond)?s?)\b", re.I)
 # stationary "Stop + N" / "Stop and hold + N" / "Stop plus N" hold penalty.
@@ -46,7 +51,9 @@ _STOP_MMSS_RE = re.compile(r"stop\s*(?:\+|plus|and\s+hold|/?\s*hold)\s*\+?\s*(\d
 
 def _extract_cars(msg: str) -> list:
     cars = []
-    m = _CARS_RE.search(msg)
+    m = _DASH_LIST_RE.search(msg)      # WEC "CAR 009 - 95 - <penalty>" list first
+    if not m:
+        m = _CARS_RE.search(msg)
     if m:
         cars = re.findall(r"[0-9]+", m.group(1))
     if not cars:
@@ -101,6 +108,11 @@ def parse(message: str) -> list:
                 secs = float(mh.group(1))
         return [Penalty(cars, "TIME", secs, "post_race", message)]
 
+    # WEC format: "N SECONDS ADDED TO THE NEXT PIT STOP" — time added to pit stop
+    # dwell time, scored identically to a pending time penalty. No "penalty" keyword.
+    if "added to" in m and "pit stop" in m and secs > 0:
+        return [Penalty(cars, "TIME", secs, "pending", message)]
+
     # in-race penalties the car must serve → pending time loss
     if "drive" in m and "through" in m:
         return [Penalty(cars, "DRIVE_THROUGH", DRIVE_THROUGH_S, "pending", message)]
@@ -125,15 +137,42 @@ def parse(message: str) -> list:
     return []
 
 
-def aggregate(messages) -> dict:
+def _served(car: str, penalty_ts, pit_entries) -> bool:
+    """A pending penalty is served once the car makes a pit-lane visit AFTER the
+    penalty was announced: drive-throughs and stop-gos are served in the pit lane,
+    and 'N seconds added to the next pit stop' is by definition paid at the next
+    stop. The feed never posts a 'penalty served' notice (checked across the full
+    IMSA + WEC corpora), so this timestamp test is the only serving signal.
+    Both message ts and pit-entry ts are epoch ms from the same feed clock."""
+    # epoch-ms sanity: a ts in seconds (or lap numbers, or 0) would compare wrongly
+    # against epoch-ms pit entries and clear penalties too eagerly — treat any
+    # non-epoch-ms ts as "unknown" and keep the safe carry-forever behaviour.
+    if penalty_ts is None or penalty_ts < 1e11 or not pit_entries:
+        return False
+    for key in (car, car.lstrip("0") or car):     # '007' in RC text vs '7' in pit rows
+        if any(e > penalty_ts for e in pit_entries.get(key, ())):
+            return True
+    return False
+
+
+def aggregate(messages, pit_entries=None) -> dict:
     """Fold parsed race-control lines into per-car totals.
 
-    messages = iterable of message strings (newest order doesn't matter).
-    Returns {car: (pending_s, post_race_s, note, dq)}. Identical penalties are
-    de-duplicated (the feed logs each line twice — current + history)."""
+    messages = iterable of message strings, or (ts_ms, message) tuples (newest
+    order doesn't matter). Returns {car: (pending_s, post_race_s, note, dq)}.
+    Identical penalties are de-duplicated (the feed logs each line twice —
+    current + history).
+
+    pit_entries = optional {car: [pit_entry_epoch_ms, ...]}. When given together
+    with timed messages, a pending penalty stops counting once the car has
+    visited the pit lane after the announcement (see _served) — otherwise a
+    served drive-through double-counts forever: the ~22s it cost is already in
+    the car's real gap AND net keeps adding it. Untimed calls keep the old
+    carry-forever behaviour (safe fallback when no pit data exists)."""
     seen = set()
     acc: dict = {}
-    for msg in messages:
+    for item in messages:
+        ts, msg = item if isinstance(item, tuple) else (None, item)
         for p in parse(msg):
             for car in p.cars:
                 key = (car, p.kind, round(p.seconds, 1), p.timing)
@@ -148,6 +187,9 @@ def aggregate(messages) -> dict:
                     post += p.seconds
                     note = (note + " · " if note else "") + f"+{p.seconds:.0f}s post"
                 elif p.timing == "pending":
+                    if _served(car, ts, pit_entries):
+                        acc[car] = (pend, post, note, dq)   # paid on track — real gap has it
+                        continue
                     pend += p.seconds
                     label = {"DRIVE_THROUGH": "drive-thru", "STOP_GO": "stop/go",
                              "STOP_HOLD": "stop+hold"}.get(

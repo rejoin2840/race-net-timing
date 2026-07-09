@@ -88,9 +88,25 @@ def classify(message) -> tuple:
     # early signal
     if "final warning" in low:
         return (CONTEXT, "warning")
+
+    # WEC formal warnings: "WARNING FLAG - <reason>" — suppress routine track-limits
+    # noise but surface anything non-trivial (unsafe rejoin, jump start, etc.)
+    if "warning flag" in low:
+        if "track limit" in low or "abusing track" in low:
+            return (SUPPRESS, "")
+        return (CONTEXT, "warning")
+
+    # WEC reprimand — formal sanction without direct time cost; worth a glance
+    if "reprimand" in low:
+        return (CONTEXT, "warning")
+
     # yellow-cause incidents (owner: keep so a glance tells you WHY a caution is out)
     if any(k in low for k in _YELLOW_CAUSE):
         return (CONTEXT, "incident")
+
+    # monetary fine — no position effect, suppress cleanly
+    if "fine" in low and "penalt" in low:
+        return (SUPPRESS, "")
 
     # a message mentioning a penalty that wasn't scored by parse() and doesn't
     # contain "warning" is likely a lap-time invalidation or an unknown penalty

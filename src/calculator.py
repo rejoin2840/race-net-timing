@@ -42,8 +42,8 @@ DB_PATH = Path("data/race.db")
 # ── tunables (hot-reloaded from config.json — see config.py) ─────────────────
 # These names are module globals so existing references work unchanged; their
 # values are (re)applied from config.CONFIG each analysis cycle via _apply_config().
-def _apply_config():
-    globals().update(config.CONFIG.as_dict())
+def _apply_config(series: str = None):
+    globals().update(config.CONFIG.as_dict(series))
 
 _apply_config()   # seed at import (defaults if no config.json yet)
 
@@ -52,6 +52,20 @@ _apply_config()   # seed at import (defaults if no config.json yet)
 # only — so caution bunching never reads as "closing". Module-level state: single-
 # session desktop app, bounded by the deque; only recent samples are ever consulted.
 _GAP_HIST: dict[tuple, deque] = {}
+
+
+def reset_gap_history(oid: str) -> None:
+    """Clear the lap-aligned gap history for one session oid.
+
+    _GAP_HIST is module-level and keyed (oid, car), so back-to-back session
+    builds under the SAME oid in one process (validate_races.py runs every
+    race as oid="replay") otherwise inherit the previous race's end-of-race
+    samples: _sample_gap rejects the new race's lower lap numbers and the
+    catching gate reads stale gaps. Found 07-05 as run-to-run catch-metric
+    non-determinism. replay._init_db calls this before every build/stream.
+    """
+    for key in [k for k in _GAP_HIST if k[0] == oid]:
+        del _GAP_HIST[key]
 
 
 def _sample_gap(oid: str, car: str, lap: Optional[int], gap_ms: Optional[float]) -> None:
@@ -557,13 +571,26 @@ def _tire_deg(conn: sqlite3.Connection, oid: str, car: str,
 
 def _load_penalties(conn: sqlite3.Connection, oid: str) -> dict:
     """Parse race-control text into per-car penalty carry. Returns
-    {car: (pending_s, post_race_s, note, dq)}."""
+    {car: (pending_s, post_race_s, note, dq)}.
+
+    Pit-entry timestamps ride along so aggregate() can expire a pending penalty
+    once the car has served it in the pit lane (the feed never announces
+    serving) — without this a served drive-through double-counts in net for the
+    rest of the race and the car can never reach net_settled."""
     try:
         rows = conn.execute(
-            "SELECT message FROM race_control WHERE session_oid=?", (oid,)).fetchall()
+            "SELECT ts, message FROM race_control WHERE session_oid=?", (oid,)).fetchall()
+        pit_rows = conn.execute(
+            """SELECT car_number, pit_entry_hour_ms FROM pit_events
+                 WHERE session_oid=? AND pit_entry_hour_ms IS NOT NULL""",
+            (oid,)).fetchall()
     except sqlite3.Error:
         return {}
-    return penalties.aggregate(r["message"] for r in rows if r["message"])
+    pit_entries: dict[str, list] = {}
+    for r in pit_rows:
+        pit_entries.setdefault(r["car_number"], []).append(r["pit_entry_hour_ms"])
+    return penalties.aggregate(
+        ((r["ts"], r["message"]) for r in rows if r["message"]), pit_entries)
 
 
 def _load_cautions(conn: sqlite3.Connection, oid: str) -> list[tuple]:
@@ -647,9 +674,10 @@ def _driver_obligation(conn: sqlite3.Connection, oid: str) -> dict[str, bool]:
 # ── core assembly ───────────────────────────────────────────────────────────
 def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAnalysis]]:
     config.CONFIG.reload_if_changed()   # pick up live config.json edits (~2s latency)
-    _apply_config()
+    series = session_series(conn, oid)
+    _apply_config(series)               # base knobs + this series' SERIES_OVERRIDES
     ctx = _load_context(conn, oid)
-    ctx.profile = series_profiles.get_profile(session_series(conn, oid))
+    ctx.profile = series_profiles.get_profile(series)
     observed_stints = _class_stint_laps(conn, oid)
     owes_dc = _driver_obligation(conn, oid)
     best_sectors = _best_sectors(conn, oid)

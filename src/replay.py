@@ -136,6 +136,10 @@ def _init_db(replay: timing71.Replay, db_path: str, oid: str):
         except sqlite3.OperationalError:
             pass   # table may not exist yet on a fresh DB / lacks session_oid
     db.conn.commit()
+    # same clean-slate rule for the calculator's in-process gap history — a prior
+    # build under this oid (validate_races runs every race as oid="replay") would
+    # otherwise leak its end-of-race gap samples into this race's catching gate
+    calculator.reset_gap_history(oid)
 
     series = _detect_series(replay)
     db.set_session(oid, {
@@ -158,12 +162,14 @@ def _init_db(replay: timing71.Replay, db_path: str, oid: str):
                     lineup.setdefault(car, set()).add(nm)
     for _ts, fr in (replay.full_frames[:1] + replay.full_frames[-1:]):
         for row in fr.get("cars", []):
-            num = row[col["Num"]]; drv = row[col["Driver"]]
+            num = row[col["Num"]]; drv = timing71._cell(row[col["Driver"]])
             if drv:
                 lineup.setdefault(num, set()).add(drv)
     for car, fin in finals.items():
+        raw_cls = fin.get("class") or default_class
+        norm_cls = raw_cls.upper() if isinstance(raw_cls, str) else raw_cls
         db.upsert_entry(car, {
-            "class": fin.get("class") or default_class, "team": None, "vehicle": None,
+            "class": norm_cls, "team": None, "vehicle": None,
             "name": None, "drivers": sorted(lineup.get(car, set())),
         })
     db.commit()
@@ -313,7 +319,8 @@ def _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at):
     for r in rows:
         car  = r[col["Num"]]
         laps = int(timing71._num(r[col["Laps"]]) or 0)
-        cls  = r[cls_i] if cls_i is not None else default_class
+        cls_raw = r[cls_i] if cls_i is not None else default_class
+        cls  = cls_raw.upper() if isinstance(cls_raw, str) else cls_raw
         seq  = pit_in.get(car, [])
         done = [pl for (it, pl) in seq if it <= ts_ms]
         db._pit_count[car]    = len(done)
@@ -375,7 +382,7 @@ def _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at):
         # keep the entry's current driver fresh per frame (matches the live feed:
         # calculator reads session_entry.name as the in-car driver). The frame's
         # Driver cell is "LAST, First" and changes at driver swaps.
-        drv = r[col["Driver"]]
+        drv = timing71._cell(r[col["Driver"]])
         if drv:
             db.conn.execute(
                 "UPDATE session_entry SET name=? WHERE session_oid=? AND car_number=?",

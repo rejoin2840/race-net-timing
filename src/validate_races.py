@@ -29,6 +29,8 @@ import timing71
 # Only COMPLETE (run-to-chequered) archives belong here; truncated ones skew
 # the numbers (final pit cycles unresolved). Verified complete 2026-06-28.
 DL = os.path.expanduser(config.CONFIG.ARCHIVE_DIR)
+WEC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "wec-archives")
+
 RACES = [
     f"{DL}/2026-01-24 18-37 IMSA WeatherTech SportsCar Championship - Rolex 24 at Daytona - Race.zip",
     f"{DL}/2025-10-11 16-07 IMSA WeatherTech SportsCar Championship - 28th Annual Motul Petit Le Mans - Race.zip",
@@ -38,16 +40,30 @@ RACES = [
     f"{DL}/2026-05-30 19-57 IMSA WeatherTech SportsCar Championship - Chevrolet Detroit Sports Car Classic - Race.zip",
 ]
 
+# WEC regression set — complete (run-to-chequered) 6h/8h races only.
+# Le Mans 24h excluded: different format, entry structure, and overnight
+# dynamics make it a poor regression baseline. Truncated archives excluded.
+# Verified complete 2026-07-05.
+WEC_RACES = [
+    f"{WEC_DIR}/2024-07-14 14-27 FIA WEC - Rolex 6 Hours of SÃO PAULO - Race.zip",
+    f"{WEC_DIR}/2025-07-13 14-27 FIA WEC - Race.zip",
+    f"{WEC_DIR}/2025-09-07 17-57 FIA WEC - Lone Star Le Mans - Race.zip",
+    f"{WEC_DIR}/2025-09-28 01-57 FIA WEC - 6 Hours of Fuji - Race.zip",
+    f"{WEC_DIR}/2025-11-08 10-57 FIA WEC - Bapco Energies 8 Hours of Bahrain - Race.zip",
+    f"{WEC_DIR}/2026-04-19 10-57 FIA World Endurance Championship - FIA WEC - 6 Hours of Imola - Race.zip",
+    f"{WEC_DIR}/2025-02-28 10-57 FIA WEC - Qatar 1812km - Race.zip",
+]
+
 
 
 def _short(name: str) -> str:
     """Pull a readable circuit/event label out of the long archive filename."""
     base = os.path.basename(name)
-    # files look like 'YYYY-MM-DD HH-MM IMSA … - <event> - Race.zip'
     parts = base.rsplit(" - ", 2)
     event = parts[-2] if len(parts) >= 2 else base
     for noise in ("28th Annual Motul ", "Tire Rack.com ", "Acura ", "StubHub ",
-                  "Chevrolet ", "Grand Prix of "):
+                  "Chevrolet ", "Grand Prix of ", "FIA WEC - ", "FIA World Endurance Championship - ",
+                  "Rolex ", "Bapco Energies ", "TotalEnergies "):
         event = event.replace(noise, "")
     return event[:26]
 
@@ -74,8 +90,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("zips", nargs="*", help="replay zips (default: built-in IMSA RACES)")
     ap.add_argument("--keep-dbs", action="store_true", help="leave temp DBs in place")
+    ap.add_argument("--wec", action="store_true", help="run WEC regression set instead of IMSA")
+    ap.add_argument("--all", action="store_true", help="run both IMSA and WEC sets")
     args = ap.parse_args()
-    zips = args.zips or RACES
+    if args.zips:
+        zips = args.zips
+    elif args.all:
+        zips = RACES + WEC_RACES
+    elif args.wec:
+        zips = WEC_RACES
+    else:
+        zips = RACES
 
     rows = []
     for z in zips:
