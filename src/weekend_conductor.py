@@ -104,10 +104,38 @@ def _dt(month, day, hour, minute):
     return datetime(2026, month, day, hour, minute)
 
 
+# Rolex 6 Hours of São Paulo (2026-07-12) — all times below are local (EDT),
+# matching this machine's clock, per owner confirmation 2026-07-08.
+#
+# The 4 quali/hyperpole entries (LMGT3 Q, LMGT3 Hyperpole, HYPERCAR Q,
+# HYPERCAR Hyperpole) are TV-schedule phases of ONE continuous WEC timing
+# session, not 4 separate Griiip sessionIds (gaps between them are 20-35 min
+# — too tight for a real session teardown/re-discovery cycle, and WEC
+# publishes one combined "Qualifying" results doc for the whole block). They
+# are collapsed into a single "quali" entry spanning 1:30 PM -> ~3:15 PM so
+# the conductor never launches concurrent wec_live.py instances against the
+# same session (that would corrupt the single-writer lock file in
+# _write_lock/_remove_lock — a later thread's launch overwrites the lock,
+# then an earlier thread's `finally` block deletes the wrong, still-active
+# lock on cleanup).
+#
+# Scope (owner call, 2026-07-08): only the race matters for accuracy scoring.
+# Practice/quali sessions run the scraper + post-window health check ONLY, to
+# confirm timing/scoring/telemetry are wired — no --record archive and no
+# headless predictor for those (both already gated to kind in
+# ("race", "sprint_race") elsewhere in this file).
+#
+# Race window is overridden to 480 min (8h) — the default "race" WINDOW_MIN
+# (210 min) is tuned for ~2.5h IMSA sprint races and would kill capture ~2h
+# before a 6h WEC race even finishes green, let alone covers red-flag/delay
+# slack.
 SCHEDULE: list = [
-    # Fill in before each race weekend.  Format:
-    # (series, label, kind, start_datetime)
-    # kind: "practice" | "quali" | "sprint_race" | "race"
+    # (series, label, kind, start_datetime, window_min_override)
+    ("wec", "FP1",   "practice", _dt(7, 10, 10, 0),  None),
+    ("wec", "FP2",   "practice", _dt(7, 10, 14, 50), None),
+    ("wec", "FP3",   "practice", _dt(7, 11,  9, 10), None),
+    ("wec", "Quali+Hyperpole", "quali", _dt(7, 11, 13, 30), 105),
+    ("wec", "Race",  "race",     _dt(7, 12, 10, 30), 480),
 ]
 
 
@@ -148,11 +176,12 @@ def _stop_proc(proc: "subprocess.Popen | None", name: str):
         proc.wait(timeout=5)
 
 
-def run_session(series: str, label: str, kind: str, start: datetime):
+def run_session(series: str, label: str, kind: str, start: datetime,
+                 window_min_override: "int | None" = None):
     slug = f"{series}_{label}".lower().replace(" ", "_")
     now = datetime.now()
     launch_at = start - timedelta(minutes=START_BUFFER_MIN)
-    window_min = WINDOW_MIN[kind]
+    window_min = window_min_override if window_min_override is not None else WINDOW_MIN[kind]
     stop_at = start + timedelta(minutes=window_min)
 
     if stop_at <= now:
@@ -175,9 +204,18 @@ def run_session(series: str, label: str, kind: str, start: datetime):
     scraper_proc = None
     predictor_proc = None
     try:
+        scraper_args = [PYTHON, "-u", str(SRC / SCRAPER[series])]
+        if series == "wec" and kind in ("race", "sprint_race"):
+            # raw-capture archive — mandatory insurance per WEC_RACE_WEEK.md
+            # Phase 4; lets a bad live parse be fixed and replayed offline.
+            # Race day only (owner call, 2026-07-08) — practice/quali only
+            # need the health-check pass to confirm timing/scoring/telemetry
+            # are wired, not a full archive.
+            record_path = DATA_DIR / f"wec_saopaulo_{slug}_{start:%Y%m%d}.jsonl.gz"
+            scraper_args += ["--record", str(record_path)]
         with open(scraper_log_path, "w") as slog:
             scraper_proc = subprocess.Popen(
-                [PYTHON, "-u", str(SRC / SCRAPER[series])],
+                scraper_args,
                 cwd=str(ROOT), stdout=slog, stderr=subprocess.STDOUT,
             )
         _track(scraper_proc)
@@ -282,7 +320,7 @@ def main():
 
     if args.test_now:
         start = datetime.now() + timedelta(minutes=1)
-        schedule = [("imsa", "DryRun", "practice", start)]
+        schedule = [("imsa", "DryRun", "practice", start, None)]
         WINDOW_MIN["practice"] = 2   # shrink the window for a fast test
         global START_BUFFER_MIN
         START_BUFFER_MIN = 1
@@ -292,8 +330,9 @@ def main():
 
     _log(f"conductor starting, {len(schedule)} session(s) scheduled")
     threads = []
-    for series, label, kind, start in schedule:
-        t = threading.Thread(target=run_session, args=(series, label, kind, start),
+    for series, label, kind, start, window_override in schedule:
+        t = threading.Thread(target=run_session,
+                              args=(series, label, kind, start, window_override),
                               name=f"{series}-{label}", daemon=False)
         t.start()
         threads.append(t)

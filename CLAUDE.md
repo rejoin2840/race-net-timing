@@ -14,7 +14,7 @@
 - **Token efficiency**: Use cheaper models (Haiku, Sonnet) for subagents; reserve expensive models for tasks requiring deep reasoning
 - **Before you start**: Recommend a model for the main plan and explain why, then recommend models for any subagents
 
-## Model Selection Guidelines
+## Model Selection Guidelines (IMPORTANT)
 - **Main plan**: Recommend which model (Opus/Sonnet/Haiku) with 1-line justification
 - **Subagents**: Choose the most cost-efficient model that still accomplishes the task well
   - Haiku: Data processing, exploration, simple analysis
@@ -23,7 +23,7 @@
 - **Keep it brief**: One sentence explaining why—cost/capability trade-off in shorthand
 
 ## How I Like to Work
-1. **Model pick**: Recommend model(s) + 1-line reason
+1. **Model pick**: Recommend model(s) + 1-line reason - prompt me to change models at appropriate points of the plan being worked 
 2. **Plan (bullets)**: Concise bullet points—what, which subagents, their models
 3. **Execute**: Make the changes
 4. **Summary (brief)**: What changed, key learnings (1-2 sentences each)
@@ -63,4 +63,3 @@ Always push both branches after a merge. The GitHub remote is `https://github.co
 - Real-time accuracy is critical (predictions must be reliable)
 - Visual/UX feedback matters (dashboard needs to be readable under pressure)
 - I'll ask "why did you choose X over Y?" frequently—embrace it
-- Assume I want to understand the thinking, not just see results
