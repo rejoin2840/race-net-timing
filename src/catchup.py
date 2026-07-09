@@ -60,6 +60,7 @@ class Snapshot:
     caution_count: int = 0
     cautions:      list = field(default_factory=list)   # [(start_lap, end_lap, dur_s)]
     cars:          dict = field(default_factory=dict)    # car_number → CarState
+    sparse:        bool = False   # True if reconstructed and no data near the target time
 
 
 @dataclass
