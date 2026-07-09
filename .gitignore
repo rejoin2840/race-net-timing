@@ -23,3 +23,6 @@ data/fastf1_cache/
 
 # Sample race archives bundled for offline replay demo
 !sample-archives/*.zip
+
+# Local demo output (screenshots/video), not part of the repo
+demo-screenshots/
