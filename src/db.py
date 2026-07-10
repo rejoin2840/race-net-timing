@@ -232,7 +232,13 @@ class RaceDB:
     def __init__(self, path: Path = DEFAULT_DB_PATH):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(self.path))
+        # check_same_thread=False: the WEC SignalR client creates this connection
+        # on the main thread (bootstrap) but writes from the SignalR callback
+        # thread. All those writes are serialized under WecClient._lock and the
+        # bootstrap completes before SignalR starts, so there is never concurrent
+        # use — the default same-thread *identity* check is what was crashing
+        # every race-flag update, not real contention.
+        self.conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         # WAL lets the dashboard read while the scraper writes, without lock contention.
         self.conn.execute("PRAGMA journal_mode=WAL")

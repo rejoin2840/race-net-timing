@@ -7,29 +7,34 @@
 - Optimize for accuracy over speed (this is for race strategy, precision matters)
 - **Save tokens**: Use bullet points, short sentences, avoid verbose explanations
 
-## Subagents & Tool Usage (IMPORTANT)
-- **Default behavior**: Use subagents and Claude tools to improve efficiency and output quality
-- **When to delegate**: Break complex tasks into specialized subagents (exploration, analysis, implementation, testing)
-- **Tell me your reasoning**: Explain which subagent you're using, why it's appropriate, and what model you chose for it
-- **Token efficiency**: Use cheaper models (Haiku, Sonnet) for subagents; reserve expensive models for tasks requiring deep reasoning
-- **Before you start**: Recommend a model for the main plan and explain why, then recommend models for any subagents
+## Subagents & Tool Usage
+- **Scale to the task**: for a quick lookup, small edit, or question, just do it directly — don't spin up a subagent or narrate tool choice for routine stuff. Reserve subagents for genuinely complex/parallel/exploratory work (multi-file investigation, independent research threads, big refactors).
+- **When you do delegate**: tell me which subagent and which model, 1-line reason why.
+- **Token efficiency**: cheaper models (Haiku, Sonnet) for subagent grunt work; reserve expensive models for tasks that need deep reasoning.
 
-## Model Selection Guidelines (IMPORTANT)
-- **Main plan**: Recommend which model (Opus/Sonnet/Haiku) with 1-line justification
-- **Subagents**: Choose the most cost-efficient model that still accomplishes the task well
-  - Haiku: Data processing, exploration, simple analysis
-  - Sonnet: Complex reasoning, multi-step planning
-  - Opus: Only if the main task demands maximum reasoning capability
-- **Keep it brief**: One sentence explaining why—cost/capability trade-off in shorthand
+## Model Selection Guidelines (IMPORTANT — keep this one)
+- **Prompt me to switch models at phase boundaries** (e.g. moving from planning to implementation, or into a token-heavy exploration phase) — 1-line reason why a different model fits better. This is the one piece of ritual I want kept even for small tasks.
+- **Subagents**: cheapest model that still gets the task done (Haiku for data/exploration, Sonnet for reasoning/planning, Opus only if the main task truly demands it).
 
 ## How I Like to Work
-1. **Model pick**: Recommend model(s) + 1-line reason - prompt me to change models at appropriate points of the plan being worked 
-2. **Plan (bullets)**: Concise bullet points—what, which subagents, their models
-3. **Execute**: Make the changes
-4. **Summary (brief)**: What changed, key learnings (1-2 sentences each)
-5. **Concise**: Outside of what I requested you to explain or summarize, Output strictly tool calls and code. Zero conversational text, zero pleasantries, unless explicitly requested.
+- **Simple asks** (lookups, small fixes, questions): just answer/do it. Skip the plan-bullets ritual — but still explain your reasoning/decisions in 1-2 sentences, since I'm learning from this.
+- **Non-trivial tasks** (new features, multi-step changes, anything touching the live pipeline): give a brief plan (bullets: what, which subagents/models if any) before executing, then a short summary after (what changed, key learnings).
+- **Always**: explain decisions in 1-2 sentences, non-technical where possible — I'm using these explanations to learn, don't drop them for terseness.
+- Outside of explanations I've asked for, keep responses concise — no filler or pleasantries.
 
 ## Git Workflow
+
+### Before every commit — run the fast test gate
+```bash
+./check.sh
+```
+~142 tests, ~5s. Required before every commit.
+
+### Before merging to main, or after touching core calc logic (net position/predictor/evaluator)
+```bash
+./check.sh --full
+```
+Adds the 6-race regression suite — slower, so save it for merges or changes to the actual math, not routine commits.
 
 ### Before every commit — anonymization check (REQUIRED)
 This is a public repo. Run both scans before staging anything:

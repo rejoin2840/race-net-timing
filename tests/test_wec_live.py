@@ -19,6 +19,8 @@ from wec_live import (  # noqa: E402
     _int_or,
     WecLiveClient,
     WecLiveState,
+    STALE_TIMEOUT_S,
+    DISCONNECT_TIMEOUT_S,
 )
 
 
@@ -469,6 +471,57 @@ class TestPitStopFlow(_DbTestCase):
         self.assertEqual(len(self._query("SELECT 1 FROM pit_events")), 0)
 
 
+class TestBootstrapCautions(_DbTestCase):
+    """Bootstrap must not invent phantom caution periods.
+
+    The REST bootstrap's `raceFlags` is the session's FULL historical flag log
+    plus sector-local flags. Replaying every entry through the flag handler used
+    to seed a caution_periods row (all stamped with the identical bootstrap
+    instant) for each past yellow/SC — even in a green practice session. Only a
+    genuine active full-course caution AT connect should open a period.
+    Regression for São Paulo FP1 2026-07-10 (green practice → 3 phantom rows).
+    """
+
+    def test_green_bootstrap_yields_zero_cautions(self):
+        self.client._hydrate_bootstrap({
+            "raceFlags": [
+                {"flag": "Green",      "lapNumber": 1,  "sectorNumbers": []},
+                {"flag": "Yellow",     "lapNumber": 3,  "sectorNumbers": [2]},  # sector-local
+                {"flag": "Yellow",     "lapNumber": 5,  "sectorNumbers": []},   # historical FCY
+                {"flag": "Green",      "lapNumber": 8,  "sectorNumbers": []},
+                {"flag": "Safety Car", "lapNumber": 9,  "sectorNumbers": []},   # historical SC
+                {"flag": "Green",      "lapNumber": 12, "sectorNumbers": []},   # current: GREEN
+            ],
+        })
+        self.client.db.commit()
+        n = self._query("SELECT COUNT(*) c FROM caution_periods")[0]["c"]
+        self.assertEqual(n, 0)
+        self.assertEqual(self.client.state.current_flag, "GF")
+
+    def test_active_caution_bootstrap_opens_exactly_one(self):
+        self.client._hydrate_bootstrap({
+            "raceFlags": [
+                {"flag": "Green",      "lapNumber": 1,  "sectorNumbers": []},
+                {"flag": "Yellow",     "lapNumber": 5,  "sectorNumbers": []},
+                {"flag": "Green",      "lapNumber": 8,  "sectorNumbers": []},
+                {"flag": "Safety Car", "lapNumber": 12, "sectorNumbers": []},   # current: SC
+            ],
+        })
+        self.client.db.commit()
+        rows = self._query("SELECT period_num, cause FROM caution_periods")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["cause"], "SC")
+        self.assertEqual(self.client.state.current_flag, "SC")
+
+    def test_sector_local_flag_is_ignored(self):
+        self.client._handle_race_flags(
+            {"flag": "Yellow", "lapNumber": 4, "sectorNumbers": [1, 2]})
+        self.client.db.commit()
+        self.assertEqual(
+            self._query("SELECT COUNT(*) c FROM caution_periods")[0]["c"], 0)
+        self.assertEqual(self.client.state.current_flag, "GF")
+
+
 class TestStatusMerge(_DbTestCase):
     """db.update_status overwrites every session_status column from the dict it
     gets — wec_live's partial updates (flag-only, clock-only, length-only) must
@@ -564,6 +617,99 @@ class TestRecordFrameFlush(unittest.TestCase):
         c._record_frame("ranks", {"carNumber": "7"})
         recorder.write.assert_called_once()
         recorder.flush.assert_called_once()
+
+
+class TestReconnectWatchdog(unittest.TestCase):
+    """Guards the race-day failure mode found live at Sao Paulo FP1: a network
+    blip triggered signalrcore's in-place reconnect, which re-joined the group
+    but never resumed data — and because _on_reconnect left _is_connected False,
+    the stale watchdog was disabled and the client froze forever. The fix arms
+    the watchdog on reconnect and forces a full rebuild on either failure mode."""
+
+    def _client(self):
+        c = WecLiveClient(db_path="", no_db=True)
+        c.state = WecLiveState(sid=1, session_oid="wec_live_1")
+        return c
+
+    def test_reconnect_rearms_connected_flag(self):
+        c = self._client()
+        c._connection = unittest.mock.MagicMock()  # _join_group sends on it
+        c._is_connected = False                    # as left by _on_close
+        c._on_reconnect()
+        self.assertTrue(c._is_connected,
+                        "reconnect must re-arm the stale watchdog")
+
+    def test_reconnect_does_not_reset_message_clock(self):
+        """Staleness must be measured from the last REAL batch, so a data-less
+        reconnect trips the watchdog instead of resetting its timer."""
+        c = self._client()
+        c._connection = unittest.mock.MagicMock()
+        c._last_message_time = 1000.0
+        c._on_reconnect()
+        self.assertEqual(c._last_message_time, 1000.0)
+
+    def test_restart_when_connected_but_data_stale(self):
+        c = self._client()
+        c._is_connected = True
+        c._last_message_time = 1000.0
+        now = 1000.0 + STALE_TIMEOUT_S + 1
+        restart, reason = c._should_restart(now, None)
+        self.assertTrue(restart)
+        self.assertIn("No data", reason)
+
+    def test_restart_when_disconnected_too_long(self):
+        c = self._client()
+        c._is_connected = False
+        now = 5000.0
+        restart, reason = c._should_restart(now, now - DISCONNECT_TIMEOUT_S - 1)
+        self.assertTrue(restart)
+        self.assertIn("Disconnected", reason)
+
+    def test_no_restart_when_healthy(self):
+        c = self._client()
+        c._is_connected = True
+        c._last_message_time = 1000.0
+        restart, _ = c._should_restart(1005.0, None)  # 5s since last batch
+        self.assertFalse(restart)
+
+    def test_no_restart_during_brief_disconnect(self):
+        c = self._client()
+        c._is_connected = False
+        now = 5000.0
+        restart, _ = c._should_restart(now, now - 5)  # only 5s down, within grace
+        self.assertFalse(restart)
+
+    def test_empty_keepalive_batch_does_not_refresh_watchdog(self):
+        """The core race-day bug: Griiip emits empty ReceiveBatch frames after a
+        dead reconnect. Those must NOT reset the stale clock, or it never trips."""
+        c = self._client()
+        c.no_db = True
+        c._last_message_time = 1000.0
+        with unittest.mock.patch("wec_live.time.time", return_value=9999.0):
+            c._on_receive_batch({"items": []})
+        self.assertEqual(c._last_message_time, 1000.0)
+
+    def test_real_data_batch_refreshes_watchdog(self):
+        c = self._client()
+        c.no_db = True
+        c._last_message_time = 1000.0
+        batch = {"items": [{"channel": "laps",
+                            "view": {"carNumber": "7", "lapNumber": 5}}]}
+        with unittest.mock.patch("wec_live.time.time", return_value=9999.0):
+            c._on_receive_batch(batch)
+        self.assertEqual(c._last_message_time, 9999.0)
+
+    def test_non_timing_channel_does_not_refresh_watchdog(self):
+        """A frame carrying only non-timing channels (e.g. connection-status)
+        is not proof the timing feed is alive."""
+        c = self._client()
+        c.no_db = True
+        c._last_message_time = 1000.0
+        batch = {"items": [{"channel": "sessionc-connection-status",
+                            "view": {"status": "ok"}}]}
+        with unittest.mock.patch("wec_live.time.time", return_value=9999.0):
+            c._on_receive_batch(batch)
+        self.assertEqual(c._last_message_time, 1000.0)
 
 
 if __name__ == "__main__":

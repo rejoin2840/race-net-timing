@@ -59,6 +59,10 @@ WEC_SERIES_ID = 10
 SNAPSHOT_EVERY_S = 10
 STALE_TIMEOUT_S = 120
 RECONNECT_PAUSE_S = 10
+# If the transport drops and signalrcore's in-place reconnect does not restore a
+# working connection within this window, stop waiting in a zombie state and tear
+# down for a full rebuild (which re-bootstraps + re-joins and does resume data).
+DISCONNECT_TIMEOUT_S = 30
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -97,6 +101,19 @@ CH_VET = "cars-energy-tanks"
 CH_SECTOR_CROSS = "sector-cross-updates"
 CH_RACE_LOG = "RaceLog"
 CH_SESSION_CLOSED = "session-closed"
+
+# Channels whose arrival proves the live timing feed is genuinely flowing. The
+# stale watchdog measures freshness against THESE only — and the set must stay
+# minimal: after a dead in-place reconnect, Griiip keeps emitting keepalive
+# frames AND some non-group channels (observed live at Sao Paulo FP1: a first
+# cut that included sector-cross-updates never tripped the watchdog, because
+# that channel kept flowing on a zombie connection while every group-scoped
+# timing channel was dead). Core timing only: if none of ranks/gaps/laps
+# arrives for STALE_TIMEOUT_S during a live session, the feed is dead and a
+# full rebuild is the only thing that resumes it. A restart during genuinely
+# quiet track time (long red flag) is cheap, logged churn — a silent freeze on
+# race day is not.
+LIVENESS_CHANNELS = frozenset({CH_RANKS, CH_GAPS, CH_LAPS})
 
 FLAG_MAP = {
     "GREEN": "GF",
@@ -372,6 +389,15 @@ class WecLiveClient:
 
     def _on_reconnect(self):
         self._reconnect_count += 1
+        # Arm the stale watchdog. signalrcore's in-place reconnect re-joins the
+        # group, but Griiip does not reliably resume the data stream on it — so
+        # mark the socket connected WITHOUT resetting _last_message_time. If data
+        # really resumes, _on_receive_batch refreshes that clock; if it does not,
+        # the watchdog trips STALE_TIMEOUT_S after the last *real* batch and
+        # forces a full rebuild that does resume. (Previously this left
+        # _is_connected False, which disabled the watchdog and left the client
+        # frozen forever after any network blip.)
+        self._is_connected = True
         log.info("SignalR reconnected (#%d) — re-joining group", self._reconnect_count)
         self._join_group()
 
@@ -380,8 +406,6 @@ class WecLiveClient:
 
     def _on_receive_batch(self, msg):
         """Entry point for all hub data. Record FIRST, then dispatch."""
-        self._last_message_time = time.time()
-
         items = []
         if isinstance(msg, dict):
             items = msg.get("items") or []
@@ -391,6 +415,7 @@ class WecLiveClient:
             else:
                 items = msg
 
+        got_live_data = False
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -402,11 +427,20 @@ class WecLiveClient:
             # raw capture — always runs, never in try/except
             self._record_frame(channel, view)
 
+            # only real timing channels count toward feed-liveness (see
+            # LIVENESS_CHANNELS) — keepalive/empty frames must not reset the
+            # stale watchdog after a dead reconnect.
+            if channel in LIVENESS_CHANNELS:
+                got_live_data = True
+
             # dispatch — wrapped so a parser crash never kills capture
             try:
                 self._dispatch_channel(channel, view)
             except Exception:
                 log.exception("Error dispatching channel %s", channel)
+
+        if got_live_data:
+            self._last_message_time = time.time()
 
         now = time.time()
         if now - self._last_snapshot_time >= SNAPSHOT_EVERY_S:
@@ -516,6 +550,11 @@ class WecLiveClient:
 
     def _handle_race_flags(self, data):
         if not isinstance(data, dict):
+            return
+        # Sector/local flags (a yellow shown only in specific sectors) carry a
+        # non-empty sectorNumbers list. They are NOT session-wide full-course
+        # states and must never drive the current flag or open a caution period.
+        if data.get("sectorNumbers"):
             return
         raw = data.get("flag") or ""
         flag = parse_flag(raw) or self.state.current_flag
@@ -748,9 +787,17 @@ class WecLiveClient:
         if isinstance(limit, dict):
             self._handle_session_length(limit)
 
-        for flag in (data.get("raceFlags") or []):
-            if isinstance(flag, dict):
-                self._handle_race_flags(flag)
+        # raceFlags is the session's full historical flag log (Green→Yellow→…).
+        # Replaying every entry would churn the flag through _track_caution and
+        # seed a phantom caution_period — all stamped with the bootstrap instant —
+        # for each past yellow, even in a green practice session. Only the CURRENT
+        # session-wide state matters at connect: take the last full-course entry
+        # (empty sectorNumbers) and apply it once. A genuine active caution then
+        # opens exactly one real period; green opens none.
+        full_course = [f for f in (data.get("raceFlags") or [])
+                       if isinstance(f, dict) and not f.get("sectorNumbers")]
+        if full_course:
+            self._handle_race_flags(full_course[-1])
 
         for p in (data.get("participants") or []):
             if isinstance(p, dict):
@@ -801,10 +848,15 @@ class WecLiveClient:
     def _snapshot(self):
         n_cars = len(self.state.car_ranks)
         n_pit = len(self.state.pit_in_times)
-        log.info("[%s] sid=%s  flag=%s  lap=%d  cars=%d  pit=%d  connected=%s",
+        # data_age = seconds since the last LIVENESS_CHANNELS batch. Makes a
+        # zombie connection visible at a glance (keepalives keep this snapshot
+        # printing while data_age climbs toward STALE_TIMEOUT_S).
+        age = (time.time() - self._last_message_time
+               if self._last_message_time > 0 else -1)
+        log.info("[%s] sid=%s  flag=%s  lap=%d  cars=%d  pit=%d  connected=%s  data_age=%.0fs",
                  time.strftime("%H:%M:%S"), self.state.sid,
                  self.state.current_flag, self.state.current_lap,
-                 n_cars, n_pit, self._is_connected)
+                 n_cars, n_pit, self._is_connected, age)
 
     # ── run loop ─────────────────────────────────────────────────────────
 
@@ -833,6 +885,7 @@ class WecLiveClient:
         self._last_message_time = time.time()
 
         try:
+            disconnected_since = None
             while not self._stopping:
                 try:
                     time.sleep(1)
@@ -840,18 +893,35 @@ class WecLiveClient:
                     self._stopping = True
                     break
 
-                if (self._is_connected
-                        and self._last_message_time > 0
-                        and time.time() - self._last_message_time > STALE_TIMEOUT_S):
-                    log.warning("No messages for %ds — forcing reconnect",
-                                STALE_TIMEOUT_S)
-                    try:
-                        self._connection.stop()
-                    except Exception:
-                        pass
+                now = time.time()
+                # track how long we've been without a live socket
+                disconnected_since = (None if self._is_connected
+                                      else (disconnected_since or now))
+                restart, reason = self._should_restart(now, disconnected_since)
+                if restart:
+                    log.warning("%s — tearing down for full restart", reason)
                     break
         finally:
             self._cleanup()
+
+    def _should_restart(self, now: float, disconnected_since: "float | None"):
+        """Watchdog decision (pure, so it can be unit-tested). Returns
+        (restart: bool, reason: str). Breaking the run() loop drops to the outer
+        supervisor, which does a full rebuild (re-bootstrap + re-join) — the only
+        path we've confirmed actually resumes the Griiip data stream."""
+        # A — socket reports connected but the data stream has gone silent. Also
+        # catches a signalrcore in-place reconnect that re-joined the group yet
+        # never resumed data; measured from the last real ReceiveBatch.
+        if (self._is_connected
+                and self._last_message_time > 0
+                and now - self._last_message_time > STALE_TIMEOUT_S):
+            return True, f"No data for {STALE_TIMEOUT_S}s"
+        # B — transport is down and signalrcore has not brought it back within
+        # the grace window; don't sit frozen in a zombie state.
+        if (disconnected_since is not None
+                and now - disconnected_since > DISCONNECT_TIMEOUT_S):
+            return True, f"Disconnected {DISCONNECT_TIMEOUT_S}s with no recovery"
+        return False, ""
 
     def _cleanup(self):
         if self._connection:
