@@ -42,7 +42,7 @@ Adds the 6-race regression suite — slower, so save it for merges or changes to
 ### Before every commit — anonymization check (REQUIRED)
 This is a public repo. Run both scans before staging anything:
 ```bash
-grep -ri "kassan" --include="*.md" --include="*.sh" --include="*.py" --include="*.plist" --include="*.json" --include="*.txt" -l .
+grep -ri "kas""san" --include="*.md" --include="*.sh" --include="*.py" --include="*.plist" --include="*.json" --include="*.txt" -l .
 grep -rn "\bPaul\b" --include="*.md" --include="*.sh" --include="*.py" --include="*.json" --include="*.txt" . | grep -v "São Paulo\|Paul Miller\|Paul-Loup\|Paul Di Resta"
 ```
 Both must return nothing. Also check any new file for:

@@ -14,6 +14,8 @@ logs/
 *.db-shm
 *.db-wal
 *.zip
+# Raw WEC live captures (--record output; machine-local race data)
+*.jsonl.gz
 
 # FastF1 API cache (large, machine-local)
 data/fastf1_cache/
