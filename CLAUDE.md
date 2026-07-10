@@ -49,20 +49,26 @@ Both must return nothing. Also check any new file for:
 
 The repo author identity is `rejoin2840` — no real name should appear anywhere in tracked files or commit metadata. Repo-local git config is already set to `rejoin2840 <rejoin2840@users.noreply.github.com>`.
 
-### After every commit — push to GitHub
-```bash
-git push origin feature/endurance-refocus
-```
+### Branch lifecycle (always follow this pattern)
+1. **Start new work** — branch off main:
+   ```bash
+   git checkout main && git pull origin main
+   git checkout -b feature/<short-name>
+   ```
+2. **Work & commit** on the feature branch. Push after every commit:
+   ```bash
+   git push -u origin feature/<short-name>
+   ```
+3. **Merge to main** — open a PR via `gh pr create`, merge via `gh pr merge`, then clean up:
+   ```bash
+   git checkout main && git pull origin main
+   git branch -d feature/<short-name>
+   git push origin --delete feature/<short-name>
+   ```
 
-### When merging to main (stable share branch)
-```bash
-git checkout main
-git merge feature/endurance-refocus --no-ff -m "<message>"
-git push origin main
-git checkout feature/endurance-refocus
-```
+`main` is always the stable, shareable version. Never commit directly to `main` — always branch first. Merge when you want `main` to reflect "what a visitor should see right now" (before sharing, before a checkpoint, before a race — not on a timer).
 
-Always push both branches after a merge. The GitHub remote is `https://github.com/rejoin2840/race-net-timing`. Use `/opt/homebrew/bin/gh` if `gh` is not on PATH.
+The GitHub remote is `https://github.com/rejoin2840/race-net-timing`. Use `/opt/homebrew/bin/gh` if `gh` is not on PATH.
 
 ## Important Notes
 - Real-time accuracy is critical (predictions must be reliable)
