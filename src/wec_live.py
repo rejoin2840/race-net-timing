@@ -517,6 +517,11 @@ class WecLiveClient:
     def _handle_race_flags(self, data):
         if not isinstance(data, dict):
             return
+        # Sector/local flags (a yellow shown only in specific sectors) carry a
+        # non-empty sectorNumbers list. They are NOT session-wide full-course
+        # states and must never drive the current flag or open a caution period.
+        if data.get("sectorNumbers"):
+            return
         raw = data.get("flag") or ""
         flag = parse_flag(raw) or self.state.current_flag
         lap = _int_or(data.get("lapNumber"), self.state.current_lap)
@@ -748,9 +753,17 @@ class WecLiveClient:
         if isinstance(limit, dict):
             self._handle_session_length(limit)
 
-        for flag in (data.get("raceFlags") or []):
-            if isinstance(flag, dict):
-                self._handle_race_flags(flag)
+        # raceFlags is the session's full historical flag log (Green→Yellow→…).
+        # Replaying every entry would churn the flag through _track_caution and
+        # seed a phantom caution_period — all stamped with the bootstrap instant —
+        # for each past yellow, even in a green practice session. Only the CURRENT
+        # session-wide state matters at connect: take the last full-course entry
+        # (empty sectorNumbers) and apply it once. A genuine active caution then
+        # opens exactly one real period; green opens none.
+        full_course = [f for f in (data.get("raceFlags") or [])
+                       if isinstance(f, dict) and not f.get("sectorNumbers")]
+        if full_course:
+            self._handle_race_flags(full_course[-1])
 
         for p in (data.get("participants") or []):
             if isinstance(p, dict):

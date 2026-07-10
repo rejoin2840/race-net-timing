@@ -469,6 +469,57 @@ class TestPitStopFlow(_DbTestCase):
         self.assertEqual(len(self._query("SELECT 1 FROM pit_events")), 0)
 
 
+class TestBootstrapCautions(_DbTestCase):
+    """Bootstrap must not invent phantom caution periods.
+
+    The REST bootstrap's `raceFlags` is the session's FULL historical flag log
+    plus sector-local flags. Replaying every entry through the flag handler used
+    to seed a caution_periods row (all stamped with the identical bootstrap
+    instant) for each past yellow/SC — even in a green practice session. Only a
+    genuine active full-course caution AT connect should open a period.
+    Regression for São Paulo FP1 2026-07-10 (green practice → 3 phantom rows).
+    """
+
+    def test_green_bootstrap_yields_zero_cautions(self):
+        self.client._hydrate_bootstrap({
+            "raceFlags": [
+                {"flag": "Green",      "lapNumber": 1,  "sectorNumbers": []},
+                {"flag": "Yellow",     "lapNumber": 3,  "sectorNumbers": [2]},  # sector-local
+                {"flag": "Yellow",     "lapNumber": 5,  "sectorNumbers": []},   # historical FCY
+                {"flag": "Green",      "lapNumber": 8,  "sectorNumbers": []},
+                {"flag": "Safety Car", "lapNumber": 9,  "sectorNumbers": []},   # historical SC
+                {"flag": "Green",      "lapNumber": 12, "sectorNumbers": []},   # current: GREEN
+            ],
+        })
+        self.client.db.commit()
+        n = self._query("SELECT COUNT(*) c FROM caution_periods")[0]["c"]
+        self.assertEqual(n, 0)
+        self.assertEqual(self.client.state.current_flag, "GF")
+
+    def test_active_caution_bootstrap_opens_exactly_one(self):
+        self.client._hydrate_bootstrap({
+            "raceFlags": [
+                {"flag": "Green",      "lapNumber": 1,  "sectorNumbers": []},
+                {"flag": "Yellow",     "lapNumber": 5,  "sectorNumbers": []},
+                {"flag": "Green",      "lapNumber": 8,  "sectorNumbers": []},
+                {"flag": "Safety Car", "lapNumber": 12, "sectorNumbers": []},   # current: SC
+            ],
+        })
+        self.client.db.commit()
+        rows = self._query("SELECT period_num, cause FROM caution_periods")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["cause"], "SC")
+        self.assertEqual(self.client.state.current_flag, "SC")
+
+    def test_sector_local_flag_is_ignored(self):
+        self.client._handle_race_flags(
+            {"flag": "Yellow", "lapNumber": 4, "sectorNumbers": [1, 2]})
+        self.client.db.commit()
+        self.assertEqual(
+            self._query("SELECT COUNT(*) c FROM caution_periods")[0]["c"], 0)
+        self.assertEqual(self.client.state.current_flag, "GF")
+
+
 class TestStatusMerge(_DbTestCase):
     """db.update_status overwrites every session_status column from the dict it
     gets — wec_live's partial updates (flag-only, clock-only, length-only) must
