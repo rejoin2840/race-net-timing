@@ -59,6 +59,10 @@ WEC_SERIES_ID = 10
 SNAPSHOT_EVERY_S = 10
 STALE_TIMEOUT_S = 120
 RECONNECT_PAUSE_S = 10
+# If the transport drops and signalrcore's in-place reconnect does not restore a
+# working connection within this window, stop waiting in a zombie state and tear
+# down for a full rebuild (which re-bootstraps + re-joins and does resume data).
+DISCONNECT_TIMEOUT_S = 30
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -372,6 +376,15 @@ class WecLiveClient:
 
     def _on_reconnect(self):
         self._reconnect_count += 1
+        # Arm the stale watchdog. signalrcore's in-place reconnect re-joins the
+        # group, but Griiip does not reliably resume the data stream on it — so
+        # mark the socket connected WITHOUT resetting _last_message_time. If data
+        # really resumes, _on_receive_batch refreshes that clock; if it does not,
+        # the watchdog trips STALE_TIMEOUT_S after the last *real* batch and
+        # forces a full rebuild that does resume. (Previously this left
+        # _is_connected False, which disabled the watchdog and left the client
+        # frozen forever after any network blip.)
+        self._is_connected = True
         log.info("SignalR reconnected (#%d) — re-joining group", self._reconnect_count)
         self._join_group()
 
@@ -846,6 +859,7 @@ class WecLiveClient:
         self._last_message_time = time.time()
 
         try:
+            disconnected_since = None
             while not self._stopping:
                 try:
                     time.sleep(1)
@@ -853,18 +867,35 @@ class WecLiveClient:
                     self._stopping = True
                     break
 
-                if (self._is_connected
-                        and self._last_message_time > 0
-                        and time.time() - self._last_message_time > STALE_TIMEOUT_S):
-                    log.warning("No messages for %ds — forcing reconnect",
-                                STALE_TIMEOUT_S)
-                    try:
-                        self._connection.stop()
-                    except Exception:
-                        pass
+                now = time.time()
+                # track how long we've been without a live socket
+                disconnected_since = (None if self._is_connected
+                                      else (disconnected_since or now))
+                restart, reason = self._should_restart(now, disconnected_since)
+                if restart:
+                    log.warning("%s — tearing down for full restart", reason)
                     break
         finally:
             self._cleanup()
+
+    def _should_restart(self, now: float, disconnected_since: "float | None"):
+        """Watchdog decision (pure, so it can be unit-tested). Returns
+        (restart: bool, reason: str). Breaking the run() loop drops to the outer
+        supervisor, which does a full rebuild (re-bootstrap + re-join) — the only
+        path we've confirmed actually resumes the Griiip data stream."""
+        # A — socket reports connected but the data stream has gone silent. Also
+        # catches a signalrcore in-place reconnect that re-joined the group yet
+        # never resumed data; measured from the last real ReceiveBatch.
+        if (self._is_connected
+                and self._last_message_time > 0
+                and now - self._last_message_time > STALE_TIMEOUT_S):
+            return True, f"No data for {STALE_TIMEOUT_S}s"
+        # B — transport is down and signalrcore has not brought it back within
+        # the grace window; don't sit frozen in a zombie state.
+        if (disconnected_since is not None
+                and now - disconnected_since > DISCONNECT_TIMEOUT_S):
+            return True, f"Disconnected {DISCONNECT_TIMEOUT_S}s with no recovery"
+        return False, ""
 
     def _cleanup(self):
         if self._connection:

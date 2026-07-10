@@ -19,6 +19,8 @@ from wec_live import (  # noqa: E402
     _int_or,
     WecLiveClient,
     WecLiveState,
+    STALE_TIMEOUT_S,
+    DISCONNECT_TIMEOUT_S,
 )
 
 
@@ -615,6 +617,67 @@ class TestRecordFrameFlush(unittest.TestCase):
         c._record_frame("ranks", {"carNumber": "7"})
         recorder.write.assert_called_once()
         recorder.flush.assert_called_once()
+
+
+class TestReconnectWatchdog(unittest.TestCase):
+    """Guards the race-day failure mode found live at Sao Paulo FP1: a network
+    blip triggered signalrcore's in-place reconnect, which re-joined the group
+    but never resumed data — and because _on_reconnect left _is_connected False,
+    the stale watchdog was disabled and the client froze forever. The fix arms
+    the watchdog on reconnect and forces a full rebuild on either failure mode."""
+
+    def _client(self):
+        c = WecLiveClient(db_path="", no_db=True)
+        c.state = WecLiveState(sid=1, session_oid="wec_live_1")
+        return c
+
+    def test_reconnect_rearms_connected_flag(self):
+        c = self._client()
+        c._connection = unittest.mock.MagicMock()  # _join_group sends on it
+        c._is_connected = False                    # as left by _on_close
+        c._on_reconnect()
+        self.assertTrue(c._is_connected,
+                        "reconnect must re-arm the stale watchdog")
+
+    def test_reconnect_does_not_reset_message_clock(self):
+        """Staleness must be measured from the last REAL batch, so a data-less
+        reconnect trips the watchdog instead of resetting its timer."""
+        c = self._client()
+        c._connection = unittest.mock.MagicMock()
+        c._last_message_time = 1000.0
+        c._on_reconnect()
+        self.assertEqual(c._last_message_time, 1000.0)
+
+    def test_restart_when_connected_but_data_stale(self):
+        c = self._client()
+        c._is_connected = True
+        c._last_message_time = 1000.0
+        now = 1000.0 + STALE_TIMEOUT_S + 1
+        restart, reason = c._should_restart(now, None)
+        self.assertTrue(restart)
+        self.assertIn("No data", reason)
+
+    def test_restart_when_disconnected_too_long(self):
+        c = self._client()
+        c._is_connected = False
+        now = 5000.0
+        restart, reason = c._should_restart(now, now - DISCONNECT_TIMEOUT_S - 1)
+        self.assertTrue(restart)
+        self.assertIn("Disconnected", reason)
+
+    def test_no_restart_when_healthy(self):
+        c = self._client()
+        c._is_connected = True
+        c._last_message_time = 1000.0
+        restart, _ = c._should_restart(1005.0, None)  # 5s since last batch
+        self.assertFalse(restart)
+
+    def test_no_restart_during_brief_disconnect(self):
+        c = self._client()
+        c._is_connected = False
+        now = 5000.0
+        restart, _ = c._should_restart(now, now - 5)  # only 5s down, within grace
+        self.assertFalse(restart)
 
 
 if __name__ == "__main__":
