@@ -113,10 +113,11 @@ Raw capture = must-have; live board = nice-to-have for race day.
 4. ✅ `session_picker.py` WEC Live page wiring (enabled, not a stub).
 - ✅ Fix: `ranks`/`gaps` nested-`items` unwrapping (found from live F1 traffic).
 - ✅ `tests/test_wec_live.py`: 70 tests, all green (`./check.sh`).
-- ⬜ **Open (Phase 3, see `WEC_RACE_WEEK.md`):** kill-network reconnect test, Timing71
-  archive fallback confirmation at FP1 (corrected 07-04: T71 can't record live, it
-  provides a post-session archive — data-only fallback, no live board), `--discover`
-  check for WEC seriesId=10 (~07-07).
+- ⬜ **Open (Phase 3, see `WEC_RACE_WEEK.md`):** Timing71 archive fallback
+  confirmation (corrected 07-04: T71 can't record live, it provides a post-session
+  archive — data-only fallback, no live board), `--discover` check for WEC
+  seriesId=10 (~07-07). Kill-network reconnect test ✅ done live at FP1 07-10
+  (see the FP1 entry below).
   *07-03 check run: no WEC sessions yet, transport healthy (connect + group join OK).*
 - ✅ **Fixed (07-03):** `--record`'s gzip archive wasn't crash-safe (a hard process kill
   truncated the tail). Now flushes after every frame write; verified with a second
@@ -127,9 +128,23 @@ Raw capture = must-have; live board = nice-to-have for race day.
   loading WEC as IMSA) + capture-replay harness (`tests/test_wec_capture_replay.py`,
   real bootstrap fixture) + `--replay` offline mode = the Commit-5 workflow, ready
   before FP1. Full findings + FP1 verification checklist: `FABLE_REVIEW.md`.
-- ⬜ **Blocked on FP1 (07-10):** Commit 5, field corrections from a real WEC capture —
-  run the capture through `--replay` + the harness; work the `FABLE_REVIEW.md` §2
-  verify-at-FP1 checklist; regenerate the test fixture from the real capture.
+- ✅ **FP1 live-fire session (07-10, PR #2 merged, `feature/endurance-refocus`
+  deleted):** `--record` ran live at São Paulo FP1 and the session doubled as a
+  hardening pass — 4 race-day bugs found and fixed against real traffic:
+  cross-thread SQLite crash dropping status/flag writes (0840be8), bootstrap
+  hydration seeding phantom caution periods (e982255), zombie freeze after a
+  network blip — reconnect re-joined the group but data never resumed and the
+  stale watchdog was disarmed (39f96f5), and feed-liveness narrowed to
+  ranks/gaps/laps with `data_age` in the heartbeat (87ac9e2). Both recovery
+  paths verified live: quiet-feed watchdog auto-restart AND wifi-toggle
+  in-place reconnect. Raw FP1 capture in hand
+  (`data/wec_raw_20260710_162631.jsonl.gz`).
+- ⬜ **UNBLOCKED — Commit 5 (target 07-11, before the race):** field corrections
+  from the real FP1 capture — run it through `--replay` + the harness; work the
+  `FABLE_REVIEW.md` §2 verify-at-FP1 checklist (class names, VET shape, pit
+  timing, stint-prior sanity); regenerate the test fixture from the real capture.
+- ⬜ **Open bug (found at FP1, display-only):** dashboard timing table drops the
+  P1 row. Does NOT affect capture/eval; fix before the race if time allows.
 
 **Race-week fill queue (07-04→07-12, between Epic 8 checklist items — all
 freeze-compatible, reviewed 2026-07-04):**

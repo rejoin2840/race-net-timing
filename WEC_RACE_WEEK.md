@@ -72,7 +72,8 @@ buffered chunk could be lost instead of just the one in-flight frame. Regression
 baselines — replay archives have cleaner pit detection (message-log-driven) than live
 feed diffing. Judge the live board against the broadcast, not against the suite MAEs.
 
-- [ ] **07-10/11 FP1-FP2/quali:** `--record` running through every session
+- [ ] **07-10/11 FP1-FP2/quali** *(FP1 ✅ 07-10 — capture `data/wec_raw_20260710_162631.jsonl.gz`;
+  4 live-found bugs fixed, PR #2)*: `--record` running through every session
   (non-negotiable). **Data-validation only** (BACKLOG 07-04 decision) — confirm
   team/class names resolve, RC messages flow, and telemetry/VET populates.
   Practice pit stops are setup/tire/fuel-load experiments with arbitrary
