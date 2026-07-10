@@ -24,6 +24,9 @@
 
 ## Git Workflow
 
+### Session start — auto-branch off main
+At the start of every session, check `git branch`. If on `main` and the session involves code changes, **automatically** create a feature branch (`git checkout -b feature/<short-name>`) before the first edit. Pick a sensible name from the task context and tell the user. Never make code changes directly on `main`.
+
 ### Before every commit — run the fast test gate
 ```bash
 ./check.sh
