@@ -205,12 +205,7 @@ def run_session(series: str, label: str, kind: str, start: datetime,
     predictor_proc = None
     try:
         scraper_args = [PYTHON, "-u", str(SRC / SCRAPER[series])]
-        if series == "wec" and kind in ("race", "sprint_race"):
-            # raw-capture archive — mandatory insurance per WEC_RACE_WEEK.md
-            # Phase 4; lets a bad live parse be fixed and replayed offline.
-            # Race day only (owner call, 2026-07-08) — practice/quali only
-            # need the health-check pass to confirm timing/scoring/telemetry
-            # are wired, not a full archive.
+        if series == "wec":
             record_path = DATA_DIR / f"wec_saopaulo_{slug}_{start:%Y%m%d}.jsonl.gz"
             scraper_args += ["--record", str(record_path)]
         with open(scraper_log_path, "w") as slog:
