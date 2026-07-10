@@ -102,6 +102,19 @@ CH_SECTOR_CROSS = "sector-cross-updates"
 CH_RACE_LOG = "RaceLog"
 CH_SESSION_CLOSED = "session-closed"
 
+# Channels whose arrival proves the live timing feed is genuinely flowing. The
+# stale watchdog measures freshness against THESE only — and the set must stay
+# minimal: after a dead in-place reconnect, Griiip keeps emitting keepalive
+# frames AND some non-group channels (observed live at Sao Paulo FP1: a first
+# cut that included sector-cross-updates never tripped the watchdog, because
+# that channel kept flowing on a zombie connection while every group-scoped
+# timing channel was dead). Core timing only: if none of ranks/gaps/laps
+# arrives for STALE_TIMEOUT_S during a live session, the feed is dead and a
+# full rebuild is the only thing that resumes it. A restart during genuinely
+# quiet track time (long red flag) is cheap, logged churn — a silent freeze on
+# race day is not.
+LIVENESS_CHANNELS = frozenset({CH_RANKS, CH_GAPS, CH_LAPS})
+
 FLAG_MAP = {
     "GREEN": "GF",
     "YELLOW": "YF",
@@ -393,8 +406,6 @@ class WecLiveClient:
 
     def _on_receive_batch(self, msg):
         """Entry point for all hub data. Record FIRST, then dispatch."""
-        self._last_message_time = time.time()
-
         items = []
         if isinstance(msg, dict):
             items = msg.get("items") or []
@@ -404,6 +415,7 @@ class WecLiveClient:
             else:
                 items = msg
 
+        got_live_data = False
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -415,11 +427,20 @@ class WecLiveClient:
             # raw capture — always runs, never in try/except
             self._record_frame(channel, view)
 
+            # only real timing channels count toward feed-liveness (see
+            # LIVENESS_CHANNELS) — keepalive/empty frames must not reset the
+            # stale watchdog after a dead reconnect.
+            if channel in LIVENESS_CHANNELS:
+                got_live_data = True
+
             # dispatch — wrapped so a parser crash never kills capture
             try:
                 self._dispatch_channel(channel, view)
             except Exception:
                 log.exception("Error dispatching channel %s", channel)
+
+        if got_live_data:
+            self._last_message_time = time.time()
 
         now = time.time()
         if now - self._last_snapshot_time >= SNAPSHOT_EVERY_S:
@@ -827,10 +848,15 @@ class WecLiveClient:
     def _snapshot(self):
         n_cars = len(self.state.car_ranks)
         n_pit = len(self.state.pit_in_times)
-        log.info("[%s] sid=%s  flag=%s  lap=%d  cars=%d  pit=%d  connected=%s",
+        # data_age = seconds since the last LIVENESS_CHANNELS batch. Makes a
+        # zombie connection visible at a glance (keepalives keep this snapshot
+        # printing while data_age climbs toward STALE_TIMEOUT_S).
+        age = (time.time() - self._last_message_time
+               if self._last_message_time > 0 else -1)
+        log.info("[%s] sid=%s  flag=%s  lap=%d  cars=%d  pit=%d  connected=%s  data_age=%.0fs",
                  time.strftime("%H:%M:%S"), self.state.sid,
                  self.state.current_flag, self.state.current_lap,
-                 n_cars, n_pit, self._is_connected)
+                 n_cars, n_pit, self._is_connected, age)
 
     # ── run loop ─────────────────────────────────────────────────────────
 

@@ -679,6 +679,38 @@ class TestReconnectWatchdog(unittest.TestCase):
         restart, _ = c._should_restart(now, now - 5)  # only 5s down, within grace
         self.assertFalse(restart)
 
+    def test_empty_keepalive_batch_does_not_refresh_watchdog(self):
+        """The core race-day bug: Griiip emits empty ReceiveBatch frames after a
+        dead reconnect. Those must NOT reset the stale clock, or it never trips."""
+        c = self._client()
+        c.no_db = True
+        c._last_message_time = 1000.0
+        with unittest.mock.patch("wec_live.time.time", return_value=9999.0):
+            c._on_receive_batch({"items": []})
+        self.assertEqual(c._last_message_time, 1000.0)
+
+    def test_real_data_batch_refreshes_watchdog(self):
+        c = self._client()
+        c.no_db = True
+        c._last_message_time = 1000.0
+        batch = {"items": [{"channel": "laps",
+                            "view": {"carNumber": "7", "lapNumber": 5}}]}
+        with unittest.mock.patch("wec_live.time.time", return_value=9999.0):
+            c._on_receive_batch(batch)
+        self.assertEqual(c._last_message_time, 9999.0)
+
+    def test_non_timing_channel_does_not_refresh_watchdog(self):
+        """A frame carrying only non-timing channels (e.g. connection-status)
+        is not proof the timing feed is alive."""
+        c = self._client()
+        c.no_db = True
+        c._last_message_time = 1000.0
+        batch = {"items": [{"channel": "sessionc-connection-status",
+                            "view": {"status": "ok"}}]}
+        with unittest.mock.patch("wec_live.time.time", return_value=9999.0):
+            c._on_receive_batch(batch)
+        self.assertEqual(c._last_message_time, 1000.0)
+
 
 if __name__ == "__main__":
     unittest.main()
