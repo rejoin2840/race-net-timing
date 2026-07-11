@@ -502,16 +502,21 @@ class WecLiveClient:
         stype = type_map.get(session_type, "SESSION")
 
         oid = make_oid(sid, event)
-        if oid == self.state.session_oid:
-            return
+        if oid != self.state.session_oid:
+            self.state.session_oid = oid
+            self.state.entries_written.clear()
+            self.state.status_acc.clear()
+            self.state.is_finished = data.get("hasSeenChequered", False)
+            self.state.is_running = data.get("isStarted", False)
+            log.info("Session: %s — %s (oid=%s, type=%s)",
+                     event, session_name, oid, stype)
 
-        self.state.session_oid = oid
-        self.state.entries_written.clear()
-        self.state.status_acc.clear()
-        self.state.is_finished = data.get("hasSeenChequered", False)
-        self.state.is_running = data.get("isStarted", False)
-        log.info("Session: %s — %s (oid=%s, type=%s)", event, session_name, oid, stype)
-
+        # ALWAYS re-assert the session on the DB, even when the oid is
+        # unchanged: every watchdog restart opens a fresh RaceDB whose
+        # session_oid is None until set_session() runs, and RaceDB silently
+        # drops every write until then. Skipping this on "same session" is
+        # why FP3 and São Paulo quali captured nothing after the first
+        # teardown — set_session is an upsert, so re-calling it is free.
         if self.db:
             self.db.set_session(oid, {
                 "champName": "FIA WEC",
@@ -1180,6 +1185,25 @@ def main():
 
             if client._stopping:
                 break
+
+            # Session handoff — WEC runs quali as back-to-back segments, each
+            # with its OWN sid; race day has warmup then race. Discovery only
+            # ran at process start, so after a segment ended we kept
+            # re-bootstrapping its dead sid for the rest of the window (São
+            # Paulo quali: GT quali captured, the other three segments lost).
+            # Re-check the schedule on every restart; mid-session the current
+            # sid is still the one listed, so this is a no-op until the feed
+            # actually moves on. An explicit --sid pins the session and skips
+            # handoff entirely.
+            if args.sid is None:
+                new_sid = find_wec_session()
+                if new_sid and new_sid != sid:
+                    log.info("Session handoff: sid %s -> %s", sid, new_sid)
+                    sid = new_sid
+                    # per-session state (pid map, laps, ranks, flags) must not
+                    # leak across sessions — start clean like a fresh process
+                    client.state = WecLiveState(sid=new_sid)
+                    client._reconnect_count = 0
 
             log.info("Restarting in %ds (reconnects: %d) ...",
                      RECONNECT_PAUSE_S, client._reconnect_count)

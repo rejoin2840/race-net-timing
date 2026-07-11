@@ -829,5 +829,44 @@ class TestTireFrames(unittest.TestCase):
                          {"compound": "MEDIUM", "age": 7})
 
 
+class TestRestartReassertsSession(_DbTestCase):
+    """Every watchdog restart opens a fresh RaceDB whose session_oid is None
+    until set_session() runs. _handle_session_info used to skip set_session
+    when the session oid was unchanged — so after the FIRST teardown every
+    write was silently dropped (the FP3 / São Paulo quali empty-DB bug)."""
+
+    def test_fresh_db_after_restart_accepts_writes(self):
+        import db as dbmod
+        info = {"sid": 999, "eventName": "Test 6H", "sessionName": "Race",
+                "sessionType": "Race"}
+        path = self.client.db.path
+
+        # simulate the supervisor restart: close and reopen the DB
+        self.client.db.close()
+        self.client.db = dbmod.RaceDB(path)
+        self.assertIsNone(self.client.db.session_oid)
+
+        # re-bootstrap of the SAME session must re-assert it on the new DB
+        self.client._handle_session_info(info)
+        self.assertIsNotNone(self.client.db.session_oid)
+
+        # and a live frame must actually persist
+        self.client.state.pid_to_car[405706] = "36"
+        self.client._handle_laps({"lapNumber": 5, "lapTimeMillis": 84038,
+                                  "isValid": True, "pid": 405706})
+        rows = self._query(
+            "SELECT lap_number FROM lap_history WHERE car_number='36'")
+        self.assertEqual([r["lap_number"] for r in rows], [5])
+
+    def test_reassert_preserves_first_seen(self):
+        info = {"sid": 999, "eventName": "Test 6H", "sessionName": "Race",
+                "sessionType": "Race"}
+        first = self._query("SELECT first_seen FROM sessions")[0]["first_seen"]
+        self.client._handle_session_info(info)
+        self.assertEqual(
+            self._query("SELECT first_seen FROM sessions")[0]["first_seen"],
+            first)
+
+
 if __name__ == "__main__":
     unittest.main()
