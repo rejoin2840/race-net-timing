@@ -206,12 +206,16 @@ def _alert_for(ca):
     return None
 
 
-def _gap_cell(ca, dim: bool):
+def _gap_cell(ca, dim: bool, is_leader: bool):
     """On-track gap to the class leader — the REAL spacing right now (not the net
-    projection). Laps when genuinely lapped. This is what 'how far back' means."""
+    projection). Laps when genuinely lapped. This is what 'how far back' means.
+    is_leader comes from the row's displayed position (r.trk == 1) so the LEAD tag
+    always sits on the row the board ranks first — in a race that is identical to
+    (effective_pos_in_class or pos_in_class) == 1; in practice/quali it follows the
+    official classification instead of the race-logic effective order."""
     if ca is None:
         return ("—", MUTE)
-    if (ca.effective_pos_in_class or ca.pos_in_class) == 1:
+    if is_leader:
         return ("LEAD", MUTE)
     if ca.laps_down and ca.laps_down > 0:
         return (f"+{ca.laps_down}L", MUTE)
@@ -259,7 +263,7 @@ def _row_vm(r, ca, current_lap, cycle_active=True, since=None, allow_net=True,
     pos_color = MUTE if dim else (GREEN if trk == 1 else TXT)   # green = on-track class leader
 
     stint_text, stint_color = _pit_cell(ca, current_lap, in_box)
-    gap_text, gap_color = _gap_cell(ca, dim)
+    gap_text, gap_color = _gap_cell(ca, dim, trk == 1)
 
     # net overlay speaks only when: the class is out of sequence on stops (cycle in
     # play) AND this car has a REAL same-lap gap to build net on. A sentinel/missing
@@ -269,7 +273,7 @@ def _row_vm(r, ca, current_lap, cycle_active=True, since=None, allow_net=True,
     # leader (gap 0) or a genuine positive sub-sentinel gap. Anything else → "—" gap,
     # so net stays "—" too (never an arrow over a dashed gap).
     gap_ok = (ca is not None and (ca.laps_down or 0) == 0
-              and ((ca.effective_pos_in_class or ca.pos_in_class) == 1
+              and (trk == 1
                    or (ca.class_gap_ms is not None and 0.05 <= ca.class_gap_ms < 600_000)))
     # in-box cars are mid-stop (position/gap in flux, row dimmed) — keep net quiet.
     # allow_net = this car won the per-class attention budget (the global cap that stops
@@ -1236,6 +1240,11 @@ class CalmDashboard(QMainWindow):
         Penalty/DQ and the leader marker are NOT capped (rare/bounded, must never be
         suppressed); only the unbounded signal (net moves) is governed. BUDGET_PER_CLASS
         is a live config knob (0 = pure monochrome)."""
+        # net position is a race concept (remaining-stops projection). In
+        # practice/quali the board shows the official classification, so a net
+        # overlay would just be race-logic noise over a best-lap order — stay dark.
+        if not getattr(self, "_is_race", True):
+            return set()
         try:
             per_class = int(config.CONFIG.BUDGET_PER_CLASS)
         except Exception:
@@ -1252,7 +1261,7 @@ class CalmDashboard(QMainWindow):
             if not self._cycle_active.get(r.cls, True):
                 continue
             gap_ok = ((ca.laps_down or 0) == 0
-                      and ((ca.effective_pos_in_class or ca.pos_in_class) == 1
+                      and (r.trk == 1
                            or (ca.class_gap_ms is not None
                                and 0.05 <= ca.class_gap_ms < 600_000)))
             if not gap_ok:

@@ -155,7 +155,17 @@ def _build_rows(ctx, cars, trend_map: dict, filter_cls: Optional[str],
         if c.best_lap_ms:
             fastest[c.car_class] = min(fastest.get(c.car_class, 9e18), c.best_lap_ms)
 
-    key = lambda c: (c.net_position or 99)
+    # RACE: order by net position (the pit-adjusted running order — the board's
+    # whole point). PRACTICE/QUALI: the feed's pos_in_class IS the official
+    # classification (best lap); net/effective order is race logic that sinks any
+    # pit-lane car to the back — and a practice/quali leader is parked in the
+    # garage most of the session, so the official P1 row would fall off the
+    # visible board (into the calm screen's collapsed accordion). Display-only.
+    is_race = bool(getattr(ctx, "is_race", True))
+    if is_race:
+        key = lambda c: (c.net_position or 99)
+    else:
+        key = lambda c: (c.pos_in_class or c.effective_pos_in_class or 99)
 
     rows: list[Row] = []
     for cls in sorted(by_class, key=lambda k: (_profile.class_order.get(k, 9), k)):
@@ -230,7 +240,11 @@ def _build_rows(ctx, cars, trend_map: dict, filter_cls: Optional[str],
                 car=c.car_number, team=(c.team or ""), cls=cls, cls_color=color,
                 net=c.net_position, net_settled=c.net_settled,
                 trend=trend_map.get(c.car_number, 0),
-                trk=(c.effective_pos_in_class or c.pos_in_class), trk_overall=c.track_position,
+                # trk mirrors the ordering choice above: race = pit-aware effective
+                # slot; practice/quali = the official feed classification.
+                trk=((c.effective_pos_in_class or c.pos_in_class) if is_race
+                     else (c.pos_in_class or c.effective_pos_in_class)),
+                trk_overall=c.track_position,
                 driver=(c.driver or c.team or "?"),
                 net_gap=gap,
                 last=calculator._ms_to_laptime(c.last_lap_ms),
