@@ -502,16 +502,21 @@ class WecLiveClient:
         stype = type_map.get(session_type, "SESSION")
 
         oid = make_oid(sid, event)
-        if oid == self.state.session_oid:
-            return
+        if oid != self.state.session_oid:
+            self.state.session_oid = oid
+            self.state.entries_written.clear()
+            self.state.status_acc.clear()
+            self.state.is_finished = data.get("hasSeenChequered", False)
+            self.state.is_running = data.get("isStarted", False)
+            log.info("Session: %s — %s (oid=%s, type=%s)",
+                     event, session_name, oid, stype)
 
-        self.state.session_oid = oid
-        self.state.entries_written.clear()
-        self.state.status_acc.clear()
-        self.state.is_finished = data.get("hasSeenChequered", False)
-        self.state.is_running = data.get("isStarted", False)
-        log.info("Session: %s — %s (oid=%s, type=%s)", event, session_name, oid, stype)
-
+        # ALWAYS re-assert the session on the DB, even when the oid is
+        # unchanged: every watchdog restart opens a fresh RaceDB whose
+        # session_oid is None until set_session() runs, and RaceDB silently
+        # drops every write until then. Skipping this on "same session" is
+        # why FP3 and São Paulo quali captured nothing after the first
+        # teardown — set_session is an upsert, so re-calling it is free.
         if self.db:
             self.db.set_session(oid, {
                 "champName": "FIA WEC",
@@ -723,14 +728,28 @@ class WecLiveClient:
         log.info("Pit OUT: #%s", car)
 
     def _handle_tires(self, data):
+        """Griiip tires frames nest a per-corner list:
+        {"tires": [{"id": "frontLeft", "compound": "MEDIUM",
+                    "ageInLaps": 7, "isChanged": true}, ...x4], "pid": ...}
+        We keep one compound (corners match in practice) and the max corner
+        age — the conservative wear number for pit-window prediction."""
         if not isinstance(data, dict):
             return
         car = self._resolve_car(data)
-        if car:
-            self.state.car_tires[car] = {
-                "compound": data.get("compound") or data.get("tyre") or None,
-                "age": _int_or(data.get("age") or data.get("laps"), None),
-            }
+        if not car:
+            return
+        corners = [t for t in (data.get("tires") or []) if isinstance(t, dict)]
+        if not corners:
+            return
+        compound = next((c.get("compound") for c in corners
+                         if c.get("compound")), None)
+        ages = [a for a in (_int_or(c.get("ageInLaps"), None) for c in corners)
+                if a is not None]
+        self.state.car_tires[car] = {
+            "compound": compound,
+            "age": max(ages) if ages else None,
+        }
+        self._flush_car(car)
 
     def _handle_weather(self, data):
         pass
@@ -873,6 +892,10 @@ class WecLiveClient:
         for s in (data.get("runningStatuses") or []):
             if isinstance(s, dict):
                 self._handle_running_status(s)
+
+        for t in (data.get("tires") or []):
+            if isinstance(t, dict):
+                self._handle_tires(t)
 
         n_cars = len(self.state.car_ranks)
         log.info("Bootstrap hydrated: %d cars, lap %d, flag %s",
@@ -1162,6 +1185,25 @@ def main():
 
             if client._stopping:
                 break
+
+            # Session handoff — WEC runs quali as back-to-back segments, each
+            # with its OWN sid; race day has warmup then race. Discovery only
+            # ran at process start, so after a segment ended we kept
+            # re-bootstrapping its dead sid for the rest of the window (São
+            # Paulo quali: GT quali captured, the other three segments lost).
+            # Re-check the schedule on every restart; mid-session the current
+            # sid is still the one listed, so this is a no-op until the feed
+            # actually moves on. An explicit --sid pins the session and skips
+            # handoff entirely.
+            if args.sid is None:
+                new_sid = find_wec_session()
+                if new_sid and new_sid != sid:
+                    log.info("Session handoff: sid %s -> %s", sid, new_sid)
+                    sid = new_sid
+                    # per-session state (pid map, laps, ranks, flags) must not
+                    # leak across sessions — start clean like a fresh process
+                    client.state = WecLiveState(sid=new_sid)
+                    client._reconnect_count = 0
 
             log.info("Restarting in %ds (reconnects: %d) ...",
                      RECONNECT_PAUSE_S, client._reconnect_count)

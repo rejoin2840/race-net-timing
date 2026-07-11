@@ -786,5 +786,87 @@ class TestPidKeyedLiveFrames(unittest.TestCase):
         self.assertEqual(c.state.car_laps["36"]["last_ms"], 89193)
 
 
+class TestTireFrames(unittest.TestCase):
+    """Griiip tires frames nest a per-corner list (4 tires, each with
+    compound/ageInLaps/isChanged) — the old flat-field parser stored None."""
+
+    def _client(self):
+        c = WecLiveClient(db_path="", no_db=True)
+        c.state = WecLiveState(sid=1, session_oid="wec_live_1")
+        c.state.pid_to_car[405706] = "36"
+        return c
+
+    def _frame(self, ages, compound="MEDIUM"):
+        corners = ["frontLeft", "frontRight", "rearLeft", "rearRight"]
+        return {"pid": 405706, "lapNumber": 10,
+                "tires": [{"id": cid, "compound": compound,
+                           "isChanged": False, "ageInLaps": a}
+                          for cid, a in zip(corners, ages)]}
+
+    def test_compound_and_max_corner_age(self):
+        c = self._client()
+        c._handle_tires(self._frame([7, 7, 12, 12]))
+        self.assertEqual(c.state.car_tires["36"],
+                         {"compound": "MEDIUM", "age": 12})
+
+    def test_empty_corner_list_keeps_previous_state(self):
+        c = self._client()
+        c.state.car_tires["36"] = {"compound": "MEDIUM", "age": 5}
+        c._handle_tires({"pid": 405706, "tires": []})
+        self.assertEqual(c.state.car_tires["36"],
+                         {"compound": "MEDIUM", "age": 5})
+
+    def test_bootstrap_tires_hydrated(self):
+        c = self._client()
+        c._hydrate_bootstrap({
+            "participants": [{"carNumber": "12", "pid": 405689,
+                              "classId": "Hypercar"}],
+            "tires": [{"carNumber": "12", "pid": 405689, "lapNumber": 0,
+                       "tires": [{"id": "frontLeft", "compound": "MEDIUM",
+                                  "isChanged": True, "ageInLaps": 7}]}],
+        })
+        self.assertEqual(c.state.car_tires["12"],
+                         {"compound": "MEDIUM", "age": 7})
+
+
+class TestRestartReassertsSession(_DbTestCase):
+    """Every watchdog restart opens a fresh RaceDB whose session_oid is None
+    until set_session() runs. _handle_session_info used to skip set_session
+    when the session oid was unchanged — so after the FIRST teardown every
+    write was silently dropped (the FP3 / São Paulo quali empty-DB bug)."""
+
+    def test_fresh_db_after_restart_accepts_writes(self):
+        import db as dbmod
+        info = {"sid": 999, "eventName": "Test 6H", "sessionName": "Race",
+                "sessionType": "Race"}
+        path = self.client.db.path
+
+        # simulate the supervisor restart: close and reopen the DB
+        self.client.db.close()
+        self.client.db = dbmod.RaceDB(path)
+        self.assertIsNone(self.client.db.session_oid)
+
+        # re-bootstrap of the SAME session must re-assert it on the new DB
+        self.client._handle_session_info(info)
+        self.assertIsNotNone(self.client.db.session_oid)
+
+        # and a live frame must actually persist
+        self.client.state.pid_to_car[405706] = "36"
+        self.client._handle_laps({"lapNumber": 5, "lapTimeMillis": 84038,
+                                  "isValid": True, "pid": 405706})
+        rows = self._query(
+            "SELECT lap_number FROM lap_history WHERE car_number='36'")
+        self.assertEqual([r["lap_number"] for r in rows], [5])
+
+    def test_reassert_preserves_first_seen(self):
+        info = {"sid": 999, "eventName": "Test 6H", "sessionName": "Race",
+                "sessionType": "Race"}
+        first = self._query("SELECT first_seen FROM sessions")[0]["first_seen"]
+        self.client._handle_session_info(info)
+        self.assertEqual(
+            self._query("SELECT first_seen FROM sessions")[0]["first_seen"],
+            first)
+
+
 if __name__ == "__main__":
     unittest.main()
