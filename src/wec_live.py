@@ -723,14 +723,28 @@ class WecLiveClient:
         log.info("Pit OUT: #%s", car)
 
     def _handle_tires(self, data):
+        """Griiip tires frames nest a per-corner list:
+        {"tires": [{"id": "frontLeft", "compound": "MEDIUM",
+                    "ageInLaps": 7, "isChanged": true}, ...x4], "pid": ...}
+        We keep one compound (corners match in practice) and the max corner
+        age — the conservative wear number for pit-window prediction."""
         if not isinstance(data, dict):
             return
         car = self._resolve_car(data)
-        if car:
-            self.state.car_tires[car] = {
-                "compound": data.get("compound") or data.get("tyre") or None,
-                "age": _int_or(data.get("age") or data.get("laps"), None),
-            }
+        if not car:
+            return
+        corners = [t for t in (data.get("tires") or []) if isinstance(t, dict)]
+        if not corners:
+            return
+        compound = next((c.get("compound") for c in corners
+                         if c.get("compound")), None)
+        ages = [a for a in (_int_or(c.get("ageInLaps"), None) for c in corners)
+                if a is not None]
+        self.state.car_tires[car] = {
+            "compound": compound,
+            "age": max(ages) if ages else None,
+        }
+        self._flush_car(car)
 
     def _handle_weather(self, data):
         pass
@@ -873,6 +887,10 @@ class WecLiveClient:
         for s in (data.get("runningStatuses") or []):
             if isinstance(s, dict):
                 self._handle_running_status(s)
+
+        for t in (data.get("tires") or []):
+            if isinstance(t, dict):
+                self._handle_tires(t)
 
         n_cars = len(self.state.car_ranks)
         log.info("Bootstrap hydrated: %d cars, lap %d, flag %s",
