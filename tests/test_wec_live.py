@@ -712,5 +712,79 @@ class TestReconnectWatchdog(unittest.TestCase):
         self.assertEqual(c._last_message_time, 1000.0)
 
 
+class TestPidKeyedLiveFrames(unittest.TestCase):
+    """Live SignalR frames identify cars by Griiip 'pid' with no carNumber —
+    verified across the São Paulo FP3 raw capture (0 of ~15k live per-car
+    items carried a carNumber). Handlers must resolve pid -> carNumber via
+    the mapping built from participants frames, or every live frame is
+    silently dropped (the FP3 empty-DB bug)."""
+
+    def _client(self):
+        c = WecLiveClient(db_path="", no_db=True)
+        c.state = WecLiveState(sid=1, session_oid="wec_live_1")
+        return c
+
+    def test_participants_frame_registers_pid_mapping(self):
+        c = self._client()
+        c._handle_participants({"carNumber": "36", "pid": 405706,
+                                "classId": "Hypercar"})
+        self.assertEqual(c.state.pid_to_car[405706], "36")
+
+    def test_pid_only_rank_resolves_through_mapping(self):
+        c = self._client()
+        c.state.pid_to_car[405706] = "36"
+        c._handle_ranks({"overallPosition": 1, "position": 1, "pid": 405706})
+        self.assertEqual(c.state.car_ranks["36"], {"pos": 1, "pos_class": 1})
+
+    def test_pid_only_lap_resolves_through_mapping(self):
+        c = self._client()
+        c.state.pid_to_car[405706] = "36"
+        c._handle_laps({"lapNumber": 5, "lapTimeMillis": 84038,
+                        "isValid": True, "pid": 405706})
+        self.assertEqual(c.state.car_laps["36"]["lap"], 5)
+        self.assertEqual(c.state.car_laps["36"]["best_ms"], 84038)
+
+    def test_unknown_pid_is_dropped_not_crashed(self):
+        c = self._client()
+        c._handle_laps({"lapNumber": 5, "lapTimeMillis": 84038, "pid": 999})
+        self.assertEqual(c.state.car_laps, {})
+
+    def test_rank_without_class_keeps_existing_class(self):
+        """Live rank items carry no classId; the fallback must not clobber
+        the class learned from participants."""
+        c = self._client()
+        c.state.pid_to_car[405706] = "36"
+        c.state.car_classes["36"] = "LMGT3"
+        c._handle_ranks({"overallPosition": 1, "position": 1, "pid": 405706})
+        self.assertEqual(c.state.car_classes["36"], "LMGT3")
+
+    def test_negative_gap_sentinels_clamped(self):
+        """Griiip sends -1/-2 as 'no value' on gap fields, even for the
+        leader — they must not persist as negative lap deficits."""
+        c = self._client()
+        c.state.pid_to_car[405706] = "36"
+        c._handle_gaps({"gapToFirstMillis": -2, "gapToFirstLaps": -2,
+                        "pid": 405706})
+        self.assertEqual(c.state.car_gaps["36"],
+                         {"gap_ms": 0, "laps_behind": 0})
+
+    def test_bootstrap_newest_first_laps_end_on_max(self):
+        """Bootstrap sends each car's recent laps newest-first; the lap
+        counter must end on the max lap, not the oldest entry (the FP3
+        'every car 4 laps short' bug)."""
+        c = self._client()
+        c._hydrate_bootstrap({
+            "participants": [{"carNumber": "36", "pid": 405706,
+                              "classId": "Hypercar"}],
+            "laps": [
+                {"carNumber": "36", "lapNumber": 33, "lapTimeMillis": 89193},
+                {"carNumber": "36", "lapNumber": 32, "lapTimeMillis": 143889},
+                {"carNumber": "36", "lapNumber": 31, "lapTimeMillis": 93814},
+            ],
+        })
+        self.assertEqual(c.state.car_laps["36"]["lap"], 33)
+        self.assertEqual(c.state.car_laps["36"]["last_ms"], 89193)
+
+
 if __name__ == "__main__":
     unittest.main()
