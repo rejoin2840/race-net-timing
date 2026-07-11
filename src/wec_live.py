@@ -285,6 +285,11 @@ class WecLiveState:
 
     entries_written: set = field(default_factory=set)
     pit_in_times: dict = field(default_factory=dict)   # car -> entry epoch ms
+    # Live SignalR frames identify cars by Griiip participant id ('pid') with
+    # NO carNumber — only the REST bootstrap and 'participants' frames carry
+    # both. Verified across the full São Paulo FP3 raw capture: 0 of ~15k live
+    # per-car items had a carNumber. Every handler resolves through this map.
+    pid_to_car: dict = field(default_factory=dict)     # int pid -> car number str
     # accumulated session_status fields — db.update_status() overwrites EVERY
     # column from the dict it's given, so partial updates (flag-only, clock-only)
     # must be merged here first or they null each other's fields out.
@@ -571,6 +576,15 @@ class WecLiveClient:
             })
             self.db.commit()
 
+    def _resolve_car(self, data: dict) -> str:
+        """Car number for a per-car frame: direct carNumber (bootstrap shapes)
+        or pid lookup (all live SignalR shapes — see WecLiveState.pid_to_car)."""
+        car = str(data.get("carNumber") or "").strip()
+        if car:
+            return car
+        pid = _int_or(data.get("pid"), None)
+        return self.state.pid_to_car.get(pid, "") if pid is not None else ""
+
     def _handle_ranks(self, data):
         if not isinstance(data, dict):
             return
@@ -579,11 +593,13 @@ class WecLiveClient:
                 if isinstance(item, dict):
                     self._handle_ranks(item)
             return
-        car = str(data.get("carNumber") or "").strip()
+        car = self._resolve_car(data)
         if not car:
             return
-        cls = normalize_class(data.get("classId") or "")
-        self.state.car_classes[car] = cls
+        # live rank items carry no classId — don't clobber the class we got
+        # from participants/bootstrap with the normalize_class fallback
+        if data.get("classId"):
+            self.state.car_classes[car] = normalize_class(data["classId"])
         self.state.car_ranks[car] = {
             "pos": _int_or(data.get("overallPosition"), None),
             "pos_class": _int_or(data.get("position"), None),
@@ -598,13 +614,17 @@ class WecLiveClient:
                 if isinstance(item, dict):
                     self._handle_gaps(item)
             return
-        car = str(data.get("carNumber") or "").strip()
+        car = self._resolve_car(data)
         if not car:
             return
         gap_ms = _int_or(data.get("gapToFirstMillis"), 0)
         laps_behind = _int_or(data.get("gapToFirstLaps"), 0)
+        # Griiip uses negative values (-1/-2) as "no value" sentinels on both
+        # fields — seen live even for the leader, so they are not lap deficits
         if gap_ms < 0:
             gap_ms = 0
+        if laps_behind < 0:
+            laps_behind = 0
         self.state.car_gaps[car] = {
             "gap_ms": gap_ms,
             "laps_behind": laps_behind,
@@ -614,15 +634,18 @@ class WecLiveClient:
     def _handle_laps(self, data):
         if not isinstance(data, dict):
             return
-        car = str(data.get("carNumber") or "").strip()
+        car = self._resolve_car(data)
         if not car:
             return
         lap_num = _int_or(data.get("lapNumber"), None)
         lap_ms = _int_or(data.get("lapTimeMillis"), None)
         if lap_num is not None:
             existing = self.state.car_laps.get(car, {})
-            existing["lap"] = lap_num
-            existing["last_ms"] = lap_ms
+            # bootstrap sends each car's recent laps NEWEST-FIRST — never let an
+            # older entry regress the lap counter or the last-lap time
+            if lap_num >= existing.get("lap", 0):
+                existing["lap"] = lap_num
+                existing["last_ms"] = lap_ms
             # keep the live best lap current (bootstrap only seeds it once);
             # laps explicitly marked invalid don't count as a best
             if lap_ms and data.get("isValid") is not False:
@@ -643,7 +666,14 @@ class WecLiveClient:
         if not isinstance(data, dict):
             return
         car = str(data.get("carNumber") or "").strip()
-        if not car or not self.db:
+        if not car:
+            return
+        # participants is the ONLY channel carrying both pid and carNumber —
+        # register the mapping before the db guard so it exists in --no-db runs
+        pid = _int_or(data.get("pid"), None)
+        if pid is not None:
+            self.state.pid_to_car[pid] = car
+        if not self.db:
             return
         cls = normalize_class(data.get("classId") or "")
         self.state.car_classes[car] = cls
@@ -655,7 +685,7 @@ class WecLiveClient:
     def _handle_running_status(self, data):
         if not isinstance(data, dict):
             return
-        car = str(data.get("carNumber") or "").strip()
+        car = self._resolve_car(data)
         if not car:
             return
         status = str(data.get("status") or "").lower()
@@ -665,7 +695,7 @@ class WecLiveClient:
     def _handle_pit_in(self, data):
         if not isinstance(data, dict):
             return
-        car = str(data.get("carNumber") or "").strip()
+        car = self._resolve_car(data)
         if not car:
             return
         now_ms = int(time.time() * 1000)
@@ -675,7 +705,7 @@ class WecLiveClient:
     def _handle_pit_out(self, data):
         if not isinstance(data, dict):
             return
-        car = str(data.get("carNumber") or "").strip()
+        car = self._resolve_car(data)
         if not car:
             return
         entry_ms = self.state.pit_in_times.pop(car, None)
@@ -695,7 +725,7 @@ class WecLiveClient:
     def _handle_tires(self, data):
         if not isinstance(data, dict):
             return
-        car = str(data.get("carNumber") or "").strip()
+        car = self._resolve_car(data)
         if car:
             self.state.car_tires[car] = {
                 "compound": data.get("compound") or data.get("tyre") or None,
@@ -821,14 +851,19 @@ class WecLiveClient:
                         "best_num": _int_or(b.get("lapNumber"), None),
                     }
 
-        for lap in (data.get("laps") or []):
-            if isinstance(lap, dict):
-                car = str(lap.get("carNumber") or "").strip()
-                if car and car in best_by_car:
-                    existing = self.state.car_laps.get(car, {})
-                    existing.update(best_by_car.pop(car))
-                    self.state.car_laps[car] = existing
-                self._handle_laps(lap)
+        # bootstrap laps arrive newest-first per car — replay them oldest-first
+        # so every lap lands in lap_history and the lap counter ends on the max
+        # (_handle_laps ignores regressions, so newest-first would drop all but
+        # the first entry per car)
+        boot_laps = [l for l in (data.get("laps") or []) if isinstance(l, dict)]
+        boot_laps.sort(key=lambda l: _int_or(l.get("lapNumber"), 0))
+        for lap in boot_laps:
+            car = str(lap.get("carNumber") or "").strip()
+            if car and car in best_by_car:
+                existing = self.state.car_laps.get(car, {})
+                existing.update(best_by_car.pop(car))
+                self.state.car_laps[car] = existing
+            self._handle_laps(lap)
 
         for car, best in best_by_car.items():
             existing = self.state.car_laps.get(car, {})
