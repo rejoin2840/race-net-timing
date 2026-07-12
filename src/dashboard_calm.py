@@ -41,6 +41,7 @@ import penalties
 import series_profiles
 import dashboard as dash   # reuse Poller, Row, _build_rows, FLAG_STYLE, CLASS_ORDER
 import session_picker          # race/session picker dialog
+import macos_appnap            # App Nap opt-out (screen-lock timer suspension)
 
 # ── static entry-list fallback (team/driver names when feed is silent) ────────
 def _load_entries() -> dict:
@@ -114,6 +115,32 @@ def feed_status(age_s, is_finished: bool):
     if age_s < 120:
         return f"DATA STALLED · {age_s:.0f}s"
     return f"DATA STALLED · {age_s / 60:.0f}m"
+
+# ── timer-suspension resilience (2026-07-12 São Paulo screen-lock freeze) ─────
+# The standings list is rebuilt from cached, re-parented custom-painted widgets
+# every tick; hours of App Nap suspension behind a locked screen left that path
+# painting a 3-hour-old board while the in-place QLabel header chips recovered.
+# Whenever we detect we were suspended (tick gap), away long enough (blur), or
+# the list render is lagging the data (generation stamp), the cached widgets are
+# thrown away and the table is rebuilt from scratch — fresh widgets can't carry
+# wedged native/paint state across a lock.
+SUSPEND_GAP_S = 10.0          # tick-to-tick wall gap ≫ REFRESH_MS → we were suspended
+REBUILD_AFTER_AWAY_S = 60.0   # window deactivated at least this long → rebuild on return
+GEN_LAG_MAX = 3               # ticks the rendered table may trail the data
+
+
+def rebuild_reason(gap_s=None, away_s=None, data_gen=0, table_gen=0):
+    """Decide whether the standings list needs a from-scratch rebuild. Returns a
+    short human-readable reason (logged as a race-day breadcrumb) or None. Pure so
+    it's unit-testable."""
+    if gap_s is not None and gap_s > SUSPEND_GAP_S:
+        return f"tick gap {gap_s:.0f}s (timer suspension)"
+    if away_s is not None and away_s >= REBUILD_AFTER_AWAY_S:
+        return f"window inactive {away_s:.0f}s"
+    if data_gen - table_gen > GEN_LAG_MAX:
+        return f"table render {data_gen - table_gen} ticks behind data"
+    return None
+
 
 # Tyre-compound colours (NULL when series doesn't populate tire_compound — no chip painted).
 # Third element: use dark text on the chip (light backgrounds only).
@@ -908,6 +935,12 @@ class CalmDashboard(QMainWindow):
         self._manual_armed = False                 # a manual M mark is waiting (2nd M shows it)
         self._badge_events: dict = {}              # car → Event for the lingering inline trail
         self._badge_until = 0.0                    # wall time the trail expires
+        # ── timer-suspension resilience (see rebuild_reason) ──
+        self._data_gen = 0                         # ticks that returned data
+        self._table_gen = 0                        # ticks whose list render completed
+        self._needs_rebuild = False                # next _render_list starts from scratch
+        self._last_tick_wall = time.time()         # previous refresh() wall time
+        self._away_since = None                    # wall time the window lost activation
         self._build_ui()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.card = CatchupCard(self.centralWidget(), self._dismiss_card,
@@ -1036,10 +1069,22 @@ class CalmDashboard(QMainWindow):
 
     # ---- refresh ----
     def refresh(self):
+        # a tick arriving long after the previous one means the process was
+        # suspended (App Nap under screen lock) — nothing painted in between is
+        # trustworthy, so schedule a from-scratch table rebuild before rendering
+        now_wall = time.time()
+        gap_s = now_wall - self._last_tick_wall
+        self._last_tick_wall = now_wall
         res = self.poller.poll(0)
         if res is None:
             self.sub.setText("waiting for data")
             return
+        self._data_gen += 1
+        reason = rebuild_reason(gap_s=gap_s, data_gen=self._data_gen,
+                                table_gen=self._table_gen)
+        if reason and not self._needs_rebuild:
+            self._needs_rebuild = True
+            print(f"table rebuild: {reason}", file=sys.stderr)   # race-day breadcrumb
 
         config.CONFIG.reload_if_changed()    # one reload per cycle, before any config read
         ctx, cars, rc, _age, trend = res
@@ -1185,9 +1230,24 @@ class CalmDashboard(QMainWindow):
         from PyQt6.QtCore import QEvent
         if e.type() == QEvent.Type.ActivationChange:
             if not self.isActiveWindow():
+                self._away_since = time.time()
                 self._mark_moment(manual=False)            # stepped away → snapshot silently
-            elif self._mark is not None:
-                self._pending_show = True                  # came back → brief on next refresh
+            else:
+                if self._mark is not None:
+                    self._pending_show = True              # came back → brief on next refresh
+                # back after a long absence (screen lock / hours away): don't trust
+                # what the table painted while gone — rebuild it now, from fresh
+                # widgets, instead of waiting out the timer (which may itself have
+                # been suspended). Quick alt-tabs stay below the threshold and keep
+                # the cheap in-place update path (PR #7 cleared those).
+                away_s = (time.time() - self._away_since
+                          if self._away_since is not None else None)
+                self._away_since = None
+                if rebuild_reason(away_s=away_s) is not None:
+                    self._needs_rebuild = True
+                    print(f"table rebuild: {rebuild_reason(away_s=away_s)}",
+                          file=sys.stderr)                 # race-day breadcrumb
+                    QTimer.singleShot(0, self.refresh)
         super().changeEvent(e)
 
     def keyPressEvent(self, e):
@@ -1294,7 +1354,29 @@ class CalmDashboard(QMainWindow):
                 allowed.add(car)
         return allowed
 
+    def _rebuild_table_cache(self):
+        """Throw away every cached row widget and holder so the coming render paints
+        brand-new ones. After hours of App Nap suspension the cached widgets' native
+        paint state can be wedged (the São Paulo frozen-board failure) — recreating
+        them is cheap (~40 widgets) and cannot inherit that state. Rows are detached
+        before deleteLater so a holder's cascade delete never double-frees them."""
+        for rw in self._rows.values():
+            rw.setParent(None)
+            rw.deleteLater()
+        self._rows.clear()
+        holders = getattr(self, "_holders", None)
+        if holders:
+            for h in holders.values():
+                h.setParent(None)
+                h.deleteLater()
+            holders.clear()
+        # the viewport may still be showing pixels flushed before the suspension
+        self.scroll.viewport().update()
+
     def _render_list(self, rows, camap):
+        if self._needs_rebuild:
+            self._needs_rebuild = False
+            self._rebuild_table_cache()
         # the lingering catch-up trail: active only until it expires (then auto-clears)
         badges = self._badge_events if time.time() < self._badge_until else {}
         holders = getattr(self, "_holders", None)
@@ -1389,6 +1471,9 @@ class CalmDashboard(QMainWindow):
                     ExpanderRow(cls, len(extra), collapsed,
                                 lambda c=cls: self._toggle_class(c)))
         self.listl.addStretch(1)
+        # stamp: the table now reflects the latest data tick (the safety-net check in
+        # refresh() forces a rebuild if this ever trails _data_gen by > GEN_LAG_MAX)
+        self._table_gen = self._data_gen
 
     def _rail_label(self, text):
         lab = QLabel(text); f = QFont(SANS, 10)
@@ -1609,6 +1694,11 @@ def main():
     # session picker's Year/GP/Session dropdowns) double-render/garble their
     # text on macOS. dashboard.py (the dense board) already does this.
     app.setStyle("Fusion")
+    # keep timers/painting alive behind a locked screen; the rebuild watchdog in
+    # CalmDashboard.refresh() is the fallback if this fails or macOS naps us anyway
+    if not macos_appnap.disable_app_nap("live standings refresh"):
+        print("warn: App Nap opt-out unavailable — table may need rebuild after "
+              "long screen locks", file=sys.stderr)
     w = CalmDashboard(force_oid=args.session)
     w.show()
     sys.exit(app.exec())
