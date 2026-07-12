@@ -31,6 +31,7 @@ import argparse
 import gzip
 import json
 import logging
+import os
 import re
 import sys
 import time
@@ -1180,10 +1181,21 @@ def main():
                 client.run(sid)
             except KeyboardInterrupt:
                 break
+            except BrokenPipeError:
+                # stdout pipe to a dead parent (e.g. dashboard QProcess) —
+                # nobody is reading; exit instead of reconnecting forever
+                log.error("Broken pipe on stdout — parent gone, exiting.")
+                break
             except Exception as e:
                 log.error("Session error: %s", e, exc_info=True)
 
             if client._stopping:
+                break
+
+            if os.getppid() == 1:
+                # reparented to launchd/init: original parent died without
+                # cleanup — don't keep live subscriptions as an orphan
+                log.error("Orphaned (parent died) — exiting.")
                 break
 
             # Session handoff — WEC runs quali as back-to-back segments, each
