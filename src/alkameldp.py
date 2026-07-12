@@ -24,6 +24,7 @@ Usage:
 import asyncio
 import json
 import logging
+import os
 import pathlib
 import random
 import string
@@ -633,8 +634,19 @@ async def main() -> None:
             except KeyboardInterrupt:
                 log.info("Stopped.")
                 break
+            except BrokenPipeError:
+                # stdout pipe to a dead parent (e.g. dashboard QProcess) —
+                # nobody is reading; exit instead of reconnecting forever
+                log.error("Broken pipe on stdout — parent gone, exiting.")
+                break
             except Exception as e:
                 log.error("Session error: %s", e)
+
+            if os.getppid() == 1:
+                # reparented to launchd/init: original parent died without
+                # cleanup — don't keep live subscriptions as an orphan
+                log.error("Orphaned (parent died) — exiting.")
+                break
 
             log.info("Reconnecting in 5s ...")
             try:
