@@ -249,11 +249,18 @@ class SessionPickerDialog(QDialog):
         return resp == QMessageBox.StandardButton.Yes
 
     # ── launchers ────────────────────────────────────────────────────────
+    def _make_proc(self) -> QProcess:
+        proc = QProcess(self)
+        proc.setWorkingDirectory(str(ROOT))
+        # inherit the dashboard's stdout/stderr instead of an unread pipe buffer —
+        # otherwise a crashed feed/replay child dies with its traceback invisible
+        proc.setProcessChannelMode(QProcess.ProcessChannelMode.ForwardedChannels)
+        return proc
+
     def _launch_imsa_live(self):
         if not self._confirm_double_launch("imsa"):
             return
-        self.proc = QProcess(self)
-        self.proc.setWorkingDirectory(str(ROOT))
+        self.proc = self._make_proc()
         self.proc.start(str(PYTHON), [str(ROOT / "src" / "alkameldp.py")])
         self.series = "imsa"
         self.force_oid = None
@@ -263,8 +270,7 @@ class SessionPickerDialog(QDialog):
     def _launch_wec_live(self):
         if not self._confirm_double_launch("wec"):
             return
-        self.proc = QProcess(self)
-        self.proc.setWorkingDirectory(str(ROOT))
+        self.proc = self._make_proc()
         args = [str(ROOT / "src" / "wec_live.py"), "--record",
                 str(DATA_DIR / f"wec_raw_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl.gz")]
         self.proc.start(str(PYTHON), args)
@@ -281,8 +287,7 @@ class SessionPickerDialog(QDialog):
         speed = self.replay_speed_combo.currentText().rstrip("×")
         self.force_oid = None
         self.series = "wec" if self.wec_series_radio.isChecked() else "imsa"
-        self.proc = QProcess(self)
-        self.proc.setWorkingDirectory(str(ROOT))
+        self.proc = self._make_proc()
         self.proc.start(str(PYTHON), [
             str(ROOT / "src" / "replay.py"), self._archive_path,
             "--stream", "--speed", speed,

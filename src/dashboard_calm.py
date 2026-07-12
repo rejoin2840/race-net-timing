@@ -100,6 +100,21 @@ SANS = "Helvetica Neue"
 
 OVERRIDE = "#FFD166"   # energy/override state active — distinct from every other cue
 
+
+def feed_status(age_s, is_finished: bool):
+    """Staleness tag for the header, or None while the feed is healthy.
+
+    The session clock is derived from wall time (calculator.remaining_s), so it
+    keeps counting down even when the writer behind the DB has died — a killed
+    replay stream or a live-feed outage leaves the table frozen under a
+    live-looking clock. This makes that state explicit. Pure so it's unit-testable.
+    """
+    if is_finished or age_s is None or age_s <= dash.STALE_AFTER_S:
+        return None
+    if age_s < 120:
+        return f"DATA STALLED · {age_s:.0f}s"
+    return f"DATA STALLED · {age_s / 60:.0f}m"
+
 # Tyre-compound colours (NULL when series doesn't populate tire_compound — no chip painted).
 # Third element: use dark text on the chip (light backgrounds only).
 TIRE_STYLE = {
@@ -1077,7 +1092,7 @@ class CalmDashboard(QMainWindow):
         # field-wide signal can never paint the whole board (the "christmas tree")
         self._budget_net = self._highlight_budget(rows, camap)
         self._last = (rows, camap)
-        self._render_header(ctx)
+        self._render_header(ctx, feed_status(self.poller.real_age(), ctx.is_finished))
         self._render_list(rows, camap)
         self._render_rail(rows, rc, camap)
 
@@ -1199,7 +1214,7 @@ class CalmDashboard(QMainWindow):
         if self.legend.isVisible():
             self._position_legend()
 
-    def _render_header(self, ctx):
+    def _render_header(self, ctx, stale=None):
         bg, label = dash.FLAG_STYLE.get(ctx.flag, ("#3A4150", ctx.flag or "—"))
         self.flag.setText(f"  {label}  ")
         self.flag.setStyleSheet(f"background:{bg}; color:#FFFFFF; border-radius:5px;")
@@ -1217,7 +1232,12 @@ class CalmDashboard(QMainWindow):
             lap_text = f"LAP {ctx.current_lap}"
             if ctx.is_race and ctx.pit_model.thin:
                 lap_text += "  ·  LOW PIT DATA"
+            if stale:
+                lap_text += f"  ·  {stale}"
             self.sub.setText(lap_text)
+        # a wall-derived clock over dead data reads as live — dim it while stalled
+        self.clock.setStyleSheet(f"color:{MUTE if stale else TXT};")
+        self.sub.setStyleSheet(f"color:{AMBER if stale else DIM};")
 
     TOP_N = 5                  # per-class row cap before the "+N more" accordion (multi-class)
     TOP_N_SINGLE_CLASS = 30    # single-class grid: show the whole field by default
