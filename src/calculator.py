@@ -980,7 +980,8 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
     def finish_score(ca: CarAnalysis) -> float:
         net = ca.net_position if ca.net_position is not None else (ca.pos_in_class or 99)
         trk = ca.pos_in_class if ca.pos_in_class is not None else net
-        w = min(0.6, 0.15 * (ca.est_stops_left or 0))   # more stops left → trust net more
+        w = min(FINISH_BLEND_MAX_W,                     # more stops left → trust net more
+                FINISH_BLEND_W_PER_STOP * (ca.est_stops_left or 0))
         return w * net + (1 - w) * trk + ca.penalty_post_s / 30.0
     fin_order = sorted(group_sorted,
                        key=lambda c: (1 if c.dq else 0, c.laps_down, finish_score(c)))

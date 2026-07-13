@@ -43,6 +43,8 @@ DEFAULTS = {
         # observed — tune live via config.json during FP/race)
         "HYPERCAR": 33, "LMGT3": 30},
     "PIT_WINDOW_LAPS":        5,        # fuel-laps-left at/under which the pit window is "open"
+    "FINISH_BLEND_MAX_W":     0.6,      # projected-finish blend: cap on net's weight
+    "FINISH_BLEND_W_PER_STOP": 0.15,    # …net weight gained per estimated remaining stop
     "BUDGET_PER_CLASS":       1,        # max NET-overlay highlights allowed per class on the calm board (0 = monochrome)
     "TRACK_LAT":              42.337,   # circuit latitude  (Watkins Glen — first race)
     "TRACK_LON":             -76.927,   # circuit longitude (edit per round for weather)
