@@ -58,7 +58,12 @@ DEFAULTS = {
     # Lets race-day tuning for one series (WEC driver changes run far longer than
     # IMSA's) leave the other series' calibration untouched. Hot-reloads like
     # every other knob; unknown keys inside an override are ignored.
-    "SERIES_OVERRIDES":       {},
+    # WEC catch gate tightened 07-12 (calibration): in multiclass WEC traffic the
+    # IMSA-tuned gate fired on pace noise — 0 of 14 SP catch calls were real.
+    # Longer pace window + longer closing trend, swept across the 7 WEC archives
+    # + SP capture: pooled horizon hit-rate 56%→62% on ~10% fewer calls, median
+    # lateness collapsed (Fuji 1.7→0.1, Imola 8.6→3.3 laps); SP noise calls 14→3.
+    "SERIES_OVERRIDES":       {"wec": {"CATCH_TREND_LAPS": 5, "PACE_WINDOW": 8}},
 }
 
 
