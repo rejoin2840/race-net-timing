@@ -115,6 +115,48 @@ def test_reject_long_stops_keeps_short_splash():
     assert any(s.duration_ms == 8000 for s in kept)
 
 
+# ── _robust_linfit (residual-space two-sided rejection for the fuel fit) ─────
+def _sstop(stint, dur):
+    return _Stop(car="7", cls="GTD", stint_laps=float(stint), duration_ms=float(dur),
+                 is_dc=False, green=True)
+
+
+def test_robust_linfit_keeps_long_stint_long_stop():
+    """The Qatar failure: a legitimately long stop after a long stint must
+    survive rejection (the old duration clip chopped that mode and biased
+    the fit -46s there). In residual space the stint length explains it."""
+    stops = ([_sstop(20, 60000 + i * 100) for i in range(4)]
+             + [_sstop(45, 110000 + i * 100) for i in range(4)])
+    a, b, _ = calculator._robust_linfit(stops)
+    assert a + b * 45 > 100000        # prediction lives near the long mode
+
+
+def test_robust_linfit_rejects_repair_stop():
+    stops = [_sstop(30 + i, 70000 + i * 500) for i in range(8)]
+    repair = _sstop(34, 991000)       # the real SP #8 repair "stop"
+    a, b, _ = calculator._robust_linfit(stops + [repair])
+    assert abs((a + b * 34) - 72000) < 5000   # fit unmoved by the repair
+
+
+def test_robust_linfit_rejects_splash_from_fit():
+    """A splash after a full stint is a huge NEGATIVE residual — the old
+    pipeline kept it in the fit, dragging predictions low. Two-sided
+    rejection drops it (while _reject_long_stops still keeps it for the
+    transit floor, where it belongs)."""
+    stops = [_sstop(30 + i, 70000 + i * 500) for i in range(8)]
+    splash = _sstop(34, 8000)
+    a, b, _ = calculator._robust_linfit(stops + [splash])
+    assert abs((a + b * 34) - 72000) < 5000
+
+
+def test_robust_linfit_small_n_no_rejection():
+    stops = [_sstop(30, 70000), _sstop(31, 71000), _sstop(32, 300000)]
+    fit = calculator._robust_linfit(stops)   # < 6 stops → plain fit
+    plain = _linfit([s.stint_laps for s in stops],
+                    [s.duration_ms for s in stops])
+    assert fit == plain
+
+
 # ── _gap_closing (reads module-level _GAP_HIST) ───────────────────────────────
 def _hist(oid, car, samples):
     calculator._GAP_HIST[(oid, car)] = deque(samples, maxlen=6)

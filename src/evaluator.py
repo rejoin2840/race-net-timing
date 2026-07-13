@@ -84,8 +84,15 @@ def eval_stop_time(conn, oid):
 
     def _stats(key):
         errs, biases = buckets[key]
+        if not errs:
+            return None
+        # median bias alongside the mean: a handful of unforecastable
+        # multi-minute garage stops (Qatar LMGT3: p50 87s but mean 175s)
+        # can swing the mean by tens of seconds while the model is fine —
+        # the median says how a TYPICAL stop was predicted
         return {"n": len(errs), "mae_ms": sum(errs) / len(errs),
-                "bias_ms": sum(biases) / len(biases)} if errs else None
+                "bias_ms": sum(biases) / len(biases),
+                "med_bias_ms": sorted(biases)[len(biases) // 2]}
 
     result = _stats("all")
     for key in ("caution", "green", "predictable", "short"):
@@ -262,12 +269,18 @@ def _suggest(stop, net, catch):
         d = "OVER" if pstop["bias_ms"] > 0 else "UNDER"
         s.append(f"Predictable stops {d}-predicted by {abs(pstop['bias_ms'])/1000:.1f}s "
                  f"avg — adjust transit floor / fuel fit / DC delta.")
-    if stop and stop.get("caution") and abs(stop["caution"]["bias_ms"]) > 3000:
+    # Caution-awareness was investigated 07-13 across 491 caution stops in 14
+    # races: caution barely moves stop DURATION (pooled delta vs the green fit
+    # ±few seconds) — the caution advantage is track-position cost, which
+    # CAUTION_PENALTY_FACTOR already models in pit_now_position. Only flag a
+    # caution-bucket discrepancy on a real sample, not the n=1 noise that
+    # used to print here.
+    if (stop and stop.get("caution") and stop["caution"]["n"] >= 5
+            and abs(stop["caution"]["bias_ms"]) > 5000):
         cb = stop["caution"]["bias_ms"]
         s.append(f"Caution stops {('OVER' if cb > 0 else 'UNDER')}-predicted by "
-                 f"{abs(cb)/1000:.1f}s — model.predict_stop() has no caution-awareness. "
-                 f"(CAUTION_PENALTY_FACTOR won't fix this: it only scales the live "
-                 f"pit_now_position call, not this prediction.)")
+                 f"{abs(cb)/1000:.1f}s over n={stop['caution']['n']} — unusual: "
+                 f"caution normally leaves stop duration unchanged (07-13 study).")
     if net and net.get("proj_improvement_pct") is not None:
         if net["proj_improvement_pct"] < 0:
             s.append("The shipped finish forecast (projected_finish) is WORSE than "
@@ -300,8 +313,9 @@ def report(ctx, stop, net, catch) -> str:
         p = stop.get("predictable")
         if p:
             L.append(f"  STOP TIME    n={p['n']:<3}  MAE {p['mae_ms']/1000:5.1f}s  "
-                     f"bias {p['bias_ms']/1000:+5.1f}s  (predictable: stint >"
-                     f" {SHORT_STINT_LAPS} laps)")
+                     f"bias {p['bias_ms']/1000:+5.1f}s  median "
+                     f"{p['med_bias_ms']/1000:+5.1f}s  (stint > "
+                     f"{SHORT_STINT_LAPS} laps)")
         else:
             L.append(f"  STOP TIME    (no predictable-stint stops yet)")
         if stop.get("short"):
@@ -317,8 +331,8 @@ def report(ctx, stop, net, catch) -> str:
                      f"bias {g['bias_ms']/1000:+5.1f}s")
         if stop.get("caution"):
             c = stop["caution"]
-            flag = ("  ← predict_stop has no caution-awareness"
-                    if abs(c["bias_ms"]) > 3000 else "")
+            flag = ("  ← unusual: caution normally leaves duration unchanged"
+                    if (c["n"] >= 5 and abs(c["bias_ms"]) > 5000) else "")
             L.append(f"    caution    n={c['n']:<3}  MAE {c['mae_ms']/1000:5.1f}s  "
                      f"bias {c['bias_ms']/1000:+5.1f}s{flag}")
     else:
