@@ -43,8 +43,13 @@ DEFAULTS = {
         # observed — tune live via config.json during FP/race)
         "HYPERCAR": 33, "LMGT3": 30},
     "PIT_WINDOW_LAPS":        5,        # fuel-laps-left at/under which the pit window is "open"
-    "FINISH_BLEND_MAX_W":     0.6,      # projected-finish blend: cap on net's weight
-    "FINISH_BLEND_W_PER_STOP": 0.15,    # …net weight gained per estimated remaining stop
+    "FINISH_BLEND_MAX_W":     0.3,      # projected-finish blend: cap on net's weight
+    "FINISH_BLEND_W_PER_STOP": 0.08,    # …net weight gained per estimated remaining stop
+                                        # (halved 07-13: on honest post-official-rank data
+                                        # the old 0.6/0.15 was the worst of the swept
+                                        # weights — mean projMAE 2.82 vs 2.73 at 0.3/0.08,
+                                        # which keeps the deep-pit-cycle wins: Daytona 24h,
+                                        # Lone Star, Imola)
     "STOPS_LEFT_SLACK":       0.5,      # stint fraction a car can stretch to absorb a
                                         # fractional remaining-stop remainder (0 = plain ceil;
                                         # 0.5 ≈ round — swept 0/0.25/0.5 across 14 races 07-12)

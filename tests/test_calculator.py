@@ -157,6 +157,34 @@ def test_robust_linfit_small_n_no_rejection():
     assert fit == plain
 
 
+# ── _lap_history_elapsed (Griiip channel-coherence gap source) ────────────────
+def _mkdb_laps(rows):
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE lap_history (session_oid TEXT, car_number TEXT, "
+                 "lap_number INTEGER, lap_time_ms INTEGER)")
+    conn.executemany("INSERT INTO lap_history VALUES ('o',?,?,?)", rows)
+    return conn
+
+
+def test_lap_history_elapsed_prefix_sums():
+    conn = _mkdb_laps([("7", 1, 90000), ("7", 2, 91000), ("7", 3, 92000)])
+    out = calculator._lap_history_elapsed(conn, "o", {"7": 2})
+    assert out["7"] == 181000          # truncated at the counter lap, not the newest
+
+
+def test_lap_history_elapsed_hole_invalidates_later_laps():
+    conn = _mkdb_laps([("7", 1, 90000), ("7", 3, 92000)])   # lap 2 missing
+    out = calculator._lap_history_elapsed(conn, "o", {"7": 3})
+    assert "7" not in out              # cumulative time would drift — fall back
+    out1 = calculator._lap_history_elapsed(conn, "o", {"7": 1})
+    assert out1["7"] == 90000          # laps before the hole still valid
+
+
+def test_lap_history_elapsed_missing_counter_falls_back():
+    conn = _mkdb_laps([("7", 1, 90000)])
+    assert calculator._lap_history_elapsed(conn, "o", {"7": 5}) == {}
+
+
 # ── _gap_closing (reads module-level _GAP_HIST) ───────────────────────────────
 def _hist(oid, car, samples):
     calculator._GAP_HIST[(oid, car)] = deque(samples, maxlen=6)
