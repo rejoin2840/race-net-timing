@@ -53,6 +53,16 @@ class SeriesProfile:
     identity: str = "car_class"
     # rc_dialect: which race-control / penalty wording parser to use.
     rc_dialect: str = "imsa"
+    # trust_feed_laps_behind: the feed's laps-behind field is authoritative
+    # (Griiip official-rank carries gapToFirstLaps on ~100% of race frames).
+    # When True the calculator uses it for laps-down instead of the lap-count
+    # + time-gap heuristic — which misfires on Griiip's last-crossing elapsed
+    # semantics (every car's elapsed is ≈ "now", so a genuinely lapped car's
+    # gap always looks same-lap and gets wrongly un-lapped; SP 2026: 38% of
+    # same-lap class pairs had net order contradicting official order).
+    # IMSA stays False: its laps_behind is the ambiguous feed field the
+    # calculator docstring warns about, and its elapsed heuristic works.
+    trust_feed_laps_behind: bool = False
 
     def spine_of(self, cls: Optional[str]) -> str:
         return self.spine.get(cls, self.spine_default)
@@ -94,6 +104,7 @@ WEC = SeriesProfile(
     spine_default="#5F6B7A",
     pit_model="refuel",
     identity="car_class",
+    trust_feed_laps_behind=True,
     rc_dialect="wec",
 )
 

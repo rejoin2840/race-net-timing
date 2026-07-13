@@ -176,6 +176,8 @@ class CarAnalysis:
                                                   #   by real cumulative-time gap (the feed
                                                   #   freezes pos mid-stop — see _derive_class)
     elapsed_ms:       Optional[int] = None       # cumulative race time (for overall gaps)
+    feed_laps_behind: Optional[int] = None       # authoritative laps behind the overall
+                                                 # leader, when the feed provides it
     class_gap_ms:     Optional[float] = None     # time gap to class leader (same-lap)
     last_lap_ms:      Optional[int] = None
     best_lap_ms:      Optional[int] = None
@@ -732,6 +734,38 @@ def _driver_obligation(conn: sqlite3.Connection, oid: str) -> dict[str, bool]:
     return owes
 
 
+def _lap_history_elapsed(conn: sqlite3.Connection, oid: str,
+                         car_laps: dict) -> dict:
+    """Per-car cumulative race time at each car's CURRENT laps-counter count,
+    rebuilt from lap_history — the laps-channel-coherent alternative to the
+    standings elapsed_ms snapshot (see the Griiip coherence note in analyse).
+    Only returns cars whose lap history actually covers their counter value;
+    others fall back to the standings snapshot."""
+    rows = conn.execute(
+        """SELECT car_number, lap_number, lap_time_ms FROM lap_history
+             WHERE session_oid=? AND lap_time_ms IS NOT NULL
+             ORDER BY car_number, lap_number""", (oid,)).fetchall()
+    # per-car prefix sums, valid only while laps run consecutively from 1 —
+    # a hole makes every later cumulative value a drifting lie, so stop there
+    prefix: dict[str, dict] = {}
+    broken: set = set()
+    last: dict[str, int] = {}
+    for car, lap, ms in rows:
+        if car in broken:
+            continue
+        if lap != last.get(car, 0) + 1:
+            broken.add(car)
+            continue
+        p = prefix.setdefault(car, {})
+        p[lap] = p.get(lap - 1, 0) + ms
+        last[car] = lap
+    out = {}
+    for car, want in car_laps.items():
+        if want and car in prefix and want in prefix[car]:
+            out[car] = prefix[car][want]
+    return out
+
+
 # ── core assembly ───────────────────────────────────────────────────────────
 def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAnalysis]]:
     config.CONFIG.reload_if_changed()   # pick up live config.json edits (~2s latency)
@@ -746,7 +780,7 @@ def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAn
 
     rows = conn.execute(
         """SELECT s.car_number, s.overall_position, s.pos_in_class, s.car_class,
-                  s.laps, s.gap_ms, s.elapsed_ms, s.last_lap_ms, s.best_lap_ms, s.pits,
+                  s.laps, s.gap_ms, s.elapsed_ms, s.laps_behind, s.last_lap_ms, s.best_lap_ms, s.pits,
                   s.last_pit_lap, s.track_status, s.is_running,
                   s.fuel_pct, s.fuel_flag,
                   s.tire_compound, s.tire_age, s.override_state,
@@ -767,6 +801,7 @@ def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAn
             track_status=r["track_status"], stops=r["pits"] or 0,
             last_pit_lap=r["last_pit_lap"],
             elapsed_ms=r["elapsed_ms"],
+            feed_laps_behind=r["laps_behind"],
         )
         ca.fuel_pct  = r["fuel_pct"]
         ca.fuel_flag = r["fuel_flag"]
@@ -805,6 +840,20 @@ def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAn
     use_elapsed = has_elapsed and all(r["elapsed_ms"] is not None for r in rows)
     feed_gap = {r["car_number"]: (r["elapsed_ms"] if use_elapsed else r["gap_ms"])
                 for r in rows}
+    if ctx.profile.trust_feed_laps_behind:
+        # Griiip coherence fix: standings elapsed_ms (official-rank channel)
+        # and the laps counter (laps channel) update ~15s apart at every line
+        # crossing, so for ~20% of each lap a car's elapsed belongs to its
+        # PREVIOUS lap — nearby cars' gaps flip by a full lap and net order
+        # scrambles (SP 2026: 38% of same-lap class pairs contradicted the
+        # official order). Rebuild each car's elapsed from lap_history
+        # cumulative lap times AT ITS OWN laps-counter count: both come from
+        # the laps channel, so the pair is coherent by construction. Cars
+        # with incomplete lap history keep the standings value.
+        cum_gap = _lap_history_elapsed(conn, oid,
+                                       {r["car_number"]: r["laps"] for r in rows})
+        for car, v in cum_gap.items():
+            feed_gap[car] = v
 
     for cls, group in by_class.items():
         _derive_class(ctx, cls, group, feed_gap, observed_stints.get(cls))
@@ -850,12 +899,26 @@ def _assign_effective_positions(group: list[CarAnalysis]) -> None:
 
 def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
                   feed_gap: dict, observed_stint: Optional[float]) -> None:
-    # class leader = most laps, then smallest overall feed gap
-    group_sorted = sorted(
-        group, key=lambda c: (-(c.laps or 0), feed_gap.get(c.car_number) or 0))
+    # Authoritative laps-behind path (WEC/Griiip): the feed states each car's
+    # laps behind the overall leader outright, so lap deficits come from the
+    # feed and the time-based un-lapping heuristic below is skipped — it
+    # misfires on Griiip's last-crossing elapsed semantics (see
+    # SeriesProfile.trust_feed_laps_behind).
+    trust_flb = (ctx.profile.trust_feed_laps_behind
+                 and all(c.feed_laps_behind is not None for c in group))
+
+    # class leader = fewest laps behind (authoritative) / most laps, then
+    # smallest overall feed gap
+    if trust_flb:
+        group_sorted = sorted(
+            group, key=lambda c: (c.feed_laps_behind, feed_gap.get(c.car_number) or 0))
+    else:
+        group_sorted = sorted(
+            group, key=lambda c: (-(c.laps or 0), feed_gap.get(c.car_number) or 0))
     leader = group_sorted[0]
     leader_gap = feed_gap.get(leader.car_number) or 0
     leader_laps = leader.laps or 0
+    leader_flb = leader.feed_laps_behind or 0
     # representative class lap, for a TIME-based "is it really lapped?" test
     lap_ref_ms = _median_pace(group) or leader.best_lap_ms or 0
 
@@ -863,19 +926,23 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
     for ca in group_sorted:
         g = feed_gap.get(ca.car_number)
         ca.class_gap_ms = (g - leader_gap) if (g is not None) else None
-        # The integer lap count flickers ±1 at S/F crossings during pit cycles (the
-        # un-pitted leader laps-ahead illusion). Trust TIME: a car is only genuinely a
-        # lap down if its cumulative-time gap to the class leader exceeds a lap.
-        raw_down = max(0, leader_laps - (ca.laps or 0))
-        if raw_down > 0 and lap_ref_ms and ca.class_gap_ms is not None \
-                and 0 <= ca.class_gap_ms < lap_ref_ms:
-            raw_down = 0
+        if trust_flb:
+            raw_down = max(0, (ca.feed_laps_behind or 0) - leader_flb)
+        else:
+            # The integer lap count flickers ±1 at S/F crossings during pit cycles (the
+            # un-pitted leader laps-ahead illusion). Trust TIME: a car is only genuinely a
+            # lap down if its cumulative-time gap to the class leader exceeds a lap.
+            raw_down = max(0, leader_laps - (ca.laps or 0))
+            if raw_down > 0 and lap_ref_ms and ca.class_gap_ms is not None \
+                    and 0 <= ca.class_gap_ms < lap_ref_ms:
+                raw_down = 0
         ca.laps_down = raw_down
         if raw_down > 0 and lap_ref_ms:
             # genuinely lapped: the cumulative-time difference isn't a same-lap gap
             # (it compares different lap counts) — express it as the lap deficit so
             # net ordering and the "+NL" display stay sane.
             ca.class_gap_ms = raw_down * lap_ref_ms
+
 
     _assign_effective_positions(group_sorted)
 
@@ -948,7 +1015,12 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
     net_order = sorted(
         group_sorted,
         key=lambda c: (1 if c.dq else 0, c.laps_down,
-                       c.net_gap_ms if c.net_gap_ms is not None else 9e12))
+                       c.net_gap_ms if c.net_gap_ms is not None else 9e12,
+                       # exact-tie breaker only: lapped cars' class_gap is
+                       # overwritten with identical laps_down·lap_ref values,
+                       # so same-deficit cars otherwise sort arbitrarily —
+                       # the official running order settles them
+                       c.pos_in_class if c.pos_in_class is not None else 99))
     for i, ca in enumerate(net_order, 1):
         ca.net_position = i
     # ── settled: once every car in class has taken its final stop, the pit model
