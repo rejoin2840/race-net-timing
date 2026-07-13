@@ -85,6 +85,7 @@ log = logging.getLogger("weclive")
 # Griiip channel names (from JS bundle enum extraction)
 CH_RANKS = "ranks"
 CH_GAPS = "gaps"
+CH_OFFICIAL_RANK = "official-rank"
 CH_LAPS = "laps"
 CH_SESSION_INFO = "session-info"
 CH_SESSION_CLOCK = "session-clock"
@@ -114,7 +115,7 @@ CH_SESSION_CLOSED = "session-closed"
 # full rebuild is the only thing that resumes it. A restart during genuinely
 # quiet track time (long red flag) is cheap, logged churn — a silent freeze on
 # race day is not.
-LIVENESS_CHANNELS = frozenset({CH_RANKS, CH_GAPS, CH_LAPS})
+LIVENESS_CHANNELS = frozenset({CH_RANKS, CH_GAPS, CH_LAPS, CH_OFFICIAL_RANK})
 
 FLAG_MAP = {
     "GREEN": "GF",
@@ -467,6 +468,7 @@ class WecLiveClient:
             handler = {
                 CH_RANKS: self._handle_ranks,
                 CH_GAPS: self._handle_gaps,
+                CH_OFFICIAL_RANK: self._handle_official_rank,
                 CH_LAPS: self._handle_laps,
                 CH_SESSION_INFO: self._handle_session_info,
                 CH_SESSION_CLOCK: self._handle_session_clock,
@@ -615,6 +617,58 @@ class WecLiveClient:
             "pos": _int_or(data.get("overallPosition"), None),
             "pos_class": _int_or(data.get("position"), None),
         }
+        self._flush_car(car)
+
+    def _handle_official_rank(self, data):
+        """RACE-session position + gap stream. During the SP 2026 race the
+        `ranks` and `gaps` channels carried ZERO frames — real races publish
+        `official-rank` instead (51,514 frames there), which the client never
+        dispatched. Every mid-race gap therefore came from the occasional
+        bootstrap re-hydration: hours-stale gaps made the whole field look
+        nose-to-tail, which is what produced the 14 noise catch calls (true
+        gaps at call time were −32s..+80s vs the ≤2s gate).
+
+        Fields (verified against the SP capture): `position` is the OVERALL
+        position (matches final standings 35/35); `gapToFirstMillis` /
+        `gapToFirstLaps` are gaps to the overall leader; `elapsedTimeMillis`
+        is cumulative race time — persisting it activates calculator's
+        preferred elapsed-diff gap path. −1 is Griiip's "no value" sentinel
+        on all of them."""
+        if not isinstance(data, dict):
+            return
+        if "items" in data and isinstance(data["items"], list):
+            for item in data["items"]:
+                if isinstance(item, dict):
+                    self._handle_official_rank(item)
+            return
+        car = self._resolve_car(data)
+        if not car:
+            return
+        pos = _int_or(data.get("position"), None)
+        if pos is not None and pos > 0:
+            ranks = self.state.car_ranks.setdefault(car, {})
+            ranks["pos"] = pos
+            # in-class position = rank of this car's overall position among
+            # same-class cars. Single-car update; official-rank refreshes
+            # every car ~15s so the class converges immediately after a swap.
+            cls = self.state.car_classes.get(car)
+            if cls:
+                ahead = sum(
+                    1 for other, r in self.state.car_ranks.items()
+                    if other != car and r.get("pos") is not None
+                    and r["pos"] < pos
+                    and self.state.car_classes.get(other) == cls)
+                ranks["pos_class"] = ahead + 1
+        gaps = self.state.car_gaps.setdefault(car, {})
+        gap_ms = _int_or(data.get("gapToFirstMillis"), -1)
+        if gap_ms >= 0:
+            gaps["gap_ms"] = gap_ms
+        laps_behind = _int_or(data.get("gapToFirstLaps"), -1)
+        if laps_behind >= 0:
+            gaps["laps_behind"] = laps_behind
+        elapsed = _int_or(data.get("elapsedTimeMillis"), -1)
+        if elapsed > 0:
+            gaps["elapsed_ms"] = elapsed
         self._flush_car(car)
 
     def _handle_gaps(self, data):
@@ -817,7 +871,7 @@ class WecLiveClient:
             "bestLapTime": laps_info.get("best_ms"),
             "bestLapNumber": laps_info.get("best_num"),
             "lastSectors": None,
-            "elapsedTime": None,
+            "elapsedTime": gaps.get("elapsed_ms"),
             "tireCompound": tires.get("compound"),
             "tireAge": tires.get("age"),
         }

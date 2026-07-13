@@ -471,6 +471,61 @@ class TestPitStopFlow(_DbTestCase):
         self.assertEqual(len(self._query("SELECT 1 FROM pit_events")), 0)
 
 
+class TestOfficialRank(_DbTestCase):
+    """The `official-rank` channel is the ONLY position/gap stream real races
+    publish (SP 2026: 51,514 official-rank frames, zero ranks/gaps frames).
+    Before it was dispatched, every mid-race gap was bootstrap-stale — the
+    field looked nose-to-tail all race and the catch gate fired 14 noise
+    calls at 0% hit rate."""
+
+    def _rank(self, car, pos, gap=5000, laps_b=0, elapsed=3_600_000, cls="HYPERCAR"):
+        self.client.state.car_classes[car] = cls
+        self.client._handle_official_rank({
+            "carNumber": car, "position": pos, "gapToFirstMillis": gap,
+            "gapToFirstLaps": laps_b, "elapsedTimeMillis": elapsed})
+
+    def test_position_gap_elapsed_written(self):
+        self._rank("7", 3, gap=12345, elapsed=7_200_000)
+        row = self._query("SELECT overall_position, gap_ms, elapsed_ms "
+                          "FROM standings_current WHERE car_number='7'")[0]
+        self.assertEqual(row["overall_position"], 3)
+        self.assertEqual(row["gap_ms"], 12345)
+        self.assertEqual(row["elapsed_ms"], 7_200_000)
+
+    def test_minus_one_sentinels_do_not_clobber(self):
+        self._rank("7", 3, gap=12345, elapsed=7_200_000)
+        self.client._handle_official_rank({
+            "carNumber": "7", "position": 4, "gapToFirstMillis": -1,
+            "gapToFirstLaps": -1, "elapsedTimeMillis": -1})
+        row = self._query("SELECT overall_position, gap_ms, elapsed_ms "
+                          "FROM standings_current WHERE car_number='7'")[0]
+        self.assertEqual(row["overall_position"], 4)   # position did update
+        self.assertEqual(row["gap_ms"], 12345)          # gap kept, not zeroed
+        self.assertEqual(row["elapsed_ms"], 7_200_000)  # elapsed kept
+
+    def test_pos_in_class_derived_from_overall(self):
+        # two classes interleaved by overall position
+        self._rank("1", 1, cls="HYPERCAR")
+        self._rank("91", 2, cls="LMGT3")
+        self._rank("2", 3, cls="HYPERCAR")
+        self._rank("92", 4, cls="LMGT3")
+        rows = {r["car_number"]: r["pos_in_class"] for r in self._query(
+            "SELECT car_number, pos_in_class FROM standings_current")}
+        self.assertEqual(rows["1"], 1)
+        self.assertEqual(rows["2"], 2)     # 2nd HYPERCAR despite overall P3
+        self.assertEqual(rows["91"], 1)    # class leader despite overall P2
+        self.assertEqual(rows["92"], 2)
+
+    def test_items_wrapper_unwrapped(self):
+        self.client.state.car_classes["7"] = "HYPERCAR"
+        self.client._handle_official_rank({"items": [
+            {"carNumber": "7", "position": 5, "gapToFirstMillis": 900,
+             "gapToFirstLaps": 0, "elapsedTimeMillis": 1000}]})
+        row = self._query("SELECT overall_position FROM standings_current "
+                          "WHERE car_number='7'")[0]
+        self.assertEqual(row["overall_position"], 5)
+
+
 class TestBootstrapCautions(_DbTestCase):
     """Bootstrap must not invent phantom caution periods.
 
