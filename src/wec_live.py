@@ -225,6 +225,28 @@ def parse_participant(p: dict) -> dict:
     }
 
 
+def resolve_current_driver(p: dict) -> Optional[str]:
+    """Who's driving *right now*, from a Griiip participants message.
+
+    Top-level `displayName` is the TEAM name on real WEC data (e.g. "ASTON
+    MARTIN THOR TEAM") — confirmed against the São Paulo 2026 capture — so it
+    cannot be used as the current-driver fallback. `currentDriverId` indexes
+    into `drivers[].externalDriverID`; that lookup is the reliable path.
+    Falls back to the top-level firstname/lastname (which do track the
+    current driver, just without the roster's display-name casing)."""
+    current_id = p.get("currentDriverId")
+    drivers = p.get("drivers") or []
+    if current_id is not None:
+        for d in drivers:
+            if isinstance(d, dict) and str(d.get("externalDriverID")) == str(current_id):
+                name = d.get("displayName")
+                if name:
+                    return name.strip()
+    first, last = p.get("firstname") or "", p.get("lastname") or ""
+    full = f"{first} {last}".strip()
+    return full or None
+
+
 # ── REST helpers ──────────────────────────────────────────────────────────────
 
 def _http_headers() -> dict:
@@ -746,6 +768,10 @@ class WecLiveClient:
         if entry_key not in self.state.entries_written:
             self.state.entries_written.add(entry_key)
             self.db.upsert_entry(car, parse_participant(data))
+        # Driver swaps resend participants for the same car with a new
+        # currentDriverId — must run every frame, not just first-seen.
+        # record_driver dedupes internally (no-op unless the driver changed).
+        self.db.record_driver(car, resolve_current_driver(data), self.state.current_lap)
 
     def _handle_running_status(self, data):
         if not isinstance(data, dict):

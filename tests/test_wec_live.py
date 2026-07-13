@@ -16,6 +16,7 @@ from wec_live import (  # noqa: E402
     normalize_class,
     make_oid,
     parse_participant,
+    resolve_current_driver,
     _int_or,
     WecLiveClient,
     WecLiveState,
@@ -218,6 +219,46 @@ class TestParseParticipant(unittest.TestCase):
         self.assertEqual(e["class"], "HYPERCAR")
         self.assertIsNone(e["team"])
         self.assertIsNone(e["vehicle"])
+
+
+class TestResolveCurrentDriver(unittest.TestCase):
+    """Real WEC participants frames (São Paulo 2026 capture): top-level
+    displayName is the TEAM name ("ASTON MARTIN THOR TEAM"), not a driver —
+    currentDriverId -> drivers[].externalDriverID is the only reliable
+    current-driver signal."""
+
+    def test_resolves_via_current_driver_id(self):
+        data = {
+            "displayName": "ASTON MARTIN THOR TEAM",
+            "currentDriverId": "2",
+            "drivers": [
+                {"displayName": "Harry Tincknell", "externalDriverID": "1"},
+                {"displayName": "Tom Gamble", "externalDriverID": "2"},
+            ],
+        }
+        self.assertEqual(resolve_current_driver(data), "Tom Gamble")
+
+    def test_driver_swap_changes_resolution(self):
+        base = {
+            "displayName": "ASTON MARTIN THOR TEAM",
+            "drivers": [
+                {"displayName": "Harry Tincknell", "externalDriverID": "1"},
+                {"displayName": "Tom Gamble", "externalDriverID": "2"},
+            ],
+        }
+        first = {**base, "currentDriverId": "1"}
+        second = {**base, "currentDriverId": "2"}
+        self.assertEqual(resolve_current_driver(first), "Harry Tincknell")
+        self.assertEqual(resolve_current_driver(second), "Tom Gamble")
+
+    def test_falls_back_to_firstname_lastname(self):
+        data = {"displayName": "TEAM NAME", "firstname": "Marco",
+                "lastname": "SØRENSEN", "currentDriverId": "9", "drivers": []}
+        self.assertEqual(resolve_current_driver(data), "Marco SØRENSEN")
+
+    def test_no_signal_returns_none(self):
+        self.assertIsNone(resolve_current_driver({}))
+        self.assertIsNone(resolve_current_driver({"displayName": "TEAM"}))
 
 
 class TestIntOr(unittest.TestCase):
@@ -469,6 +510,52 @@ class TestPitStopFlow(_DbTestCase):
     def test_pit_out_without_pit_in_records_nothing(self):
         self.client._handle_pit_out({"carNumber": "7"})
         self.assertEqual(len(self._query("SELECT 1 FROM pit_events")), 0)
+
+
+class TestParticipantsDriverChange(_DbTestCase):
+    """WEC never wired record_driver, so driver_changes stayed empty for
+    every live/replayed race — _driver_obligation treated it as unobservable
+    (correct fallback) but never got real data either, and the fuel fit
+    trained on DC stops as if they were plain fuel stops (double-counting
+    driver-change time). _handle_participants must call record_driver on
+    EVERY participants frame for a car (swaps resend the same car with a new
+    currentDriverId), not just the first-seen frame."""
+
+    def _entry(self, car, current_id):
+        return {
+            "carNumber": car, "classId": "Hypercar",
+            "displayName": "ASTON MARTIN THOR TEAM",
+            "currentDriverId": current_id,
+            "drivers": [
+                {"displayName": "Harry Tincknell", "externalDriverID": "1"},
+                {"displayName": "Tom Gamble", "externalDriverID": "2"},
+            ],
+        }
+
+    def test_first_frame_records_baseline_driver(self):
+        self.client._handle_participants(self._entry("7", "1"))
+        rows = self._query(
+            "SELECT seq, driver FROM driver_changes WHERE car_number='7' ORDER BY seq")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["seq"], 1)
+        self.assertEqual(rows[0]["driver"], "Harry Tincknell")
+
+    def test_driver_swap_across_repeat_frames_is_recorded(self):
+        self.client._handle_participants(self._entry("7", "1"))
+        self.client._handle_participants(self._entry("7", "1"))  # repeat, no swap
+        self.client._handle_participants(self._entry("7", "2"))  # swap
+        rows = self._query(
+            "SELECT seq, driver FROM driver_changes WHERE car_number='7' ORDER BY seq")
+        self.assertEqual([r["driver"] for r in rows], ["Harry Tincknell", "Tom Gamble"])
+        self.assertEqual([r["seq"] for r in rows], [1, 2])
+
+    def test_first_seen_guard_does_not_block_driver_tracking(self):
+        """upsert_entry only fires once per (car, class) — record_driver must
+        not share that guard or every swap after the first frame is dropped."""
+        self.client._handle_participants(self._entry("7", "1"))
+        self.client._handle_participants(self._entry("7", "2"))
+        rows = self._query("SELECT COUNT(*) AS n FROM driver_changes WHERE car_number='7'")
+        self.assertEqual(rows[0]["n"], 2)
 
 
 class TestOfficialRank(_DbTestCase):
