@@ -237,6 +237,16 @@ module-level IMSA dicts remain only as a fallback for callers without a live con
   path.
 - **Acceptance (targets pain point #2):** DUE calls within ~2 laps of the actual pit
   window on replay + one live session, per telemetry-covered class.
+- **Follow-on once telemetry lands:** 2026 IMSA Sporting Regs Art. 22.3.14 caps
+  GTP/GTD PRO/GTD to a maximum energy allowance per stint (steep penalty for
+  violation: Stop+100/200/300s) — a hard regulatory ceiling, not the soft
+  consumption-rate estimate `fuel_due` currently leans on. Worth cross-checking
+  predicted stint energy against that cap as an additional DUE TO PIT signal once
+  live telemetry is flowing. Needs the actual per-class cap values (published in
+  the Technical Regulations, not the Sporting Regs — not yet sourced). Likely
+  partially redundant with the existing `_class_stint_laps` empirical stint-length
+  tracking (`calculator.py`), so validate it adds real signal before wiring it in —
+  don't build it speculatively.
 
 **WEC side** — capture blocked on São Paulo FP1 (~07-10):
 - Confirm the `VET` column hypothesis (Virtual Energy Tank % for Hypercar) from the
