@@ -38,7 +38,7 @@ When the dashboard opens, click the **Session** button in the top-left header to
 
 **IMSA Replay** — loads a Timing71 `.zip` archive and streams it at 60× speed so you can watch a past race as if it were live. Use this to explore the dashboard between race weekends.
 
-**WEC Live** — in progress (targeting São Paulo 2026-07-12). Same idea as IMSA Live but connects to the Griiip/FIA WEC feed.
+**WEC Live** — connects to the Griiip/FIA WEC feed. Proven in the São Paulo 6-hour race (2026-07-12); net-ordering bugs found in that race were fixed 2026-07-13.
 
 **Sample archives** (included in `sample-archives/`): Long Beach 2026 and Detroit 2026 are bundled so you can try the replay without downloading anything. The session picker's "replay" path will find them automatically when pointed at that folder.
 
@@ -149,7 +149,7 @@ Press **?** (or click the **?** button in the header) to open an on-screen key e
 - NET position for cars that are very close together or running unusual fuel strategies.
 
 **Known accuracy limits (from the 6-race test suite):**
-- Finish-position predictions: mean error of about 2.7 in-class spots. NET adds a modest edge early, but it's not a crystal ball.
+- Finish-position predictions: mean error of about 2.5 in-class spots — currently on par with just watching track order. NET adds a modest edge on deep-pit-cycle races; it's not a crystal ball.
 - Stop-duration estimates: accurate to tens of seconds (enough for window math, not exact ETA).
 
 The README has full numbers. The app is honest about uncertainty — it would rather show "—" than show a confident-looking number on noisy data.
