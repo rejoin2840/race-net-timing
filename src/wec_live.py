@@ -1122,6 +1122,12 @@ def replay_predict(client: "WecLiveClient", path, cadence_s: int = 60) -> dict:
         if last_log_ts is not None and ts - last_log_ts < cadence_s * 1000:
             continue
         client.db.commit()
+        if last_log_ts is None:
+            # first analyse cycle: drop any lap-gap history a previous build of
+            # this oid left in calculator's module-level _GAP_HIST — same
+            # stale-history guard replay._init_db applies (back-to-back
+            # in-process replays otherwise feed the catching gate old gaps)
+            calculator.reset_gap_history(oid)
         real_start = client.state.status_acc.get("startTime") or fallback_start_s
         _reanchor_clock(client.db.conn, oid, ts, real_start)
         ctx, cars = calculator.analyse(client.db.conn, oid)
