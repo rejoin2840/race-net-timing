@@ -1003,9 +1003,11 @@ class WecLiveClient:
 # ── offline capture replay ────────────────────────────────────────────────────
 
 def iter_capture(path):
-    """Yield (channel, data) frames from a --record capture (gzip JSONL).
-    Torn trailing lines (the hard-kill artifact documented in WEC_RACE_WEEK.md)
-    are skipped rather than raised — a crashed capture must still replay."""
+    """Yield (channel, data, ts_ms) frames from a --record capture (gzip
+    JSONL). ts_ms is the recorder's wall-clock epoch ms for the frame (None on
+    captures that predate the ts field). Torn trailing lines (the hard-kill
+    artifact documented in WEC_RACE_WEEK.md) are skipped rather than raised —
+    a crashed capture must still replay."""
     with gzip.open(path, "rt", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -1017,7 +1019,8 @@ def iter_capture(path):
                 log.warning("Skipping torn capture line (%d bytes)", len(line))
                 continue
             if isinstance(frame, dict):
-                yield frame.get("channel") or "", frame.get("data")
+                yield (frame.get("channel") or "", frame.get("data"),
+                       _int_or(frame.get("ts"), None))
 
 
 def replay_capture(client: "WecLiveClient", path) -> tuple:
@@ -1028,7 +1031,7 @@ def replay_capture(client: "WecLiveClient", path) -> tuple:
     file here against a scratch DB to find/fix field-mapping mistakes offline.
     """
     n = errs = 0
-    for channel, data in iter_capture(path):
+    for channel, data, _ts in iter_capture(path):
         n += 1
         if channel == "_bootstrap":
             if isinstance(data, dict):
@@ -1042,6 +1045,82 @@ def replay_capture(client: "WecLiveClient", path) -> tuple:
     if client.db:
         client.db.commit()
     return n, errs
+
+
+def _reanchor_clock(conn, oid: str, frame_ts_ms: int,
+                    fallback_start_s: float) -> None:
+    """Make calculator.analyse's wall-clock elapsed correct during replay.
+
+    analyse() derives elapsed as time.time() - start_time_s (- stopped_s);
+    replayed later, that yields days. The capture's session_status holds the
+    TRUE race-start epoch (from the session-clock channel), and each recorded
+    frame carries the true wall-clock ts, so elapsed-at-this-frame is exact.
+    Shift start_time_s so `now - start` reproduces it — the same trick
+    replay.build() uses for Timing71 archives (see replay.py). The next
+    session-clock frame overwrites start_time_s with the true epoch again,
+    which is fine: we re-anchor immediately before every analyse cycle.
+    """
+    st = conn.execute(
+        "SELECT start_time_s FROM session_status WHERE session_oid=?",
+        (oid,)).fetchone()
+    real_start = (st["start_time_s"] if st and st["start_time_s"]
+                  else fallback_start_s)
+    elapsed_s = max(0.0, frame_ts_ms / 1000.0 - real_start)
+    conn.execute(
+        "UPDATE session_status SET start_time_s=? WHERE session_oid=?",
+        (time.time() - elapsed_s, oid))
+
+
+def replay_predict(client: "WecLiveClient", path, cadence_s: int = 60) -> dict:
+    """Replay a --record capture AND regenerate predictions offline.
+
+    Same dispatch path as replay_capture, plus the live prediction loop:
+    every cadence_s of recorded race time, run calculator.analyse() and log a
+    predictions row per car stamped with the frame's ts — a deterministic
+    offline rebuild of what headless_predictor logged live, but under the
+    CURRENT config.json. This is the calibration loop: edit config, rebuild
+    into a scratch DB, re-score with evaluator.py, repeat.
+    """
+    import calculator
+    import predictor
+
+    if not client.db:
+        raise ValueError("replay_predict needs a DB (no_db is not supported)")
+    predictor.ensure(client.db.conn)
+
+    n = errs = n_logged = 0
+    last_log_ts = None
+    fallback_start_s = None
+    for channel, data, ts in iter_capture(path):
+        n += 1
+        if ts is not None and fallback_start_s is None:
+            fallback_start_s = ts / 1000.0
+        if channel == "_bootstrap":
+            if isinstance(data, dict):
+                client._hydrate_bootstrap(data)
+        else:
+            try:
+                client._dispatch_channel(channel, data)
+            except Exception:
+                errs += 1
+                log.exception("Replay dispatch error on channel %s", channel)
+
+        oid = client.state.session_oid
+        if ts is None or oid is None:
+            continue
+        if last_log_ts is not None and ts - last_log_ts < cadence_s * 1000:
+            continue
+        client.db.commit()
+        _reanchor_clock(client.db.conn, oid, ts, fallback_start_s)
+        ctx, cars = calculator.analyse(client.db.conn, oid)
+        n_logged += predictor.log_cycle(client.db.conn, oid, ctx, cars, ts)
+        client.db.conn.commit()
+        last_log_ts = ts
+
+    if client.db:
+        client.db.commit()
+    return {"frames": n, "dispatch_errors": errs, "predictions": n_logged,
+            "session_oid": client.state.session_oid}
 
 
 # ── discover mode ─────────────────────────────────────────────────────────────
@@ -1145,12 +1224,36 @@ def main():
     ap.add_argument("--replay", metavar="FILE.jsonl.gz",
                     help="replay a --record capture offline through the full "
                          "parse/dispatch path (field-mapping iteration)")
+    ap.add_argument("--replay-predict", metavar="FILE.jsonl.gz",
+                    help="replay a --record capture AND regenerate the "
+                         "predictions offline under the current config.json "
+                         "(the calibration loop). Requires an explicit "
+                         "non-production --db")
     ap.add_argument("--sid", type=int, default=None,
                     help="Griiip session ID (auto-discovers WEC if omitted)")
     args = ap.parse_args()
 
     if args.discover:
         discover_mode(sid=args.sid)
+        return
+
+    if args.replay_predict:
+        # calibration replays must never touch the production DB — a rebuild
+        # under experimental config would poison the real race's predictions
+        prod_db = (root / "data" / "race.db").resolve()
+        if Path(args.db).resolve() == prod_db:
+            ap.error("--replay-predict refuses the production DB "
+                     f"({prod_db}); pass an explicit scratch --db")
+        client = WecLiveClient(db_path=args.db)
+        client.db = dbmod.RaceDB(client.db_path)
+        try:
+            res = replay_predict(client, args.replay_predict)
+            log.info("Replayed %d frames (%d dispatch errors), "
+                     "%d predictions logged for %s",
+                     res["frames"], res["dispatch_errors"],
+                     res["predictions"], res["session_oid"])
+        finally:
+            client._cleanup()
         return
 
     if args.replay:
