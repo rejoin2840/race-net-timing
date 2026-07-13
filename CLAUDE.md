@@ -71,6 +71,13 @@ The repo author identity is `rejoin2840` — no real name should appear anywhere
 
 `main` is always the stable, shareable version. Never commit directly to `main` — always branch first. Merge when you want `main` to reflect "what a visitor should see right now" (before sharing, before a checkpoint, before a race — not on a timer).
 
+### Doc-only changes — don't over-isolate
+Small, incidental doc updates (a backlog note, a README tweak, a decisions-log entry) don't
+need their own branch/PR — bundle them into whatever branch is already open for the related
+work. Reserve a standalone doc branch/PR for changes that are substantial on their own, or
+that need review separate from unrelated code sitting in another open PR (e.g. "is this fact
+right" vs. "is this code correct").
+
 The GitHub remote is `https://github.com/rejoin2840/race-net-timing`. Use `/opt/homebrew/bin/gh` if `gh` is not on PATH.
 
 ## Important Notes
