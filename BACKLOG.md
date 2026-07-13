@@ -470,6 +470,18 @@ Until then: cosmetic UI work frozen (see 07-04 decision).
 
 ## Research items (unscheduled)
 
+- **WEC driver-change detection from the Griiip feed (race-week wiring task,
+  added 07-12 from calibration).** wec_live never calls `db.record_driver`, so
+  `driver_changes` stays empty on WEC and DC obligation is unobservable
+  (calibration finding: the old owes-forever assumption double-counted DC time,
+  +6–9s on every predicted stop — fixed by treating an empty table as
+  unobservable). The feed likely carries the running driver (verify the
+  participants/ranks fields against the SP capture, then wire `record_driver`
+  into the participants handler). Offline verification via `--replay-predict`
+  on the SP capture is possible now; live verification needs the next WEC
+  event. Payoff: real per-car DC obligation → truthful `owes DC` display and
+  DC-aware next-stop predictions.
+
 - ✅ **Driver-change / min-drive-time rules (resolved 07-04, source: owner).**
   `wec_imsa_2026_regulations.md` (owner's research) → codified in
   `data/regulations_2026.json` (both series, all event durations, plus the universal

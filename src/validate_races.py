@@ -54,11 +54,20 @@ WEC_RACES = [
     f"{WEC_DIR}/2025-02-28 10-57 FIA WEC - Qatar 1812km - Race.zip",
 ]
 
+# Griiip raw captures (--record output) — replayed via wec_live.replay_predict
+# instead of replay.build. Same complete-races-only rule as the zip sets.
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+WEC_CAPTURES = [
+    f"{DATA_DIR}/wec_saopaulo_wec_race_20260712.jsonl.gz",
+]
+
 
 
 def _short(name: str) -> str:
     """Pull a readable circuit/event label out of the long archive filename."""
     base = os.path.basename(name)
+    if base.endswith(".jsonl.gz"):
+        return base[:-len(".jsonl.gz")][:26]
     parts = base.rsplit(" - ", 2)
     event = parts[-2] if len(parts) >= 2 else base
     for noise in ("28th Annual Motul ", "Tire Rack.com ", "Acura ", "StubHub ",
@@ -68,22 +77,50 @@ def _short(name: str) -> str:
     return event[:26]
 
 
-def run_one(zip_path: str, keep: bool):
+def _build_from_zip(zip_path: str, db: str):
+    """Timing71 archive → replay.build. Returns (oid, race_hours)."""
     r = timing71.load(zip_path)
-    fd, db = tempfile.mkstemp(suffix=".db", prefix="valrace_")
-    os.close(fd); os.remove(db)
     with open(os.devnull, "w") as null, contextlib.redirect_stdout(null):
         replay.build(r, db, oid="replay", cadence_s=60)
+    return "replay", (r.full_frames[-1][0] - r.full_frames[0][0]) / 3600
+
+
+def _build_from_capture(path: str, db: str):
+    """Griiip --record capture → wec_live.replay_predict. Returns (oid, hrs)."""
+    import db as dbmod
+    import wec_live
+    client = wec_live.WecLiveClient(db_path="", no_db=True)
+    client.db = dbmod.RaceDB(db)
+    try:
+        res = wec_live.replay_predict(client, path, cadence_s=60)
+    finally:
+        client.db.close()
+    first = last = None
+    for _, _, ts in wec_live.iter_capture(path):
+        if ts is not None:
+            last = ts
+            if first is None:
+                first = ts
+    hrs = (last - first) / 3_600_000 if first is not None else 0.0
+    return res["session_oid"], hrs
+
+
+def run_one(path: str, keep: bool):
+    fd, db = tempfile.mkstemp(suffix=".db", prefix="valrace_")
+    os.close(fd); os.remove(db)
+    if path.endswith(".jsonl.gz"):
+        oid, hrs = _build_from_capture(path, db)
+    else:
+        oid, hrs = _build_from_zip(path, db)
     import sqlite3
     conn = sqlite3.connect(db)
-    stop  = evaluator.eval_stop_time(conn, "replay")
-    net   = evaluator.eval_net_position(conn, "replay")
-    catch = evaluator.eval_catch(conn, "replay")
+    stop  = evaluator.eval_stop_time(conn, oid)
+    net   = evaluator.eval_net_position(conn, oid)
+    catch = evaluator.eval_catch(conn, oid)
     conn.close()
     if not keep:
         os.remove(db)
-    hrs = (r.full_frames[-1][0] - r.full_frames[0][0]) / 3600
-    return {"label": _short(zip_path), "hrs": hrs, "stop": stop, "net": net, "catch": catch}
+    return {"label": _short(path), "hrs": hrs, "stop": stop, "net": net, "catch": catch}
 
 
 def main():
@@ -96,9 +133,9 @@ def main():
     if args.zips:
         zips = args.zips
     elif args.all:
-        zips = RACES + WEC_RACES
+        zips = RACES + WEC_RACES + WEC_CAPTURES
     elif args.wec:
-        zips = WEC_RACES
+        zips = WEC_RACES + WEC_CAPTURES
     else:
         zips = RACES
 
@@ -118,20 +155,28 @@ def main():
           f"CAUTION_PENALTY_FACTOR={cfg.get('CAUTION_PENALTY_FACTOR')}  "
           f"CATCH_CLOSING_EFFICIENCY={cfg.get('CATCH_CLOSING_EFFICIENCY')}\n")
     hdr = (f"  {'race':26} {'h':>4} | {'stopMAE':>7} {'bias':>6} | "
-           f"{'netMAE':>6} {'trkMAE':>6} {'edge':>6} | {'catch%':>6} {'late':>5}")
+           f"{'projMAE':>7} {'trkMAE':>6} {'edge':>6} {'netMAE':>6} | "
+           f"{'catch%':>6} {'late':>5}")
     print(hdr); print("  " + "-" * (len(hdr) - 2))
     for r in rows:
         s, n, c = r["stop"], r["net"], r["catch"]
-        sm = f"{s['mae_ms']/1000:6.1f}s" if s else "    —"
-        sb = f"{s['bias_ms']/1000:+5.1f}" if s else "    —"
-        nm = f"{n['net_mae']:6.2f}" if n else "     —"
+        # stop columns show the predictable slice (splash/penalty/repair stops
+        # are unforecastable noise); falls back to combined on old data
+        sp = (s or {}).get("predictable") or s
+        sm = f"{sp['mae_ms']/1000:6.1f}s" if sp else "    —"
+        sb = f"{sp['bias_ms']/1000:+5.1f}" if sp else "    —"
+        pm = (f"{n['proj_mae']:7.2f}" if n and n.get("proj_mae") is not None
+              else "      —")
         tm = f"{n['track_mae']:6.2f}" if n else "     —"
-        ed = f"{n['improvement_pct']:+5.0f}%" if n else "     —"
-        win = "✓" if (n and n['improvement_pct'] > 0) else " "
+        # edge = the shipped forecast (projected_finish) vs naive track position
+        pi = n.get("proj_improvement_pct") if n else None
+        ed = f"{pi:+5.0f}%" if pi is not None else "     —"
+        win = "✓" if (pi is not None and pi > 0) else " "
+        nm = f"{n['net_mae']:6.2f}" if n else "     —"
         cr = f"{c['hit_rate']*100:5.0f}%" if c else "    —"
         cl = f"{c['median_late_laps']:4.1f}" if c and c['median_late_laps'] is not None else "   —"
         print(f"  {r['label']:26} {r['hrs']:4.1f} | {sm} {sb} | "
-              f"{nm} {tm} {ed}{win}| {cr} {cl}")
+              f"{pm} {tm} {ed}{win} {nm} | {cr} {cl}")
     print()
 
 

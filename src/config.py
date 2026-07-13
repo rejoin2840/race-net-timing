@@ -43,6 +43,11 @@ DEFAULTS = {
         # observed — tune live via config.json during FP/race)
         "HYPERCAR": 33, "LMGT3": 30},
     "PIT_WINDOW_LAPS":        5,        # fuel-laps-left at/under which the pit window is "open"
+    "FINISH_BLEND_MAX_W":     0.6,      # projected-finish blend: cap on net's weight
+    "FINISH_BLEND_W_PER_STOP": 0.15,    # …net weight gained per estimated remaining stop
+    "STOPS_LEFT_SLACK":       0.5,      # stint fraction a car can stretch to absorb a
+                                        # fractional remaining-stop remainder (0 = plain ceil;
+                                        # 0.5 ≈ round — swept 0/0.25/0.5 across 14 races 07-12)
     "BUDGET_PER_CLASS":       1,        # max NET-overlay highlights allowed per class on the calm board (0 = monochrome)
     "TRACK_LAT":              42.337,   # circuit latitude  (Watkins Glen — first race)
     "TRACK_LON":             -76.927,   # circuit longitude (edit per round for weather)
@@ -53,7 +58,12 @@ DEFAULTS = {
     # Lets race-day tuning for one series (WEC driver changes run far longer than
     # IMSA's) leave the other series' calibration untouched. Hot-reloads like
     # every other knob; unknown keys inside an override are ignored.
-    "SERIES_OVERRIDES":       {},
+    # WEC catch gate tightened 07-12 (calibration): in multiclass WEC traffic the
+    # IMSA-tuned gate fired on pace noise — 0 of 14 SP catch calls were real.
+    # Longer pace window + longer closing trend, swept across the 7 WEC archives
+    # + SP capture: pooled horizon hit-rate 56%→62% on ~10% fewer calls, median
+    # lateness collapsed (Fuji 1.7→0.1, Imola 8.6→3.3 laps); SP noise calls 14→3.
+    "SERIES_OVERRIDES":       {"wec": {"CATCH_TREND_LAPS": 5, "PACE_WINDOW": 8}},
 }
 
 
@@ -70,8 +80,14 @@ class _Config:
                 merged = dict(DEFAULTS)
                 merged.update({k: v for k, v in data.items() if k in DEFAULTS})
                 self._vals = merged
+                # record the mtime we just loaded — without this the FIRST
+                # reload_if_changed() always saw a "change" and re-loaded,
+                # silently discarding any values set programmatically after
+                # import (bit the D3 offline sweep harness)
+                self._mtime = CONFIG_PATH.stat().st_mtime
             else:
                 self._vals = dict(DEFAULTS)
+                self._mtime = None
         except Exception:
             # malformed JSON mid-edit → keep whatever we had (last good / defaults)
             pass

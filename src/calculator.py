@@ -664,6 +664,16 @@ def _driver_obligation(conn: sqlite3.Connection, oid: str) -> dict[str, bool]:
         """SELECT car_number, MAX(seq) AS mx FROM driver_changes
              WHERE session_oid=? GROUP BY car_number""", (oid,)):
         done[r["car_number"]] = max(0, (r["mx"] or 1) - 1)   # seq 1 = baseline
+    # No driver_changes rows at all means this feed can't observe driver
+    # changes (WEC/Griiip has no record_driver caller) — NOT that every change
+    # is still owed. record_driver writes a seq=1 baseline as soon as any
+    # driver is seen, so an observing pipeline (IMSA live, Timing71 replay)
+    # has rows almost immediately. Claiming owes=True forever here made every
+    # predicted stop carry DRIVER_CHANGE_DELTA_MS on top of a fuel fit whose
+    # training stops (unlabelled, so treated as non-DC) already contain the
+    # field's real DC time — a double count worth +6–9s per stop on SP 2026.
+    if not done:
+        return {car: False for car in lineup}
     owes: dict[str, bool] = {}
     for car, size in lineup.items():
         required = max(0, size - 1)
@@ -980,7 +990,8 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
     def finish_score(ca: CarAnalysis) -> float:
         net = ca.net_position if ca.net_position is not None else (ca.pos_in_class or 99)
         trk = ca.pos_in_class if ca.pos_in_class is not None else net
-        w = min(0.6, 0.15 * (ca.est_stops_left or 0))   # more stops left → trust net more
+        w = min(FINISH_BLEND_MAX_W,                     # more stops left → trust net more
+                FINISH_BLEND_W_PER_STOP * (ca.est_stops_left or 0))
         return w * net + (1 - w) * trk + ca.penalty_post_s / 30.0
     fin_order = sorted(group_sorted,
                        key=lambda c: (1 if c.dq else 0, c.laps_down, finish_score(c)))
@@ -1009,7 +1020,14 @@ def _stops_left(ctx: RaceContext, ca: CarAnalysis,
     needed = laps_remaining - max(0.0, fuel_in_hand)
     if needed <= 0:
         return 0
-    return int(math.ceil(needed / avg_stint_laps))
+    # avg_stint_laps is an AVERAGE, not the fuel-range maximum — cars can and
+    # do stretch a stint past it, so a small fractional remainder gets
+    # absorbed rather than forcing one more stop. Plain ceil() therefore
+    # over-counts (SP 2026: signed-error mode +1 on half of all prediction
+    # rows, ~+80s phantom pit cost per car in the net gaps). SLACK is the
+    # stint fraction a car can absorb by stretching; ceil(x − slack) rounds
+    # remainders under it away instead of up.
+    return max(0, int(math.ceil(needed / avg_stint_laps - STOPS_LEFT_SLACK)))
 
 
 # ── presentation ────────────────────────────────────────────────────────────
