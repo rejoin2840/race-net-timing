@@ -155,20 +155,28 @@ def main():
           f"CAUTION_PENALTY_FACTOR={cfg.get('CAUTION_PENALTY_FACTOR')}  "
           f"CATCH_CLOSING_EFFICIENCY={cfg.get('CATCH_CLOSING_EFFICIENCY')}\n")
     hdr = (f"  {'race':26} {'h':>4} | {'stopMAE':>7} {'bias':>6} | "
-           f"{'netMAE':>6} {'trkMAE':>6} {'edge':>6} | {'catch%':>6} {'late':>5}")
+           f"{'projMAE':>7} {'trkMAE':>6} {'edge':>6} {'netMAE':>6} | "
+           f"{'catch%':>6} {'late':>5}")
     print(hdr); print("  " + "-" * (len(hdr) - 2))
     for r in rows:
         s, n, c = r["stop"], r["net"], r["catch"]
-        sm = f"{s['mae_ms']/1000:6.1f}s" if s else "    —"
-        sb = f"{s['bias_ms']/1000:+5.1f}" if s else "    —"
-        nm = f"{n['net_mae']:6.2f}" if n else "     —"
+        # stop columns show the predictable slice (splash/penalty/repair stops
+        # are unforecastable noise); falls back to combined on old data
+        sp = (s or {}).get("predictable") or s
+        sm = f"{sp['mae_ms']/1000:6.1f}s" if sp else "    —"
+        sb = f"{sp['bias_ms']/1000:+5.1f}" if sp else "    —"
+        pm = (f"{n['proj_mae']:7.2f}" if n and n.get("proj_mae") is not None
+              else "      —")
         tm = f"{n['track_mae']:6.2f}" if n else "     —"
-        ed = f"{n['improvement_pct']:+5.0f}%" if n else "     —"
-        win = "✓" if (n and n['improvement_pct'] > 0) else " "
+        # edge = the shipped forecast (projected_finish) vs naive track position
+        pi = n.get("proj_improvement_pct") if n else None
+        ed = f"{pi:+5.0f}%" if pi is not None else "     —"
+        win = "✓" if (pi is not None and pi > 0) else " "
+        nm = f"{n['net_mae']:6.2f}" if n else "     —"
         cr = f"{c['hit_rate']*100:5.0f}%" if c else "    —"
         cl = f"{c['median_late_laps']:4.1f}" if c and c['median_late_laps'] is not None else "   —"
         print(f"  {r['label']:26} {r['hrs']:4.1f} | {sm} {sb} | "
-              f"{nm} {tm} {ed}{win}| {cr} {cl}")
+              f"{pm} {tm} {ed}{win} {nm} | {cr} {cl}")
     print()
 
 

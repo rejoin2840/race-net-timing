@@ -47,15 +47,25 @@ CAUTION_FLAGS = {"YF", "FCY", "CY", "SC", "VSC", "FCY1", "SCS"}
 
 
 # ── metric 1: stop-time accuracy ────────────────────────────────────────────
+SHORT_STINT_LAPS = 20   # a stop after ≤ this many laps is a splash / penalty /
+                        # repair — no model can foresee those, so they're
+                        # reported separately from the predictable service stops
+
 def eval_stop_time(conn, oid):
     stops = conn.execute(
         """SELECT car_number, pit_lap, stop_duration_ms, flag FROM pit_events
              WHERE session_oid=? AND stop_duration_ms IS NOT NULL AND pit_lap IS NOT NULL
              ORDER BY car_number, stop_number""", (oid,)).fetchall()
-    errs, biases = [], []
-    caution_errs, caution_biases = [], []
-    green_errs, green_biases = [], []
+    buckets = {k: ([], []) for k in
+               ("all", "caution", "green", "predictable", "short")}
+
+    def _add(key, err, bias):
+        buckets[key][0].append(err); buckets[key][1].append(bias)
+
+    prev_pit_lap = {}
     for car, pit_lap, actual, flag in stops:
+        stint = pit_lap - prev_pit_lap.get(car, 0)
+        prev_pit_lap[car] = pit_lap
         pred = conn.execute(
             """SELECT next_stop_ms FROM predictions
                  WHERE session_oid=? AND car_number=? AND session_lap < ?
@@ -64,56 +74,64 @@ def eval_stop_time(conn, oid):
         if pred and pred[0]:
             err = abs(pred[0] - actual)
             bias = pred[0] - actual
-            errs.append(err); biases.append(bias)
-            if (flag or "").upper() in CAUTION_FLAGS:
-                caution_errs.append(err); caution_biases.append(bias)
-            else:
-                green_errs.append(err); green_biases.append(bias)
-    if not errs:
+            _add("all", err, bias)
+            _add("caution" if (flag or "").upper() in CAUTION_FLAGS else "green",
+                 err, bias)
+            _add("short" if stint <= SHORT_STINT_LAPS else "predictable",
+                 err, bias)
+    if not buckets["all"][0]:
         return None
-    result = {"n": len(errs), "mae_ms": sum(errs) / len(errs),
-              "bias_ms": sum(biases) / len(biases)}
-    if caution_errs:
-        result["caution"] = {"n": len(caution_errs),
-                             "mae_ms": sum(caution_errs) / len(caution_errs),
-                             "bias_ms": sum(caution_biases) / len(caution_biases)}
-    if green_errs:
-        result["green"] = {"n": len(green_errs),
-                           "mae_ms": sum(green_errs) / len(green_errs),
-                           "bias_ms": sum(green_biases) / len(green_biases)}
+
+    def _stats(key):
+        errs, biases = buckets[key]
+        return {"n": len(errs), "mae_ms": sum(errs) / len(errs),
+                "bias_ms": sum(biases) / len(biases)} if errs else None
+
+    result = _stats("all")
+    for key in ("caution", "green", "predictable", "short"):
+        s = _stats(key)
+        if s:
+            result[key] = s
     return result
 
 
 # ── metric 2: net-position predictive power ─────────────────────────────────
 def eval_net_position(conn, oid):
     rows = conn.execute(
-        """SELECT ts, car_number, net_position, pos_in_class FROM predictions
+        """SELECT ts, car_number, net_position, pos_in_class, projected_finish
+             FROM predictions
              WHERE session_oid=? AND net_position IS NOT NULL AND pos_in_class IS NOT NULL
              ORDER BY car_number, ts""", (oid,)).fetchall()
     by_car: dict[str, list] = {}
-    for ts, car, net, pic in rows:
-        by_car.setdefault(car, []).append((ts, net, pic))
+    for ts, car, net, pic, proj in rows:
+        by_car.setdefault(car, []).append((ts, net, pic, proj))
 
-    # ── primary metric: does net predict the FINAL classification (what it
-    # actually claims) better than current track position? Scored over every
-    # prediction vs each car's last observed pos_in_class. This is the honest
-    # test — net is a forecast of the finish, not of the next 30 minutes.
-    fnet, ftrack, fn = 0.0, 0.0, 0
+    # ── HEADLINE: does projected_finish — the forecast the dashboard actually
+    # shows — predict the FINAL classification better than current track
+    # position? Scored over every prediction vs each car's last observed
+    # pos_in_class. Raw net_position is kept alongside as the ingredient
+    # diagnostic: it is the pit-cycle-adjusted running order, and scoring it
+    # as a finish forecast (the pre-2026-07 headline) penalised a number the
+    # product never ships as its prediction.
+    fnet, ftrack, fproj, fn, pn = 0.0, 0.0, 0.0, 0, 0
     for car, seq in by_car.items():
         final = seq[-1][2]                     # last pos_in_class = finishing spot
-        for _ts, net, pic in seq:
+        for _ts, net, pic, proj in seq:
             fnet   += abs(net - final)
             ftrack += abs(pic - final)
             fn += 1
+            if proj is not None:
+                fproj += abs(proj - final)
+                pn += 1
 
     # ── secondary metric: short-horizon stability (kept for reference only).
     # NOTE this STRUCTURALLY favours stay-put — 30 min out the pit shuffles
     # net forecasts haven't happened yet — so it is NOT the pass/fail signal.
     net_err, track_err, n = 0.0, 0.0, 0
     for car, seq in by_car.items():
-        for i, (ts, net, pic) in enumerate(seq):
+        for i, (ts, net, pic, _proj) in enumerate(seq):
             target_ts = ts + NET_HORIZON_S * 1000
-            future = next((p for (t, _, p) in seq[i + 1:] if t >= target_ts), None)
+            future = next((p for (t, _, p, _pr) in seq[i + 1:] if t >= target_ts), None)
             if future is None:
                 continue
             net_err   += abs(net - future)
@@ -122,9 +140,14 @@ def eval_net_position(conn, oid):
     if fn == 0:
         return None
     fne, fte = fnet / fn, ftrack / fn
+    fpe = fproj / pn if pn else None
     ne, te = (net_err / n, track_err / n) if n else (None, None)
     return {
-        # primary (vs final classification)
+        # headline (projected_finish vs final classification)
+        "proj_mae": fpe, "proj_n": pn,
+        "proj_improvement_pct": (((fte - fpe) / fte * 100)
+                                 if (fpe is not None and fte) else None),
+        # ingredient diagnostic (raw net vs final classification)
         "n": fn, "net_mae": fne, "track_mae": fte,
         "improvement_pct": ((fte - fne) / fte * 100) if fte else 0.0,
         # secondary (30-min horizon)
@@ -151,7 +174,7 @@ def eval_catch(conn, oid):
     if not cases:
         return None
 
-    hits, lates = 0, []
+    hits, eventual, lates = 0, 0, []
     for ts, lap, car, tgt, target_lap in cases:
         # find the first later moment the chaser was ahead of the target in class
         ahead = conn.execute(
@@ -162,11 +185,21 @@ def eval_catch(conn, oid):
                       AND pc.ts>? AND pc.pos_in_class < pt.pos_in_class
                 ORDER BY pc.ts LIMIT 1""", (oid, car, tgt, ts)).fetchone()
         if ahead:
-            hits += 1
+            eventual += 1
             lates.append(ahead[0] - target_lap)
+            # a HIT means the pass landed near the predicted horizon — being
+            # ahead 150 laps later is coincidence (retirement / strategy /
+            # end-of-race shuffle), not a caught prediction. The pre-2026-07
+            # any-time rule credited exactly those (all 14 SP "hits"
+            # registered on the final lap); it survives as eventual_rate.
+            horizon_laps = max(2 * (target_lap - lap), 5)
+            if ahead[0] <= lap + horizon_laps:
+                hits += 1
     med_late = sorted(lates)[len(lates) // 2] if lates else None
     return {"n": len(cases), "hits": hits,
-            "hit_rate": hits / len(cases), "median_late_laps": med_late}
+            "hit_rate": hits / len(cases),
+            "eventual_rate": eventual / len(cases),
+            "median_late_laps": med_late}
 
 
 # ── auto-tune ───────────────────────────────────────────────────────────────
@@ -224,25 +257,32 @@ def apply_autotune(changes) -> None:
 # ── reporting ───────────────────────────────────────────────────────────────
 def _suggest(stop, net, catch):
     s = []
-    if stop and abs(stop["bias_ms"]) > 3000:
-        d = "OVER" if stop["bias_ms"] > 0 else "UNDER"
-        s.append(f"Stop times {d}-predicted by {abs(stop['bias_ms'])/1000:.1f}s avg "
-                 f"— adjust transit floor / fuel fit.")
+    pstop = (stop or {}).get("predictable") or stop
+    if pstop and abs(pstop["bias_ms"]) > 3000:
+        d = "OVER" if pstop["bias_ms"] > 0 else "UNDER"
+        s.append(f"Predictable stops {d}-predicted by {abs(pstop['bias_ms'])/1000:.1f}s "
+                 f"avg — adjust transit floor / fuel fit / DC delta.")
     if stop and stop.get("caution") and abs(stop["caution"]["bias_ms"]) > 3000:
         cb = stop["caution"]["bias_ms"]
         s.append(f"Caution stops {('OVER' if cb > 0 else 'UNDER')}-predicted by "
                  f"{abs(cb)/1000:.1f}s — model.predict_stop() has no caution-awareness. "
                  f"(CAUTION_PENALTY_FACTOR won't fix this: it only scales the live "
                  f"pit_now_position call, not this prediction.)")
+    if net and net.get("proj_improvement_pct") is not None:
+        if net["proj_improvement_pct"] < 0:
+            s.append("The shipped finish forecast (projected_finish) is WORSE than "
+                     "current track position — check the blend weights and "
+                     "est_stops_left.")
+        elif net["proj_improvement_pct"] < 5:
+            s.append("Finish forecast barely beats 'stay put' (may just be early — "
+                     "its edge grows once stops start cycling).")
     if net and net["improvement_pct"] < 0:
-        s.append("Net position predicts the FINISH worse than current track position "
-                 "— check est_stops_left and the pit-cost model.")
-    elif net and net["improvement_pct"] < 5:
-        s.append("Net position barely beats 'stay put' on final classification "
-                 "(may just be early — net's edge grows once stops start cycling).")
+        s.append("Raw net position (diagnostic) trails track position — "
+                 "check est_stops_left and the pit-cost model.")
     if catch and catch["hit_rate"] < 0.5:
-        s.append("Under half of predicted catches happened — pace window may be too "
-                 "reactive; consider widening PACE_WINDOW or filtering traffic laps.")
+        s.append("Under half of predicted catches happened near the predicted "
+                 "horizon — pace window may be too reactive; consider widening "
+                 "PACE_WINDOW or filtering traffic laps.")
     if catch and catch["median_late_laps"] and catch["median_late_laps"] > CATCH_TOL_LAPS:
         s.append(f"Catches land ~{catch['median_late_laps']:.1f} laps later than predicted "
                  "— pace deltas likely overstated.")
@@ -257,7 +297,19 @@ def report(ctx, stop, net, catch) -> str:
              f"{datetime.now():%H:%M:%S}")
     L.append("=" * 72)
     if stop:
-        L.append(f"  STOP TIME    n={stop['n']:<3}  MAE {stop['mae_ms']/1000:5.1f}s  "
+        p = stop.get("predictable")
+        if p:
+            L.append(f"  STOP TIME    n={p['n']:<3}  MAE {p['mae_ms']/1000:5.1f}s  "
+                     f"bias {p['bias_ms']/1000:+5.1f}s  (predictable: stint >"
+                     f" {SHORT_STINT_LAPS} laps)")
+        else:
+            L.append(f"  STOP TIME    (no predictable-stint stops yet)")
+        if stop.get("short"):
+            s = stop["short"]
+            L.append(f"    short-stint n={s['n']:<3}  MAE {s['mae_ms']/1000:5.1f}s  "
+                     f"bias {s['bias_ms']/1000:+5.1f}s  ← splash/penalty/repair, "
+                     f"unforecastable")
+        L.append(f"    combined   n={stop['n']:<3}  MAE {stop['mae_ms']/1000:5.1f}s  "
                  f"bias {stop['bias_ms']/1000:+5.1f}s")
         if stop.get("green"):
             g = stop["green"]
@@ -272,20 +324,25 @@ def report(ctx, stop, net, catch) -> str:
     else:
         L.append("  STOP TIME    (no completed stops with a prior prediction yet)")
     if net:
-        verdict = "NET WINS" if net["improvement_pct"] > 0 else "track wins"
-        L.append(f"  NET POSITION n={net['n']:<3}  vs FINISH: net MAE {net['net_mae']:.2f}  "
-                 f"track {net['track_mae']:.2f}  "
-                 f"→ {net['improvement_pct']:+.0f}%  [{verdict}]")
+        if net.get("proj_mae") is not None:
+            pv = "FORECAST WINS" if net["proj_improvement_pct"] > 0 else "track wins"
+            L.append(f"  FINISH       n={net['proj_n']:<3}  proj MAE {net['proj_mae']:.2f}  "
+                     f"track {net['track_mae']:.2f}  "
+                     f"→ {net['proj_improvement_pct']:+.0f}%  [{pv}]")
+        L.append(f"    net (diag) n={net['n']:<3}  net MAE {net['net_mae']:.2f}  "
+                 f"track {net['track_mae']:.2f}  → {net['improvement_pct']:+.0f}%"
+                 f"  (pit-cycle running order, not the shipped forecast)")
         if net.get("h_net_mae") is not None:
             L.append(f"               30-min horizon (ref only, favours stay-put): "
                      f"net {net['h_net_mae']:.2f} vs {net['h_track_mae']:.2f}")
     else:
-        L.append("  NET POSITION (no predictions with a final classification yet)")
+        L.append("  FINISH       (no predictions with a final classification yet)")
     if catch:
         ml = catch["median_late_laps"]
         ml_s = f"{ml:.1f}" if ml is not None else "—"
         L.append(f"  CATCH        n={catch['n']:<3}  hit-rate {catch['hit_rate']*100:.0f}%  "
-                 f"median lateness {ml_s} laps")
+                 f"(within 2× predicted laps; eventually-passed "
+                 f"{catch['eventual_rate']*100:.0f}%, median lateness {ml_s} laps)")
     else:
         L.append("  CATCH        (no catch predictions yet)")
     L.append("-" * 72)
@@ -299,9 +356,13 @@ def report(ctx, stop, net, catch) -> str:
 def oneline(stop, net, catch, changes=None) -> str:
     parts = [f"acc {datetime.now():%H:%M}"]
     if net:
-        parts.append(f"net {net['improvement_pct']:+.0f}%")
+        if net.get("proj_improvement_pct") is not None:
+            parts.append(f"proj {net['proj_improvement_pct']:+.0f}%")
+        else:
+            parts.append(f"net {net['improvement_pct']:+.0f}%")
     if stop:
-        parts.append(f"stop {stop['bias_ms']/1000:+.1f}s")
+        pstop = stop.get("predictable") or stop
+        parts.append(f"stop {pstop['bias_ms']/1000:+.1f}s")
     if catch:
         parts.append(f"catch {catch['hit_rate']*100:.0f}%")
     if not (net or stop or catch):
