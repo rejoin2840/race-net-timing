@@ -22,13 +22,22 @@ For every car, from live timing alone (no GPS/ECU access):
 
 ## Honest accuracy expectations
 
-Validated on 6 complete IMSA replay archives (`src/validate_races.py`):
+Validated on 6 complete IMSA replay archives (`src/validate_races.py`), post the 2026-07-13
+honest recalibration (PR #13):
 
-- Finish-prediction MAE (in-class positions): **track order 2.71 · pure net 2.80 ·
-  shipped blend 2.69**. Net position is a *modest* edge, not a crystal ball — it adds
-  signal while stops remain to cycle, and converges to track order late by design.
-- Net's real job is **situational awareness** ("effective position now"), where it is not
-  graded against the finish at all.
+- Finish-prediction MAE (in-class positions): **track order ≈2.45 · pure net ≈2.75 ·
+  shipped blend ≈2.45**. A 14-race sweep across IMSA + WEC found the previous blend
+  weights were the *worst* option tested — they leaned on net hardest early-race, exactly
+  when net is least reliable. Weights were halved (`FINISH_BLEND_MAX_W`/`W_PER_STOP`
+  0.6/0.15 → 0.3/0.08); the blend is now track-level on average and only pulls ahead on
+  deep-pit-cycle races (Daytona 24h, Lone Star, Imola).
+- Net position is not a crystal ball — it adds signal while stops remain to cycle, and
+  converges to track order late by design. Its real job is **situational awareness**
+  ("effective position now"), where it is not graded against the finish at all.
+- Three net-ordering bugs on the WEC/Griiip feed (un-lapping heuristic misfiring,
+  laps/elapsed channel desync, lapped-car tie-breaking) were fixed in the same pass —
+  WEC net MAE 5.20 → 4.15 on the São Paulo capture, and the error now decays through the
+  race the way track order's does, instead of staying flat.
 - Stop-duration MAE ≈ tens of seconds; catch calls are conservatively gated (trustworthy
   silence over noisy alerts).
 - Biggest known accuracy levers, in order: **fuel telemetry integration → penalty parsing
@@ -39,7 +48,7 @@ Validated on 6 complete IMSA replay archives (`src/validate_races.py`):
 | Series | Live | Replay | Strategy model | Status |
 |--------|------|--------|----------------|--------|
 | IMSA   | ✅ `alkameldp.py` (Al Kamel DDP) | ✅ Timing71 zips | full (refuel + DC + penalties) | primary; 1 live race validated |
-| WEC    | 🔧 `wec_live.py` in progress (SignalR + MessagePack) | Timing71 zips (TBD) | refuel path planned | Epic 8 — targeting São Paulo 07-12 |
+| WEC    | ✅ `wec_live.py` (SignalR + MessagePack, Griiip feed) | Timing71 zips (TBD) | net position live, refuel path planned | Epic 8 — proven in the São Paulo 6h race (07-12); net-ordering bugs fixed 07-13 |
 
 ## Quick start
 
