@@ -85,3 +85,30 @@ Two distinct defects:
 
 Not proposed: chasing SP's absolute MAE ~5 (intrinsic churn floor), broad
 constant re-tuning of CATCH_CLOSING_EFFICIENCY on SP alone (n=14 catches).
+
+---
+
+## Phase D outcomes (2026-07-12, post-checkpoint — commits 7a3550b..fa2b089)
+
+- **D5** evaluator honesty fixes landed first (proj-finish headline, horizon-
+  bound catch hits, predictable/short stop split). Model untouched by D5.
+- **D1** blend literals → `FINISH_BLEND_MAX_W`/`FINISH_BLEND_W_PER_STOP`
+  (zero-diff, verified bit-identical).
+- **D2** empty `driver_changes` now means unobservable, not owed-forever:
+  SP predictable-stop bias +6.6s → −5.4s, MAE 12.7→12.4s (combined 19.2→18.6s).
+  Residual −5.4s is the fuel fit's own one-sided outlier-rejection bias — open.
+- **D3** `STOPS_LEFT_SLACK=0.5`: 14-race stops-left bias +0.38→−0.11, net MAE
+  mean 3.40→3.25, proj mean 2.92→2.90. Re-tuning the blend weight on top was
+  a wash (kept 0.15).
+- **D4** WEC catch overrides `{CATCH_TREND_LAPS:5, PACE_WINDOW:8}`: pooled
+  WEC-archive horizon hit-rate 59%→62%, lateness sharply down (Fuji 1.7→0.1,
+  Imola 8.6→3.3). **Correction:** the sweep's apparent SP improvement was
+  stale-gap-history contamination (fixed in `replay_predict`, fa2b089); on
+  the SP capture the gate still fires 14 noise calls at 0% — **open item:**
+  live-capture catch quality needs its own investigation at race week.
+- SP final: **FORECAST WINS +4%** (proj 4.81 vs track 5.00); honest stop MAE
+  (predictable) 12.4s; IMSA suite bit-identical throughout.
+
+Open items carried forward: caution-aware predict_stop (Qatar −49s bias,
+needs archive fitting), fuel-fit under-bias, live-capture catch quality,
+feed driver-change detection (BACKLOG race-week task).
