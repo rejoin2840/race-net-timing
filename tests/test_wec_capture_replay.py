@@ -269,11 +269,11 @@ class TestReanchorClock(unittest.TestCase):
             "WHERE session_oid=?", (self.OID,)).fetchone()
         return time.time() - st["start_time_s"] - (st["stopped_s"] or 0)
 
-    def test_reanchors_from_recorded_start(self):
+    def test_reanchors_from_feed_start(self):
         real_start = 1751600000.0
         self._seed(real_start)
         frame_ts_ms = int((real_start + 100) * 1000)      # 100s into the race
-        _reanchor_clock(self.db.conn, self.OID, frame_ts_ms, None)
+        _reanchor_clock(self.db.conn, self.OID, frame_ts_ms, real_start)
         self.assertAlmostEqual(self._elapsed_as_calculator(), 100.0, delta=1.0)
 
     def test_red_flag_stopped_seconds_still_subtracted(self):
@@ -282,19 +282,33 @@ class TestReanchorClock(unittest.TestCase):
         real_start = 1751600000.0
         self._seed(real_start, stopped_s=30)
         frame_ts_ms = int((real_start + 100) * 1000)
-        _reanchor_clock(self.db.conn, self.OID, frame_ts_ms, None)
+        _reanchor_clock(self.db.conn, self.OID, frame_ts_ms, real_start)
         self.assertAlmostEqual(self._elapsed_as_calculator(), 70.0, delta=1.0)
 
-    def test_falls_back_to_first_frame_ts(self):
-        self._seed(None)                                  # no session-clock yet
-        fallback = 1751600000.0
-        frame_ts_ms = int((fallback + 40) * 1000)
-        _reanchor_clock(self.db.conn, self.OID, frame_ts_ms, fallback)
-        self.assertAlmostEqual(self._elapsed_as_calculator(), 40.0, delta=1.0)
+    def test_ignores_db_start_time(self):
+        """Regression: re-anchoring must NOT read start_time_s back from the
+        DB — if no session-clock frame landed since the previous cycle, that
+        value is this function's own previous (now-relative) output, and
+        anchoring on it yields elapsed≈0 / full-race remaining_s. The caller
+        supplies the true feed start; a poisoned DB value must not matter."""
+        real_start = 1751600000.0
+        self._seed(time.time() - 50)      # poisoned: prior re-anchor output
+        frame_ts_ms = int((real_start + 200) * 1000)
+        _reanchor_clock(self.db.conn, self.OID, frame_ts_ms, real_start)
+        self.assertAlmostEqual(self._elapsed_as_calculator(), 200.0, delta=1.0)
+
+    def test_no_op_without_a_known_start(self):
+        self._seed(None)                  # no session-clock seen yet
+        _reanchor_clock(self.db.conn, self.OID, 1751600040000, None)
+        st = self.db.conn.execute(
+            "SELECT start_time_s FROM session_status WHERE session_oid=?",
+            (self.OID,)).fetchone()
+        self.assertIsNone(st["start_time_s"])   # left untouched, not garbage
 
     def test_never_negative(self):
-        self._seed(1751600000.0)
-        _reanchor_clock(self.db.conn, self.OID, 1751599000000, None)  # ts < start
+        real_start = 1751600000.0
+        self._seed(real_start)
+        _reanchor_clock(self.db.conn, self.OID, 1751599000000, real_start)  # ts < start
         self.assertAlmostEqual(self._elapsed_as_calculator(), 0.0, delta=1.0)
 
 

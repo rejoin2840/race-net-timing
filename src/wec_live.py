@@ -1061,24 +1061,22 @@ def replay_capture(client: "WecLiveClient", path) -> tuple:
 
 
 def _reanchor_clock(conn, oid: str, frame_ts_ms: int,
-                    fallback_start_s: float) -> None:
+                    real_start_s: Optional[float]) -> None:
     """Make calculator.analyse's wall-clock elapsed correct during replay.
 
     analyse() derives elapsed as time.time() - start_time_s (- stopped_s);
-    replayed later, that yields days. The capture's session_status holds the
-    TRUE race-start epoch (from the session-clock channel), and each recorded
-    frame carries the true wall-clock ts, so elapsed-at-this-frame is exact.
-    Shift start_time_s so `now - start` reproduces it — the same trick
-    replay.build() uses for Timing71 archives (see replay.py). The next
-    session-clock frame overwrites start_time_s with the true epoch again,
-    which is fine: we re-anchor immediately before every analyse cycle.
+    replayed later, that yields days. Each recorded frame carries the true
+    wall-clock ts, and real_start_s is the TRUE race-start epoch from the
+    feed (the caller reads it off the status accumulator, never off the DB —
+    the DB's start_time_s may hold this function's own previous re-anchored
+    value if no session-clock frame landed since the last cycle, and
+    re-anchoring off that yields elapsed≈0 and a full-race remaining_s).
+    Shift start_time_s so `now - start` reproduces elapsed-at-this-frame —
+    the same trick replay.build() uses for Timing71 archives (see replay.py).
     """
-    st = conn.execute(
-        "SELECT start_time_s FROM session_status WHERE session_oid=?",
-        (oid,)).fetchone()
-    real_start = (st["start_time_s"] if st and st["start_time_s"]
-                  else fallback_start_s)
-    elapsed_s = max(0.0, frame_ts_ms / 1000.0 - real_start)
+    if real_start_s is None:
+        return
+    elapsed_s = max(0.0, frame_ts_ms / 1000.0 - real_start_s)
     conn.execute(
         "UPDATE session_status SET start_time_s=? WHERE session_oid=?",
         (time.time() - elapsed_s, oid))
@@ -1124,7 +1122,8 @@ def replay_predict(client: "WecLiveClient", path, cadence_s: int = 60) -> dict:
         if last_log_ts is not None and ts - last_log_ts < cadence_s * 1000:
             continue
         client.db.commit()
-        _reanchor_clock(client.db.conn, oid, ts, fallback_start_s)
+        real_start = client.state.status_acc.get("startTime") or fallback_start_s
+        _reanchor_clock(client.db.conn, oid, ts, real_start)
         ctx, cars = calculator.analyse(client.db.conn, oid)
         n_logged += predictor.log_cycle(client.db.conn, oid, ctx, cars, ts)
         client.db.conn.commit()
