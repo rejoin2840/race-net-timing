@@ -664,6 +664,16 @@ def _driver_obligation(conn: sqlite3.Connection, oid: str) -> dict[str, bool]:
         """SELECT car_number, MAX(seq) AS mx FROM driver_changes
              WHERE session_oid=? GROUP BY car_number""", (oid,)):
         done[r["car_number"]] = max(0, (r["mx"] or 1) - 1)   # seq 1 = baseline
+    # No driver_changes rows at all means this feed can't observe driver
+    # changes (WEC/Griiip has no record_driver caller) — NOT that every change
+    # is still owed. record_driver writes a seq=1 baseline as soon as any
+    # driver is seen, so an observing pipeline (IMSA live, Timing71 replay)
+    # has rows almost immediately. Claiming owes=True forever here made every
+    # predicted stop carry DRIVER_CHANGE_DELTA_MS on top of a fuel fit whose
+    # training stops (unlabelled, so treated as non-DC) already contain the
+    # field's real DC time — a double count worth +6–9s per stop on SP 2026.
+    if not done:
+        return {car: False for car in lineup}
     owes: dict[str, bool] = {}
     for car, size in lineup.items():
         required = max(0, size - 1)
