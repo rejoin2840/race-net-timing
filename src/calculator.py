@@ -1020,7 +1020,14 @@ def _stops_left(ctx: RaceContext, ca: CarAnalysis,
     needed = laps_remaining - max(0.0, fuel_in_hand)
     if needed <= 0:
         return 0
-    return int(math.ceil(needed / avg_stint_laps))
+    # avg_stint_laps is an AVERAGE, not the fuel-range maximum — cars can and
+    # do stretch a stint past it, so a small fractional remainder gets
+    # absorbed rather than forcing one more stop. Plain ceil() therefore
+    # over-counts (SP 2026: signed-error mode +1 on half of all prediction
+    # rows, ~+80s phantom pit cost per car in the net gaps). SLACK is the
+    # stint fraction a car can absorb by stretching; ceil(x − slack) rounds
+    # remainders under it away instead of up.
+    return max(0, int(math.ceil(needed / avg_stint_laps - STOPS_LEFT_SLACK)))
 
 
 # ── presentation ────────────────────────────────────────────────────────────
