@@ -66,6 +66,31 @@ class TestCaptureReplay(unittest.TestCase):
         # iterating the raw file again must also survive the torn line
         self.assertEqual(len(list(iter_capture(FIXTURE))), N_FRAMES)
 
+    def test_survives_gzip_container_without_trailer(self):
+        """A hard-killed capture never runs GzipFile.close(), so the file has
+        no end-of-stream trailer at all (not just a torn last JSON line) —
+        the real SP 2026 race capture hit exactly this. Reproduce it: write
+        via sync-flush (same as _record_frame) and never close."""
+        with tempfile.NamedTemporaryFile(suffix=".jsonl.gz", delete=False) as tf:
+            path = tf.name
+        try:
+            gz = gzip.open(path, "wb")
+            frames = [
+                {"channel": "ranks", "data": {"carNumber": "1"}, "ts": 1000},
+                {"channel": "laps", "data": {"carNumber": "2"}, "ts": 2000},
+            ]
+            for fr in frames:
+                gz.write((json.dumps(fr) + "\n").encode("utf-8"))
+                gz.flush()  # Z_SYNC_FLUSH, same as _record_frame — no close()
+            del gz  # drop the handle without close(): no gzip trailer written
+
+            out = list(iter_capture(path))
+            self.assertEqual(len(out), len(frames))
+            self.assertEqual(out[0][0], "ranks")
+            self.assertEqual(out[1][0], "laps")
+        finally:
+            os.unlink(path)
+
     # ── what landed in the DB ────────────────────────────────────────────
     def test_session_row_written_as_wec(self):
         rows = self._query("SELECT series FROM sessions")
@@ -102,6 +127,18 @@ class TestCaptureReplay(unittest.TestCase):
         rows = self._query("SELECT stop_number FROM pit_events "
                            "WHERE car_number=?", PIT_CAR)
         self.assertEqual([r["stop_number"] for r in rows], [1])
+
+    def test_pit_duration_uses_recorded_frame_time_not_wall_clock(self):
+        """Regression: _handle_pit_in/_handle_pit_out used to stamp durations
+        with time.time(), which is correct live but garbage on replay (a
+        155k-frame capture dispatches in ~3s of real time, collapsing every
+        stop to single-digit milliseconds). The fixture's pit-in/pit-out
+        frames for PIT_CAR are exactly 1000ms apart by recorded ts — replay
+        must reproduce that duration, not the near-zero wall-clock gap."""
+        row = self._query(
+            "SELECT stop_duration_ms FROM pit_events "
+            "WHERE car_number=? AND stop_number=1", PIT_CAR)[0]
+        self.assertEqual(row["stop_duration_ms"], 1000)
 
     def test_session_status_fields_survive_partial_updates(self):
         """Flag updates after the session-length frame must not null the

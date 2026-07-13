@@ -326,6 +326,10 @@ class WecLiveClient:
         self._last_message_time = 0.0
         self._last_snapshot_time = 0.0
         self._lock = threading.Lock()
+        # set by _dispatch_channel's ts_ms arg during replay so pit-duration
+        # handlers use the recorded frame time instead of live wall-clock;
+        # None on the live path, where time.time() IS the correct clock
+        self._frame_ts_ms: Optional[int] = None
 
     # ── raw capture ──────────────────────────────────────────────────────
 
@@ -455,10 +459,11 @@ class WecLiveClient:
 
     # ── channel dispatch ─────────────────────────────────────────────────
 
-    def _dispatch_channel(self, channel: str, data):
+    def _dispatch_channel(self, channel: str, data, ts_ms: Optional[int] = None):
         if data is None:
             return
         with self._lock:
+            self._frame_ts_ms = ts_ms
             handler = {
                 CH_RANKS: self._handle_ranks,
                 CH_GAPS: self._handle_gaps,
@@ -704,7 +709,7 @@ class WecLiveClient:
         car = self._resolve_car(data)
         if not car:
             return
-        now_ms = int(time.time() * 1000)
+        now_ms = self._frame_ts_ms if self._frame_ts_ms is not None else int(time.time() * 1000)
         self.state.pit_in_times[car] = now_ms
         log.info("Pit IN: #%s", car)
 
@@ -716,7 +721,7 @@ class WecLiveClient:
             return
         entry_ms = self.state.pit_in_times.pop(car, None)
         if entry_ms and self.db:
-            now_ms = int(time.time() * 1000)
+            now_ms = self._frame_ts_ms if self._frame_ts_ms is not None else int(time.time() * 1000)
             # live_observed: this stop was seen happen (pit-in + pit-out events),
             # so the first stop per car is real — don't apply the IMSA baseline
             # rule, which exists for feed values that may predate our connect.
@@ -1007,20 +1012,28 @@ def iter_capture(path):
     JSONL). ts_ms is the recorder's wall-clock epoch ms for the frame (None on
     captures that predate the ts field). Torn trailing lines (the hard-kill
     artifact documented in WEC_RACE_WEEK.md) are skipped rather than raised —
-    a crashed capture must still replay."""
+    a crashed capture must still replay. A hard kill also leaves the gzip
+    container itself without an end-of-stream trailer (`_recorder.flush()`
+    sync-flushes each frame but nothing ever calls close()); Python's gzip
+    reader raises EOFError hitting that missing trailer, so it's caught here
+    too and treated the same as a torn trailing line — stop, don't raise."""
     with gzip.open(path, "rt", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                frame = json.loads(line)
-            except ValueError:
-                log.warning("Skipping torn capture line (%d bytes)", len(line))
-                continue
-            if isinstance(frame, dict):
-                yield (frame.get("channel") or "", frame.get("data"),
-                       _int_or(frame.get("ts"), None))
+        try:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    frame = json.loads(line)
+                except ValueError:
+                    log.warning("Skipping torn capture line (%d bytes)", len(line))
+                    continue
+                if isinstance(frame, dict):
+                    yield (frame.get("channel") or "", frame.get("data"),
+                           _int_or(frame.get("ts"), None))
+        except EOFError:
+            log.warning("Capture gzip stream ended without a trailer "
+                        "(hard-kill artifact) — stopping replay here")
 
 
 def replay_capture(client: "WecLiveClient", path) -> tuple:
@@ -1031,14 +1044,14 @@ def replay_capture(client: "WecLiveClient", path) -> tuple:
     file here against a scratch DB to find/fix field-mapping mistakes offline.
     """
     n = errs = 0
-    for channel, data, _ts in iter_capture(path):
+    for channel, data, ts in iter_capture(path):
         n += 1
         if channel == "_bootstrap":
             if isinstance(data, dict):
                 client._hydrate_bootstrap(data)
             continue
         try:
-            client._dispatch_channel(channel, data)
+            client._dispatch_channel(channel, data, ts_ms=ts)
         except Exception:
             errs += 1
             log.exception("Replay dispatch error on channel %s", channel)
@@ -1100,7 +1113,7 @@ def replay_predict(client: "WecLiveClient", path, cadence_s: int = 60) -> dict:
                 client._hydrate_bootstrap(data)
         else:
             try:
-                client._dispatch_channel(channel, data)
+                client._dispatch_channel(channel, data, ts_ms=ts)
             except Exception:
                 errs += 1
                 log.exception("Replay dispatch error on channel %s", channel)
