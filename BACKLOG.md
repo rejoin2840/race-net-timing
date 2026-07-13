@@ -328,6 +328,21 @@ consume + display these new streams — see the 2026-07-04 decisions-log entry
     `CAUTION_PENALTY_FACTOR` already applies to `pit_now_position`), not a
     knob tweak. Unscoped — next time this session has spare capacity, or when
     Epic 2 telemetry work is touching the stop-cost model anyway.
+  - ❌ **Caution-aware predict_stop REJECTED after investigation (07-13).**
+    Measured across all 491 caution stops in the 14-race regression set
+    (offline replays): caution barely moves stop DURATION — pooled delta vs
+    the green fuel fit is +1.0s mean/−2.7s median on IMSA (n=457), −6.1s
+    mean/−1.8s median on WEC (n=34). The old "+19.7s caution bias" readings
+    were tiny-sample noise (n=1-2 buckets). The genuine caution advantage is
+    track-position cost during the stop, which `CAUTION_PENALTY_FACTOR`
+    already models in `pit_now_position`. A duration branch would fit noise.
+    Evaluator's caution suggestion now gates on n≥5. What the investigation
+    DID find and fix: the fuel fit's raw-duration upper-tail clip biased
+    predictions low on wide/bimodal races (up to −46s Qatar analysis-side) —
+    replaced with two-sided residual-space rejection (`_robust_linfit`), and
+    Qatar's remaining −49s eval "bias" decoded as ~12 unforecastable
+    multi-minute LMGT3 garage stops (median error there is −6s) — the
+    evaluator now reports median bias alongside mean.
   - **Validation (07-04, B3 session):** fresh full-race `--stream` + evaluator
     run (`logs/eval_20260704_102649.txt`) confirms `CATCH_TREND_LAPS` worked as
     intended — hit-rate 78%→88%, median lateness 10.5→2.6 laps vs the 090013

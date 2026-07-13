@@ -363,6 +363,48 @@ def _reject_long_stops(stops: list["_Stop"]) -> list["_Stop"]:
     return [s for s in stops if s.duration_ms <= hi]
 
 
+def _robust_linfit(stops: list["_Stop"]):
+    """Fuel-fill fit with TWO-SIDED outlier rejection in RESIDUAL space.
+
+    The old pipeline clipped the raw-duration upper tail (median + K·MAD)
+    before fitting. On races with a wide or bimodal stop distribution that
+    chops the legitimate long-service mode and the fit predicts the short
+    mode — measured under-bias up to −46s on Qatar 1812km (calibration
+    07-13; the validate-table stop biases matched this clip bias race by
+    race). A long stop after a long stint is signal, not an outlier.
+
+    Instead: preliminary fit on ALL stops, then reject residual outliers
+    two-sided (median ± K·MAD of residuals), then refit. Catches both
+    repair stops (huge positive residual, whatever the stint) and splash
+    stops (huge negative residual) that the duration clip kept — both were
+    dragging the fit away from the true service-stop curve. Two passes so
+    a monster repair can't hide a second outlier in the first pass."""
+    xs = [s.stint_laps for s in stops]
+    ys = [s.duration_ms for s in stops]
+    fit = _linfit(xs, ys)
+    if fit is None or len(stops) < 6:
+        return fit
+    for _ in range(2):
+        a, b, _std = fit
+        res = [y - (a + b * x) for x, y in zip(xs, ys)]
+        rs = sorted(res)
+        med = rs[len(rs) // 2]
+        mad = sorted(abs(r - med) for r in rs)[len(rs) // 2]
+        if mad <= 0:
+            return fit
+        band = STOP_OUTLIER_MAD * 1.4826 * mad
+        kept = [(x, y) for x, y, r in zip(xs, ys, res) if abs(r - med) <= band]
+        if len(kept) < max(MIN_FIT_POINTS, 4) or len(kept) == len(xs):
+            return fit
+        xs = [x for x, _ in kept]
+        ys = [y for _, y in kept]
+        refit = _linfit(xs, ys)
+        if refit is None:
+            return fit
+        fit = refit
+    return fit
+
+
 @dataclass
 class _Stop:
     car: str
@@ -401,7 +443,8 @@ class PitCostModel:
     def build(cls, conn: sqlite3.Connection, oid: str) -> "PitCostModel":
         m = cls()
         stops = _load_stops(conn, oid)
-        # robust upper-tail rejection: garage/repair "stops" otherwise poison the fuel fit
+        # duration-clipped view: still right for the transit floor, the typical
+        # green stop, and the DC delta (all duration statistics)
         green = _reject_long_stops([s for s in stops if s.green])
         if green:
             m.transit_ms = min(s.duration_ms for s in green)
@@ -411,20 +454,28 @@ class PitCostModel:
         if base:
             m.green_typical_ms = sum(base) / len(base)
 
-        # fuel-fill fits on green, non-driver-change stops, at each scope
-        fuel = [s for s in green if not s.is_dc]
-        m._fit_all = _linfit([s.stint_laps for s in fuel], [s.duration_ms for s in fuel]) \
-            if len(fuel) >= MIN_FIT_POINTS else None
+        # fuel-fill fits on green, non-driver-change stops, at each scope.
+        # Fits get the UNCLIPPED stops — _robust_linfit rejects outliers in
+        # residual space instead, so legitimately long stops after long stints
+        # survive (the duration clip's under-bias, see _robust_linfit).
+        fuel_raw = [s for s in stops if s.green and not s.is_dc]
+        fuel = [s for s in green if not s.is_dc]        # clipped view, for flats
+        m._fit_all = _robust_linfit(fuel_raw) \
+            if len(fuel_raw) >= MIN_FIT_POINTS else None
         m._flat_all = _mean_std([s.duration_ms for s in fuel])
         for scope_key, store_fit, store_flat in (("cls", m._fit_cls, m._flat_cls),
                                                  ("car", m._fit_car, m._flat_car)):
             groups: dict = {}
-            for s in fuel:
+            for s in fuel_raw:
                 groups.setdefault(s.cls if scope_key == "cls" else s.car, []).append(s)
-            for key, ss in groups.items():
+            flat_groups: dict = {}
+            for s in fuel:
+                flat_groups.setdefault(s.cls if scope_key == "cls" else s.car, []).append(s)
+            for key, ss in flat_groups.items():
                 store_flat[key] = _mean_std([s.duration_ms for s in ss])
+            for key, ss in groups.items():
                 if len(ss) >= MIN_FIT_POINTS:
-                    fit = _linfit([s.stint_laps for s in ss], [s.duration_ms for s in ss])
+                    fit = _robust_linfit(ss)
                     if fit:
                         store_fit[key] = fit
 
