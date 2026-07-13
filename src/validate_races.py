@@ -38,6 +38,7 @@ RACES = [
     f"{DL}/2026-05-03 19-57 IMSA WeatherTech SportsCar Championship - StubHub Monterey SportsCar Championship - Race.zip",
     f"{DL}/2026-04-18 20-02 IMSA WeatherTech SportsCar Championship - Acura Grand Prix of Long Beach - Race.zip",
     f"{DL}/2026-05-30 19-57 IMSA WeatherTech SportsCar Championship - Chevrolet Detroit Sports Car Classic - Race.zip",
+    f"{DL}/2026-07-12 18-02 IMSA WeatherTech SportsCar Championship - Chevrolet Grand Prix - Race.zip",
 ]
 
 # WEC regression set — complete (run-to-chequered) 6h/8h races only.
@@ -52,6 +53,7 @@ WEC_RACES = [
     f"{WEC_DIR}/2025-11-08 10-57 FIA WEC - Bapco Energies 8 Hours of Bahrain - Race.zip",
     f"{WEC_DIR}/2026-04-19 10-57 FIA World Endurance Championship - FIA WEC - 6 Hours of Imola - Race.zip",
     f"{WEC_DIR}/2025-02-28 10-57 FIA WEC - Qatar 1812km - Race.zip",
+    f"{WEC_DIR}/2026-07-12 14-27 FIA World Endurance Championship - ROLEX 6 Hours of São Paulo - Race.zip",
 ]
 
 # Griiip raw captures (--record output) — replayed via wec_live.replay_predict
