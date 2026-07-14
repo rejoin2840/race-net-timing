@@ -11,6 +11,26 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-14 — WEC DC delta is ~5s at SP 2026, not 30-40s; the 07-05 claim is
+  superseded.** With real driver-change labels finally flowing (record_driver wired
+  into wec_live 07-13, PR #16), the fitted DC delta on the SP race capture is ~5.4s —
+  the archived "30-40s longer" estimate was fit on unlabelled data where DC time
+  leaked into the fuel fit. One-race sample; treat DRIVER_CHANGE_DELTA_MS=12s as a
+  fallback-only constant and let the per-race fit speak. Revisit at the next WEC event.
+- **2026-07-14 — No hardcodable pit-stop-minimum exists in the 2026 regs; model floors
+  empirically if at all.** Read the actual 2026 sporting regulations (both series):
+  WEC has no stopwatch minimum (sequential refuel-then-tires + crew/equipment limits +
+  BoP-tuned fuel flow set the effective floor); IMSA's Minimum Full Refueling Time is
+  LMP2-only and formula-based (Art. 37.8), while GTP/GTD PRO/GTD instead carry a
+  per-stint energy CAP (Art. 22.3.14 — see the Epic 2 follow-on note). Decision: never
+  hardcode regulation stop-time constants; any floor logic must be inferred from each
+  race's observed stops.
+- **2026-07-13 — Honest recalibration shipped (PR #13) — see wec_calibration_findings.md.**
+  Three WEC net-ordering bugs fixed behind `trust_feed_laps_behind`; finish-blend
+  halved to 0.3/0.08 after a 14-race sweep showed the old 0.6/0.15 was the worst
+  option on honest data. SP net MAE 5.20→4.15 and error now decays through the race.
+  Also 07-13: caution-aware predict_stop REJECTED on evidence (491 caution stops,
+  effect is noise — full detail in Epic 7 B2 notes); robust fuel fit shipped instead.
 - **2026-07-06 — Fable Tier-3 exit review (see `FABLE_REVIEW.md` §5).** Four fixes
   shipped: (1) evaluator catch metrics were non-deterministic AND cross-race
   contaminated in every validate_races run to date (`_GAP_HIST` never reset between
@@ -101,7 +121,18 @@ interval, pit count, laps, sector times + unknown `VET` column (hypothesis: Virt
 Energy Tank % — the WEC analog of IMSA fuel telemetry; to confirm from a live capture).
 Next WEC race: Rolex 6H São Paulo 2026-07-12.
 
-### Epic 8 — WEC live pipeline *(top priority, deadline-driven: FP1 ≈ 07-10)*
+### Epic 8 — WEC live pipeline ✅ 2026-07-12 (race captured end-to-end)
+
+**Outcome:** the 6H São Paulo race was captured complete (155k frames, zero dispatch
+errors) and the capture drove the post-race calibration cycle (PRs #10–#13: replayer,
+official-rank dispatch, robust fuel fit, honest recalibration — three WEC net-ordering
+bugs fixed, blend halved). Commit 5 "field corrections from FP1" was superseded by that
+calibration work. Timing71 fallback confirmed working: the post-race SP 2026 archive
+was obtained and is now in the regression set. Remaining loose ends moved to their own
+homes: P1-row display bug → open-bugs note under Epic 9 inputs; driver-change feed
+detection → shipped 07-13 (see Research items).
+
+*(Historical plan below kept for reference.)*
 
 **Goal:** raw-capture-first WEC client ready before São Paulo FP1.
 Raw capture = must-have; live board = nice-to-have for race day.
@@ -406,7 +437,12 @@ consume + display these new streams — see the 2026-07-04 decisions-log entry
 - **Gate for any code change:** `./check.sh` + `replay.py --stream` feel-test;
   evaluator report (`logs/stream_*.txt`) as the honesty check metrics didn't slip.
 
-### Epic 9 — Product definition + UI direction spike *(gates all cosmetic UI work; run after São Paulo race week)*
+### Epic 9 — Product definition + UI direction spike *(UNBLOCKED 2026-07-14 — race week over; gates all cosmetic UI work; NEXT UP)*
+
+**Open display bugs to fold into whatever direction wins (not blockers, inputs):**
+dashboard timing table drops the P1 row (found at FP1); WEC quali
+`session_type="SESSION"` ordering; screen-lock freeze fix shipped (PR #9) but watch
+next event's log for "table rebuild:" lines.
 
 owner (2026-07-04): research and decide before investing more in UI code — "do it
 right the first time." Two phases, one spike; phase 1 feeds phase 2.
@@ -495,17 +531,13 @@ Until then: cosmetic UI work frozen (see 07-04 decision).
 
 ## Research items (unscheduled)
 
-- **WEC driver-change detection from the Griiip feed (race-week wiring task,
-  added 07-12 from calibration).** wec_live never calls `db.record_driver`, so
-  `driver_changes` stays empty on WEC and DC obligation is unobservable
-  (calibration finding: the old owes-forever assumption double-counted DC time,
-  +6–9s on every predicted stop — fixed by treating an empty table as
-  unobservable). The feed likely carries the running driver (verify the
-  participants/ranks fields against the SP capture, then wire `record_driver`
-  into the participants handler). Offline verification via `--replay-predict`
-  on the SP capture is possible now; live verification needs the next WEC
-  event. Payoff: real per-car DC obligation → truthful `owes DC` display and
-  DC-aware next-stop predictions.
+- ✅ **WEC driver-change detection from the Griiip feed (shipped 2026-07-13, PR #16).**
+  `resolve_current_driver()` maps `currentDriverId` → `drivers[].externalDriverID`
+  (top-level `displayName` is the TEAM name on real WEC data — trap avoided);
+  `_handle_participants` now calls `record_driver` every frame. Verified on the SP
+  race capture: 113 driver_changes rows, all 35 cars, plausible stint spacing.
+  Fitted DC delta ~5.4s (see 07-14 decision entry). Live verification + delta
+  re-fit at the next WEC event.
 
 - ✅ **Driver-change / min-drive-time rules (resolved 07-04, source: owner).**
   `wec_imsa_2026_regulations.md` (owner's research) → codified in
@@ -533,13 +565,16 @@ Until then: cosmetic UI work frozen (see 07-04 decision).
 
 ## Held-out / regression sets
 
-- **IMSA (6 complete archives, the default gate):** Daytona 24h, Petit Le Mans 10h,
-  Indy 6h, Monterey, Long Beach, Detroit — paths in `validate_races.py` under
-  `ARCHIVE_DIR`.
-- **WEC (7 complete archives, `--wec` flag):** SP 2024, SP 2025, COTA 2025, Fuji 2025,
-  Bahrain 2025, Imola 2026, Qatar 2025 — paths in `validate_races.py` WEC_RACES under
-  `wec-archives/`. Verified complete 2026-07-05 (all end chequered). Le Mans 24h
-  permanently excluded. SP 2026-07-12 live capture added post-race once parser proven.
+- **IMSA (7 complete archives, the default gate):** Daytona 24h, Petit Le Mans 10h,
+  Indy 6h, Monterey, Long Beach, Detroit, Chevy Grand Prix 2026 (added 07-13, PR #15;
+  no GTP that weekend — LMP2/GTD PRO/GTD only, and the set's best single-race result:
+  proj 1.36) — paths in `validate_races.py` under `ARCHIVE_DIR`.
+- **WEC (8 complete archives, `--wec` flag):** SP 2024, SP 2025, COTA 2025, Fuji 2025,
+  Bahrain 2025, Imola 2026, Qatar 2025, SP 2026 (T71 archive, added 07-13, PR #15) —
+  paths in `validate_races.py` WEC_RACES under `wec-archives/`. Le Mans 24h permanently
+  excluded. The SP 2026 Griiip live capture is ALSO in the set (WEC_CAPTURES, replayed
+  via `--replay-predict`); it scores worse than the T71 archive of the same race
+  (proj 3.16 vs 2.93) — feed-quality gap noted, unexplored.
   **WEC baseline (re-run 2026-07-06 post Tier-3 fixes — supersedes the 07-05 numbers,
   which predate the determinism + penalty-expiry fixes):** NET MAE 2.96–4.60,
   TRK 2.01–4.20, CATCH% 84–100% (COTA is the one net-beats-track race, +11%).
