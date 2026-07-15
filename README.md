@@ -79,6 +79,11 @@ and pit history) and a NET projection column. Setup and run recipe:
 [ui/README.md](ui/README.md). The PyQt6 dashboard remains the reliability-proven
 race-day display until the web board earns that trust at a live event.
 
+![Web board with the tap-to-explain panel open — NET column shows projected
+gains/losses; the panel breaks down car #60's net position: on-track gap, stops
+left, penalty carry, net gap ±band, and pit history](docs/img/web-board.png)
+*(shown with mock data — browser dev mode)*
+
 ### Try it immediately (no live race needed)
 Two complete IMSA sprint-race archives are included in `sample-archives/` (Long Beach 2026 · Detroit 2026). To load one: launch the dashboard, click **Session** in the top-left header, choose **IMSA → Replay**, and select a file from `sample-archives/`.
 
