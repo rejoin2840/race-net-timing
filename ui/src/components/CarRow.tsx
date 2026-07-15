@@ -114,17 +114,32 @@ export default function CarRow({ row, index, spineColor, selected, onClick }: Pr
       </div>
 
       {/* Net position */}
-      <NetCell pos={row.pos} netPos={row.netPos} settled={row.netSettled} />
+      <NetCell pos={row.pos} netPos={row.netPos} settled={row.netSettled} netUpdatedAt={row.netUpdatedAt} />
     </div>
   );
 }
 
-function NetCell({ pos, netPos, settled }: { pos: number; netPos: number | null; settled: boolean }) {
+const STALE_AFTER_MS = 12_000;
+
+function isStale(netUpdatedAt: string | null): boolean {
+  if (!netUpdatedAt) return false;
+  try {
+    const ts = new Date(netUpdatedAt.endsWith('Z') ? netUpdatedAt : netUpdatedAt + 'Z');
+    return Date.now() - ts.getTime() > STALE_AFTER_MS;
+  } catch { return false; }
+}
+
+function NetCell({ pos, netPos, settled, netUpdatedAt }: {
+  pos: number; netPos: number | null; settled: boolean; netUpdatedAt: string | null;
+}) {
   if (netPos === null) {
     return <div className="w-10 shrink-0 text-center text-muted-fg/20 text-[10px]">—</div>;
   }
+  const stale = isStale(netUpdatedAt);
   const delta = pos - netPos; // positive = gaining (net ahead of track)
-  const colorClass = settled
+  const colorClass = stale
+    ? 'text-muted-fg/25'
+    : settled
     ? 'text-muted-fg/40'
     : delta > 0
     ? 'text-emerald-400'

@@ -16,12 +16,13 @@ const Database = require(
 // Class order mirrors timing_table.py CLASS_ORDER
 const CLASS_ORDER = ['GTP', 'HYPERCAR', 'LMP2', 'GTD PRO', 'LMGT3', 'GTD'];
 
-let win          = null;
-let db           = null;
-let stmt         = null;
-let stmtPits     = null;
-let stmtRc       = null;
-let stmtBattles  = null;
+let win              = null;
+let db               = null;
+let stmt             = null;
+let stmtPits         = null;
+let stmtRc           = null;
+let stmtBattles      = null;
+let stmtSessionComp  = null;
 
 function openDb() {
   if (db) return db;
@@ -111,6 +112,12 @@ function openDb() {
       )
       ORDER BY rank
     `);
+    stmtSessionComp = db.prepare(`
+      SELECT remaining_s, elapsed_s FROM session_computed
+      WHERE session_oid = (
+        SELECT session_oid FROM session_status ORDER BY updated_at DESC LIMIT 1
+      )
+    `);
     return db;
   } catch (err) {
     console.error('[racenet] DB open failed:', err.message);
@@ -141,7 +148,7 @@ function calcRemainingS(r) {
   return null; // BY_LAPS: use lap delta instead
 }
 
-function buildPayload(rawRows, pitRows, rcRows, battleRows) {
+function buildPayload(rawRows, pitRows, rcRows, battleRows, sessionComp) {
   // index pit events by car_number for O(1) lookup
   const pitsBycar = new Map();
   for (const p of (pitRows || [])) {
@@ -183,7 +190,7 @@ function buildPayload(rawRows, pitRows, rcRows, battleRows) {
         isRunning:  Boolean(r.session_running),
         ageS:       ageSeconds(r.session_updated_at),
         finalType:  r.final_type    || null,
-        remainingS: calcRemainingS(r),
+        remainingS: sessionComp?.remaining_s ?? calcRemainingS(r),
         finalLaps:  r.final_laps    ?? null,
         isFinished: Boolean(r.session_finished),
       };
@@ -250,10 +257,12 @@ function queryAndSend() {
   try {
     const rows = stmt.all();
     if (rows.length > 0) {
-      const pits    = stmtPits    ? stmtPits.all()    : [];
-      const rc      = stmtRc      ? stmtRc.all()      : [];
-      const battles = stmtBattles ? stmtBattles.all() : [];
-      const payload = buildPayload(rows, pits, rc, battles);
+      const pits       = stmtPits       ? stmtPits.all()       : [];
+      const rc         = stmtRc         ? stmtRc.all()         : [];
+      const battles    = stmtBattles    ? stmtBattles.all()    : [];
+      let sessComp = null;
+      try { sessComp = stmtSessionComp ? stmtSessionComp.get() : null; } catch (_) {}
+      const payload = buildPayload(rows, pits, rc, battles, sessComp);
       if (!queryAndSend.logged) {
         queryAndSend.logged = true;
         console.log(`[racenet] first payload: ${rows.length} cars, ` +
@@ -264,11 +273,12 @@ function queryAndSend() {
   } catch (err) {
     console.error('[racenet] query failed:', err.message);
     try { db.close(); } catch (_) {}
-    db          = null;
-    stmt        = null;
-    stmtPits    = null;
-    stmtRc      = null;
-    stmtBattles = null;
+    db              = null;
+    stmt            = null;
+    stmtPits        = null;
+    stmtRc          = null;
+    stmtBattles     = null;
+    stmtSessionComp = null;
   }
 }
 

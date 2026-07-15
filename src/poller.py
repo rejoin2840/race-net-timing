@@ -224,6 +224,25 @@ class Poller:
                 "UPDATE race_control SET tier=?, kind=? WHERE rowid=?", classified)
             conn.commit()
 
+    def _write_session_computed(self, conn, oid: str, ctx) -> None:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS session_computed (
+                session_oid  TEXT PRIMARY KEY,
+                remaining_s  REAL,
+                elapsed_s    REAL,
+                updated_at   TEXT
+            )""")
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute("""
+            INSERT INTO session_computed (session_oid, remaining_s, elapsed_s, updated_at)
+            VALUES (?,?,?,?)
+            ON CONFLICT(session_oid) DO UPDATE SET
+              remaining_s=excluded.remaining_s,
+              elapsed_s=excluded.elapsed_s,
+              updated_at=excluded.updated_at""",
+            (oid, getattr(ctx, 'remaining_s', None), getattr(ctx, 'elapsed_s', None), now))
+        conn.commit()
+
     def _write_net_analysis(self, conn, oid: str, cars) -> None:
         now = datetime.now(timezone.utc).isoformat()
         rows = [
@@ -305,6 +324,7 @@ class Poller:
                 self._ensure_rail_battles_table(conn)
                 self._write_rail_battles(conn, oid, cars, ctx.current_lap)
                 self._ensure_rc_classification(conn, oid)
+                self._write_session_computed(conn, oid, ctx)
             except sqlite3.Error:
                 pass  # non-fatal — Electron will just show dashes
             return ctx, cars, rc, age, trend_map
