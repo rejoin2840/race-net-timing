@@ -28,3 +28,7 @@ data/fastf1_cache/
 
 # Local demo output (screenshots/video), not part of the repo
 demo-screenshots/
+
+# local race archives + working files (never ship to the public repo)
+IMSA Archives/
+project_bundle.txt

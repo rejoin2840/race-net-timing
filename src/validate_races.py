@@ -28,8 +28,12 @@ import timing71
 # default regression set — edit as the library of complete archives grows.
 # Only COMPLETE (run-to-chequered) archives belong here; truncated ones skew
 # the numbers (final pit cycles unresolved). Verified complete 2026-06-28.
+_REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
+# relative ARCHIVE_DIR resolves against the repo root, not the cwd, so any clone works
 DL = os.path.expanduser(config.CONFIG.ARCHIVE_DIR)
-WEC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "wec-archives")
+if not os.path.isabs(DL):
+    DL = os.path.join(_REPO_ROOT, DL)
+WEC_DIR = os.path.join(_REPO_ROOT, "wec-archives")
 
 RACES = [
     f"{DL}/2026-01-24 18-37 IMSA WeatherTech SportsCar Championship - Rolex 24 at Daytona - Race.zip",

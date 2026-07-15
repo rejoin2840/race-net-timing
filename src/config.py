@@ -57,7 +57,7 @@ DEFAULTS = {
     "TRACK_LAT":              42.337,   # circuit latitude  (Watkins Glen — first race)
     "TRACK_LON":             -76.927,   # circuit longitude (edit per round for weather)
     "DEV_SHOW_ALL_SESSIONS":  False,    # picker shows Race sessions only; True re-exposes all session types for debugging
-    "ARCHIVE_DIR":            "~/Downloads",  # where IMSA Timing71 replay zips live (validate_races.py; ~ expanded)
+    "ARCHIVE_DIR":            "IMSA Archives",  # where IMSA Timing71 replay zips live (validate_races.py; ~ expanded, relative = repo root)
     # per-series knob overrides, applied on top of the base values when the
     # active session's series matches: {"wec": {"DRIVER_CHANGE_DELTA_MS": 45000}}.
     # Lets race-day tuning for one series (WEC driver changes run far longer than

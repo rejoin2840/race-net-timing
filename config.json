@@ -31,5 +31,5 @@
   "STOP_OUTLIER_MAD": 6.0,
   "CATCH_CLOSING_EFFICIENCY": 0.75,
   "DEV_SHOW_ALL_SESSIONS": false,
-  "ARCHIVE_DIR": "~/Downloads"
+  "ARCHIVE_DIR": "IMSA Archives"
 }

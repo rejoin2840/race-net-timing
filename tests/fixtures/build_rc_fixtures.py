@@ -5,7 +5,7 @@ build_rc_fixtures.py — regenerate tests/fixtures/rc_messages_imsa.txt from the
 Run from the repo root:
   venv/bin/python tests/fixtures/build_rc_fixtures.py
 
-Commit the output file so tests never depend on ~/Downloads being present.
+Commit the output file so tests never depend on ARCHIVE_DIR being present.
 Re-run when a new archive is added to the regression set.
 """
 

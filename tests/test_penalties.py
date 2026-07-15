@@ -143,7 +143,7 @@ def test_warning_still_ignored():
 def test_parse_never_raises_on_corpus():
     """parse() must not raise on any line in the real corpus."""
     if not os.path.exists(RC_FIXTURE):
-        return  # fixture absent (no ~/Downloads in CI) — skip gracefully
+        return  # fixture absent (ARCHIVE_DIR not populated in CI) — skip gracefully
     with open(RC_FIXTURE) as f:
         lines = [l.rstrip() for l in f if l.strip()]
     for line in lines:

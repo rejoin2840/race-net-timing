@@ -75,7 +75,7 @@ After first setup, launch directly:
 ### Try it immediately (no live race needed)
 Two complete IMSA sprint-race archives are included in `sample-archives/` (Long Beach 2026 · Detroit 2026). To load one: launch the dashboard, click **Session** in the top-left header, choose **IMSA → Replay**, and select a file from `sample-archives/`.
 
-If the replay picker doesn't find them automatically, copy the zips to `~/Downloads` — that's the default `ARCHIVE_DIR` in `config.json`.
+If the replay picker doesn't find them automatically, set `ARCHIVE_DIR` in `config.json` to the folder where your archives live.
 
 New here? Read [USER_GUIDE.md](USER_GUIDE.md) for a screen-by-screen walkthrough. Developers, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -103,7 +103,7 @@ caffeinate -s venv/bin/python src/weekend_conductor.py
 ```
 
 Replay archives are Timing71 zips. IMSA archives live in `ARCHIVE_DIR` (config.json,
-default `~/Downloads`). **Only complete run-to-chequered archives belong in regression
+default `IMSA Archives/` in the repo root). **Only complete run-to-chequered archives belong in regression
 sets** — truncated ones skew the numbers.
 
 ## Architecture
