@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "racenet-ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "browser"],
+      "port": 5173
+    }
+  ]
+}
