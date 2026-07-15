@@ -80,6 +80,40 @@ right" vs. "is this code correct").
 
 The GitHub remote is `https://github.com/rejoin2840/race-net-timing`. Use `/opt/homebrew/bin/gh` if `gh` is not on PATH.
 
+## Documentation versioning (single-source-of-truth rules)
+
+Repeated doc-drift incidents ("X says awaiting review, it merged days ago") come from the
+same fact living in multiple files. These rules end that:
+
+1. **BACKLOG.md is the ONLY live status document.** Current state of any epic, decision,
+   or open bug lives there and nowhere else. If another file needs to mention status, it
+   links to BACKLOG.md instead of restating it.
+2. **Every other .md is one of two kinds, declared in a banner on line 3:**
+   - *Living reference* (README, USER_GUIDE, ARCHITECTURE, WEC_RACE_WEEK runbook,
+     this file): kept current; must never contain epic/PR status.
+   - *Frozen snapshot* (reviews, findings, direction/opinion docs): stamped
+     `> Snapshot as of YYYY-MM-DD — current status: BACKLOG.md` and NEVER edited after
+     the stamp. If reality diverges, the correction goes in BACKLOG.md, not the snapshot.
+3. **A decision = one commit** containing the decisions-log entry AND every affected epic
+   header/section in the same commit. Never log a decision without updating the sections
+   it supersedes (including adding snapshot banners to docs it obsoletes).
+4. **BACKLOG.md serialization: at most ONE open branch may touch BACKLOG.md.** If a
+   branch touching it is already open, new BACKLOG changes go on that branch — and its
+   PR title/body must be updated in the same session to cover the added scope. Never
+   silently grow someone's PR.
+5. **Docs branches merge same-day.** `docs/*` branches and any branch carrying a
+   decisions-log entry get PR'd and merged (or explicitly handed to the owner for merge)
+   in the session that created them. A stale docs branch is a sync bug by definition.
+6. **Never commit onto a branch with uncommitted changes you didn't make.** Surface the
+   dirty state to the owner; if work can't wait, use `git worktree add` for an isolated
+   checkout instead of sharing the dirty one.
+7. **Claude memory files point, never restate.** A memory entry about project status is
+   one line + a pointer to BACKLOG.md / a PR / a commit hash. Multi-line status
+   narratives in memory are how stale "awaiting review" claims survive.
+8. **Session-end sync check (before ending any session that merged or committed):**
+   BACKLOG.md status matches reality → PR body matches branch content → memory pointer
+   updated → snapshots obsoleted by today's work got their banner. Four checks, ~1 min.
+
 ## Important Notes
 - Real-time accuracy is critical (predictions must be reliable)
 - Visual/UX feedback matters (dashboard needs to be readable under pressure)
