@@ -85,6 +85,7 @@ function openDb() {
       )
       ORDER BY car_number, stop_number
     `);
+    console.log('[racenet] db opened:', DB_PATH);
     stmtRc = db.prepare(`
       SELECT ts, message FROM race_control
       WHERE session_oid = (
@@ -204,7 +205,13 @@ function queryAndSend() {
     if (rows.length > 0) {
       const pits = stmtPits ? stmtPits.all() : [];
       const rc   = stmtRc   ? stmtRc.all()   : [];
-      win.webContents.send('rows-update', buildPayload(rows, pits, rc));
+      const payload = buildPayload(rows, pits, rc);
+      if (!queryAndSend.logged) {
+        queryAndSend.logged = true;
+        console.log(`[racenet] first payload: ${rows.length} cars, ` +
+                    `${payload.classes.length} classes, flag=${payload.session.flag}`);
+      }
+      win.webContents.send('rows-update', payload);
     }
   } catch (err) {
     console.error('[racenet] query failed:', err.message);
