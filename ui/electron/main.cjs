@@ -68,6 +68,8 @@ function openDb() {
         na.catching,
         na.catch_in_laps,
         na.strategy_note,
+        na.next_stop_ms,
+        na.next_stop_std_ms,
         na.updated_at                   AS net_updated_at
       FROM standings_current s
       LEFT JOIN session_entry e
@@ -213,9 +215,18 @@ function buildPayload(rawRows, pitRows, rcRows, battleRows) {
       catching:         r.catching          || null,
       catchInLaps:      r.catch_in_laps     ?? null,
       strategyNote:     r.strategy_note     || null,
+      nextStopMs:       r.next_stop_ms      ?? null,
+      nextStopStdMs:    r.next_stop_std_ms  ?? null,
       netUpdatedAt:     r.net_updated_at    || null,
       pitEvents:        pitsBycar.get(r.car_number) ?? [],
     });
+  }
+
+  // add classLeaderStopsLeft per car (net P1 in that car's class)
+  for (const rows of classMap.values()) {
+    const leader = rows.find((r) => r.netPos === 1) ?? rows[0];
+    const leaderStops = leader?.stopsLeft ?? null;
+    for (const r of rows) r.classLeaderStopsLeft = leaderStops;
   }
 
   const classes = [...classMap.entries()]

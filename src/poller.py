@@ -145,6 +145,8 @@ class Poller:
             ("catching",        "TEXT"),
             ("catch_in_laps",   "REAL"),
             ("strategy_note",   "TEXT"),
+            ("next_stop_ms",    "REAL"),
+            ("next_stop_std_ms","REAL"),
         ]:
             if col not in cols:
                 conn.execute(f"ALTER TABLE net_analysis ADD COLUMN {col} {ddl}")
@@ -236,7 +238,9 @@ class Poller:
              getattr(c, 'fuel_due', None),
              getattr(c, 'catching', None),
              getattr(c, 'catch_in_laps', None),
-             getattr(c, 'strategy_note', None) or None)
+             getattr(c, 'strategy_note', None) or None,
+             getattr(c, 'next_stop_ms', None),
+             getattr(c, 'next_stop_std_ms', None))
             for c in cars
         ]
         conn.executemany("""
@@ -245,8 +249,9 @@ class Poller:
                class_gap_ms, laps_down,
                est_stops_left, penalty_s, penalty_note, owes_driver_change,
                net_settled, updated_at,
-               projected_finish, fuel_due, catching, catch_in_laps, strategy_note)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               projected_finish, fuel_due, catching, catch_in_laps, strategy_note,
+               next_stop_ms, next_stop_std_ms)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(session_oid, car_number) DO UPDATE SET
               net_position=excluded.net_position,
               net_gap_ms=excluded.net_gap_ms,
@@ -263,7 +268,9 @@ class Poller:
               fuel_due=excluded.fuel_due,
               catching=excluded.catching,
               catch_in_laps=excluded.catch_in_laps,
-              strategy_note=excluded.strategy_note""",
+              strategy_note=excluded.strategy_note,
+              next_stop_ms=excluded.next_stop_ms,
+              next_stop_std_ms=excluded.next_stop_std_ms""",
             rows)
         conn.commit()
 

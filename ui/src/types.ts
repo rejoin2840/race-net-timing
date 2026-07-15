@@ -31,6 +31,9 @@ export interface CarRow {
   catching: string | null;       // car number being caught
   catchInLaps: number | null;
   strategyNote: string | null;
+  nextStopMs: number | null;         // predicted next pit cost (ms)
+  nextStopStdMs: number | null;      // 1σ spread on next pit cost (ms)
+  classLeaderStopsLeft: number | null; // net P1's est_stops_left in this class
   netUpdatedAt: string | null;   // ISO timestamp — for stale-data guard
   pitEvents: PitEvent[];
 }
