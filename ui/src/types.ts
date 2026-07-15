@@ -19,6 +19,8 @@ export interface CarRow {
   netPos: number | null;
   netGapMs: number | null;
   netGapBandMs: number | null;
+  classGapMs: number | null; // gap to CLASS leader — preferred over raw gapMs
+  lapsDown: number | null;
   stopsLeft: number | null;
   penaltyS: number | null;
   penaltyNote: string | null;

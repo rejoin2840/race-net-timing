@@ -85,7 +85,14 @@ export default function DetailPanel({ car, classCode, spineColor, onClose }: Pro
       <div className="px-4 py-3 border-b border-border/40 space-y-2">
         <div className="text-[9px] uppercase tracking-wider text-muted-fg mb-2">Gap breakdown</div>
 
-        <Row label="On-track gap" value={fmtGapMs(car.gapMs, car.pos)} />
+        <Row
+          label="On-track gap"
+          value={
+            car.lapsDown && car.lapsDown > 0
+              ? `+${car.lapsDown} lap${car.lapsDown > 1 ? 's' : ''}`
+              : fmtGapMs(car.classGapMs ?? car.gapMs, car.pos)
+          }
+        />
 
         {hasNet && (
           <>

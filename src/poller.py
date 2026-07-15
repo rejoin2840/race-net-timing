@@ -13,10 +13,16 @@ from pathlib import Path
 from typing import Optional
 
 import calculator
-from timing_table import BOX_STATES
 
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "data" / "race.db"
+
+# Track-status buckets (engine-side home so this module stays Qt-free;
+# timing_table re-imports them for the display layer).
+# Broad (PIT_LANE_STATES) for the in-pit indicator; strict (BOX_STATES) for the
+# stationary-in-box timer.
+PIT_LANE_STATES = ("BOX", "IN_LAP", "OUT_LAP", "PIT", "STOPPED")
+BOX_STATES      = ("BOX", "PIT", "STOPPED")
 
 REFRESH_MS      = 2000   # DB poll / re-analyse cadence (ms)
 TREND_WINDOW_S  = 300    # compare net position to this many seconds ago
@@ -113,6 +119,8 @@ class Poller:
                 net_position       INTEGER,
                 net_gap_ms         REAL,
                 net_gap_band_ms    REAL,
+                class_gap_ms       REAL,
+                laps_down          INTEGER,
                 est_stops_left     INTEGER,
                 penalty_s          REAL,
                 penalty_note       TEXT,
@@ -121,12 +129,19 @@ class Poller:
                 updated_at         TEXT,
                 PRIMARY KEY (session_oid, car_number)
             )""")
+        # migrate tables created before class_gap_ms/laps_down existed
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(net_analysis)")}
+        if "class_gap_ms" not in cols:
+            conn.execute("ALTER TABLE net_analysis ADD COLUMN class_gap_ms REAL")
+        if "laps_down" not in cols:
+            conn.execute("ALTER TABLE net_analysis ADD COLUMN laps_down INTEGER")
 
     def _write_net_analysis(self, conn, oid: str, cars) -> None:
         now = datetime.now(timezone.utc).isoformat()
         rows = [
             (oid, c.car_number,
              c.net_position, c.net_gap_ms, c.net_gap_band_ms,
+             c.class_gap_ms, c.laps_down,
              c.est_stops_left, c.penalty_s, getattr(c, 'penalty_note', None),
              1 if getattr(c, 'owes_driver_change', False) else 0,
              1 if getattr(c, 'net_settled', False) else 0,
@@ -136,13 +151,16 @@ class Poller:
         conn.executemany("""
             INSERT INTO net_analysis
               (session_oid, car_number, net_position, net_gap_ms, net_gap_band_ms,
+               class_gap_ms, laps_down,
                est_stops_left, penalty_s, penalty_note, owes_driver_change,
                net_settled, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(session_oid, car_number) DO UPDATE SET
               net_position=excluded.net_position,
               net_gap_ms=excluded.net_gap_ms,
               net_gap_band_ms=excluded.net_gap_band_ms,
+              class_gap_ms=excluded.class_gap_ms,
+              laps_down=excluded.laps_down,
               est_stops_left=excluded.est_stops_left,
               penalty_s=excluded.penalty_s,
               penalty_note=excluded.penalty_note,

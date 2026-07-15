@@ -232,6 +232,8 @@ CREATE TABLE IF NOT EXISTS net_analysis (
     net_position      INTEGER,
     net_gap_ms        REAL,
     net_gap_band_ms   REAL,
+    class_gap_ms      REAL,      -- time gap to CLASS leader (what displays should show)
+    laps_down         INTEGER,   -- laps behind class leader
     est_stops_left    INTEGER,
     penalty_s         REAL,
     penalty_note      TEXT,

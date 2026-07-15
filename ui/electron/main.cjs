@@ -55,6 +55,8 @@ function openDb() {
         na.net_position,
         na.net_gap_ms,
         na.net_gap_band_ms,
+        na.class_gap_ms,
+        na.laps_down,
         na.est_stops_left,
         na.penalty_s,
         na.penalty_note,
@@ -110,8 +112,11 @@ function calcRemainingS(r) {
   if (!r.final_type) return null;
   if (r.session_finished) return 0;
   if (r.final_type === 'BY_TIME') {
-    const total = (r.final_time_s || 0) + (r.has_extra_time ? (r.extra_time_s || 0) : 0);
-    const elapsed = Math.max(0, Date.now() / 1000 - (r.start_time_s || 0) - (r.stopped_s || 0));
+    // no start_time_s = clock hasn't started yet (pre-race) — mirrors
+    // calculator.py, which only computes elapsed once start_time_s is set
+    if (!r.start_time_s || !r.final_time_s) return null;
+    const total = r.final_time_s + (r.has_extra_time ? (r.extra_time_s || 0) : 0);
+    const elapsed = Math.max(0, Date.now() / 1000 - r.start_time_s - (r.stopped_s || 0));
     return Math.max(0, total - elapsed);
   }
   return null; // BY_LAPS: use lap delta instead
@@ -165,6 +170,8 @@ function buildPayload(rawRows, pitRows, rcRows) {
       netPos:       r.net_position  ?? null,
       netGapMs:     r.net_gap_ms    ?? null,
       netGapBandMs: r.net_gap_band_ms ?? null,
+      classGapMs:   r.class_gap_ms  ?? null,
+      lapsDown:     r.laps_down     ?? null,
       stopsLeft:    r.est_stops_left ?? null,
       penaltyS:     r.penalty_s     ?? null,
       penaltyNote:  r.penalty_note  || null,

@@ -3,10 +3,15 @@ import type { CarRow as CarRowType } from '../types';
 const IN_PIT  = new Set(['BOX', 'PIT', 'STOPPED']);
 const OUT_LAP = new Set(['OUT_LAP', 'OUT']);
 
-function fmtGap(gapMs: number | null, pos: number): string {
-  if (pos === 1 || gapMs === null || gapMs === 0) return '—';
-  if (gapMs >= 600_000) return '+?L';
-  const s = gapMs / 1000;
+function fmtGap(row: CarRowType): string {
+  if (row.pos === 1) return '—';
+  if (row.lapsDown && row.lapsDown > 0) return `+${row.lapsDown}L`;
+  // class gap (from net_analysis) is gap to CLASS leader — the number that
+  // belongs in a per-class table. Raw feed gapMs (gap to OVERALL leader,
+  // 0 = lapped sentinel) is only a fallback before the Poller has run.
+  const g = row.classGapMs ?? row.gapMs;
+  if (g === null || g === 0) return '—';
+  const s = g / 1000;
   if (s < 60) return `+${s.toFixed(3)}`;
   const m = Math.floor(s / 60);
   const rem = (s % 60).toFixed(3).padStart(6, '0');
@@ -75,7 +80,7 @@ export default function CarRow({ row, index, spineColor, selected, onClick }: Pr
 
       {/* Gap */}
       <div className="w-20 shrink-0 text-right pr-3 font-body tabular-nums text-[11px] text-muted-fg">
-        {fmtGap(row.gapMs, row.pos)}
+        {fmtGap(row)}
       </div>
 
       {/* Stops */}

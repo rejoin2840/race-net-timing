@@ -1,4 +1,4 @@
-import type { CarRow, ClassGroup } from '../types';
+import type { CarRow as CarRowData, ClassGroup } from '../types';
 import CarRow from './CarRow';
 
 const CLASS_SPINE: Record<string, string> = {
@@ -13,7 +13,7 @@ const CLASS_SPINE: Record<string, string> = {
 interface Props {
   group: ClassGroup;
   selectedCar: string | null;
-  onSelectCar: (car: CarRow, classCode: string) => void;
+  onSelectCar: (car: CarRowData, classCode: string) => void;
 }
 
 export default function ClassSection({ group, selectedCar, onSelectCar }: Props) {
