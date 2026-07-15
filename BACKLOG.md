@@ -11,6 +11,37 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-14 — Epic 9 phase 1 closed: product definition answered (owner sign-off,
+  sounding-board session).** Five answers, all owner-approved:
+  1. **One screen.** The calm board is the app; the dense timing table stays an
+     escape-hatch window (`Timing ↗`); replay/eval remains a terminal workflow. Revisit
+     only if between-events replay study becomes a habit in its own right.
+  2. **Race-day only — confirmed**, not reopened (07-04 decision stands; race week
+     validated it: the SP capture + replay drove the whole calibration cycle with no
+     new UI).
+  3. **Solo-first.** Design for an audience of one who knows the app; friend keeps the
+     clone + setup.sh path. No onboarding/multi-user work ever. "Casually viewable
+     board" noted only as a minor thumb on the web-tech scale for phase 2.
+  4. **Broadcast-video "final boss" = phase-2 tiebreaker only.** Zero video work now,
+     but where stacks are otherwise close, pick the one that doesn't foreclose it.
+  5. **Identity sentence (grades every phase-2 choice):** *comprehension speed with
+     honest confidence signaling — measured in seconds to re-orient after stepping
+     away.* Prediction accuracy is explicitly NOT the edge (the 07-13 recalibration
+     agrees from the math side); "strategy learning lab" stays real but lives in the
+     replay/eval loop, outside the resident UI.
+  Direction reactions (mockup-level, feed phase 2): net cluster goes **fact-forward**
+  — facts (pos/gap/notes) lead the row, NET becomes a clearly-labeled trailing
+  projection column with tap-to-explain panel (explainability = the confidence
+  signaling made inspectable); ±band lives in the panel, not the row. WYWA story
+  card: ship the **collapsed** version first (stat header + per-class top-5 lines +
+  below-top-5 threats, retrospective narration only, never net projections); owner
+  expects to want the ranked expand eventually — planned second, and it cannot be
+  signed off before the next live race (event ranking has no evaluator; tabled
+  07-04 for exactly that reason). Phase 2 must also grade the web lean honestly:
+  PyQt6 just survived a live 6h race, and a web front end adds two runtimes to a
+  race-day tool — reliability-proven vs. iteration-speed is the real trade, not
+  aesthetics. Full option set + mockups archived in the phase-1 sounding-board
+  artifact (session 2026-07-14).
 - **2026-07-14 — WEC DC delta is ~5s at SP 2026, not 30-40s; the 07-05 claim is
   superseded.** With real driver-change labels finally flowing (record_driver wired
   into wec_live 07-13, PR #16), the fitted DC delta on the SP race capture is ~5.4s —
@@ -437,7 +468,7 @@ consume + display these new streams — see the 2026-07-04 decisions-log entry
 - **Gate for any code change:** `./check.sh` + `replay.py --stream` feel-test;
   evaluator report (`logs/stream_*.txt`) as the honesty check metrics didn't slip.
 
-### Epic 9 — Product definition + UI direction spike *(UNBLOCKED 2026-07-14 — race week over; gates all cosmetic UI work; NEXT UP)*
+### Epic 9 — Product definition + UI direction spike *(phase 1 ✅ 2026-07-14 — see decisions log; phase 2 NEXT UP; UI freeze holds until phase 2 decides)*
 
 **Open display bugs to fold into whatever direction wins (not blockers, inputs):**
 dashboard timing table drops the P1 row (found at FP1); WEC quali
