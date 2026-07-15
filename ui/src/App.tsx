@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import type { CarRow, RowsPayload } from './types';
+import type { CarRow, RcMessage, RowsPayload } from './types';
 import { MOCK_PAYLOAD } from './mock';
 import Board from './components/Board';
 import DetailPanel from './components/DetailPanel';
 
 const FLAG_LABEL: Record<string, string> = {
-  GF: 'GREEN', YF: 'YELLOW', FCY: 'FULL-COURSE YELLOW',
+  GF: 'GREEN', YF: 'YELLOW', FCY: 'FULL COURSE YELLOW',
   SC: 'SAFETY CAR', VSC: 'VIRTUAL SC', RF: 'RED FLAG', CH: 'CHECKERED',
 };
 const FLAG_COLOR: Record<string, string> = {
@@ -23,9 +23,27 @@ function fmtAge(ageS: number | null): string {
   return `${Math.round(ageS)}s ago`;
 }
 
+function fmtRemaining(s: number): string {
+  if (s <= 0) return 'FINISHED';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m remaining`;
+  if (m > 0) return `${m}m ${String(sec).padStart(2, '0')}s remaining`;
+  return `${sec}s remaining`;
+}
+
+function fmtRcAge(ts: number | null): string {
+  if (ts === null) return '';
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  return `${m}m ago`;
+}
+
 export default function App() {
-  const [payload, setPayload]       = useState<RowsPayload | null>(null);
-  const [selectedCar, setSelected]  = useState<{ car: CarRow; classCode: string } | null>(null);
+  const [payload, setPayload]      = useState<RowsPayload | null>(null);
+  const [selectedCar, setSelected] = useState<{ car: CarRow; classCode: string } | null>(null);
 
   useEffect(() => {
     if (window.racenet) {
@@ -48,7 +66,13 @@ export default function App() {
     }
   }, [payload]);
 
-  const { session } = payload ?? { session: { flag: null, lap: null, isRunning: false, ageS: null } };
+  const { session } = payload ?? {
+    session: { flag: null, lap: null, isRunning: false, ageS: null,
+               finalType: null, remainingS: null, finalLaps: null, isFinished: false },
+  };
+  const rcMessages: RcMessage[] = payload?.rcMessages ?? [];
+  const latestRc = rcMessages[0] ?? null;
+
   const flagColor = session.flag ? (FLAG_COLOR[session.flag] ?? '#374151') : '#374151';
   const flagLabel = session.flag ? (FLAG_LABEL[session.flag] ?? session.flag) : '—';
   const ageLabel  = fmtAge(session.ageS);
@@ -59,30 +83,61 @@ export default function App() {
 
   return (
     <div className="h-full flex flex-col bg-bg overflow-hidden">
-      {/* Header */}
+      {/* ── Header ── */}
       <header
-        className="flex items-center gap-4 px-4 py-2 border-b border-border shrink-0 transition-colors duration-500"
+        className="flex items-center gap-3 px-4 py-2 border-b border-border shrink-0 transition-colors duration-500"
         style={{ backgroundColor: flagColor + '33' }}
       >
+        {/* Flag badge */}
         <span
-          className="text-[10px] font-heading font-bold tracking-widest px-2 py-0.5 rounded"
+          className="text-[10px] font-heading font-bold tracking-widest px-2 py-0.5 rounded shrink-0"
           style={{ background: flagColor, color: '#fff' }}
         >
           {flagLabel}
         </span>
+
+        {/* Lap counter */}
         {session.lap !== null && (
-          <span className="font-heading font-bold text-sm text-fg/70">LAP {session.lap}</span>
+          <span className="font-heading font-bold text-sm text-fg/70 shrink-0">
+            LAP {session.lap}
+            {session.finalType === 'BY_LAPS' && session.finalLaps
+              ? ` / ${session.finalLaps}`
+              : ''}
+          </span>
         )}
-        <span className="ml-auto text-[10px] font-body text-muted-fg tabular-nums">{ageLabel}</span>
+
+        {/* Time remaining */}
+        {session.finalType === 'BY_TIME' && session.remainingS !== null && (
+          <span className="font-body text-[11px] text-fg/60 tabular-nums shrink-0">
+            {session.isFinished ? 'FINISHED' : fmtRemaining(session.remainingS)}
+          </span>
+        )}
+
+        {/* RC message ticker */}
+        {latestRc && (
+          <div className="flex items-center gap-2 flex-1 min-w-0 overflow-hidden">
+            <span className="text-[9px] font-heading font-bold tracking-widest text-amber-500/80 shrink-0 uppercase">
+              RC
+            </span>
+            <span className="text-[10px] font-body text-fg/50 truncate">
+              {latestRc.message}
+            </span>
+            <span className="text-[9px] text-muted-fg/50 shrink-0 tabular-nums">
+              {fmtRcAge(latestRc.ts)}
+            </span>
+          </div>
+        )}
+
+        <span className="ml-auto text-[10px] font-body text-muted-fg tabular-nums shrink-0">{ageLabel}</span>
         {!payload && (
-          <span className="text-[10px] text-muted-fg">waiting for data…</span>
+          <span className="text-[10px] text-muted-fg shrink-0">waiting for data…</span>
         )}
         {!window.racenet && (
-          <span className="text-[10px] text-amber-500/70 font-body">MOCK DATA</span>
+          <span className="text-[10px] text-amber-500/70 font-body shrink-0">MOCK DATA</span>
         )}
       </header>
 
-      {/* Body: board + optional detail panel */}
+      {/* ── Body: board + optional detail panel ── */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
         <div className="flex-1 min-w-0 overflow-y-auto thin-scrollbar">
           {payload ? (

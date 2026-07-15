@@ -32,14 +32,24 @@ export interface ClassGroup {
   rows: CarRow[];
 }
 
+export interface RcMessage {
+  ts: number | null;
+  message: string;
+}
+
 export interface RowsPayload {
   session: {
     flag: string | null;
     lap: number | null;
     isRunning: boolean;
     ageS: number | null;
+    finalType: 'BY_TIME' | 'BY_LAPS' | null;
+    remainingS: number | null;
+    finalLaps: number | null;
+    isFinished: boolean;
   };
   classes: ClassGroup[];
+  rcMessages: RcMessage[];
   updatedAt: number;
 }
 

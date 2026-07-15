@@ -7,7 +7,13 @@ const noNet = {
 };
 
 export const MOCK_PAYLOAD: RowsPayload = {
-  session: { flag: 'GF', lap: 23, isRunning: true, ageS: 1.2 },
+  session: { flag: 'GF', lap: 23, isRunning: true, ageS: 1.2,
+             finalType: 'BY_TIME', remainingS: 9252, finalLaps: null, isFinished: false },
+  rcMessages: [
+    { ts: Date.now() - 90000,  message: '#60 - Drive Through Penalty - Pit Lane Speeding' },
+    { ts: Date.now() - 420000, message: 'Full Course Yellow - Incident at Turn 5' },
+    { ts: Date.now() - 900000, message: 'Green Flag - Racing Resumed' },
+  ],
   classes: [
     {
       code: 'GTP',

@@ -16,10 +16,11 @@ const Database = require(
 // Class order mirrors timing_table.py CLASS_ORDER
 const CLASS_ORDER = ['GTP', 'HYPERCAR', 'LMP2', 'GTD PRO', 'LMGT3', 'GTD'];
 
-let win     = null;
-let db      = null;
-let stmt    = null;
+let win      = null;
+let db       = null;
+let stmt     = null;
 let stmtPits = null;
+let stmtRc   = null;
 
 function openDb() {
   if (db) return db;
@@ -42,6 +43,14 @@ function openDb() {
         ss.current_flag,
         CAST(ss.current_lap AS INTEGER) AS current_lap,
         ss.is_running                   AS session_running,
+        ss.is_finished                  AS session_finished,
+        ss.final_type,
+        ss.final_time_s,
+        ss.final_laps,
+        ss.start_time_s,
+        ss.stopped_s,
+        ss.has_extra_time,
+        ss.extra_time_s,
         ss.updated_at                   AS session_updated_at,
         na.net_position,
         na.net_gap_ms,
@@ -74,6 +83,13 @@ function openDb() {
       )
       ORDER BY car_number, stop_number
     `);
+    stmtRc = db.prepare(`
+      SELECT ts, message FROM race_control
+      WHERE session_oid = (
+        SELECT session_oid FROM session_status ORDER BY updated_at DESC LIMIT 1
+      )
+      ORDER BY ts DESC, rowid DESC LIMIT 5
+    `);
     return db;
   } catch (err) {
     console.error('[racenet] DB open failed:', err.message);
@@ -90,7 +106,18 @@ function ageSeconds(updatedAt) {
   } catch { return null; }
 }
 
-function buildPayload(rawRows, pitRows) {
+function calcRemainingS(r) {
+  if (!r.final_type) return null;
+  if (r.session_finished) return 0;
+  if (r.final_type === 'BY_TIME') {
+    const total = (r.final_time_s || 0) + (r.has_extra_time ? (r.extra_time_s || 0) : 0);
+    const elapsed = Math.max(0, Date.now() / 1000 - (r.start_time_s || 0) - (r.stopped_s || 0));
+    return Math.max(0, total - elapsed);
+  }
+  return null; // BY_LAPS: use lap delta instead
+}
+
+function buildPayload(rawRows, pitRows, rcRows) {
   // index pit events by car_number for O(1) lookup
   const pitsBycar = new Map();
   for (const p of (pitRows || [])) {
@@ -103,17 +130,24 @@ function buildPayload(rawRows, pitRows) {
     });
   }
 
+  const rcMessages = (rcRows || []).map(r => ({ ts: r.ts, message: r.message }));
+
   const classMap = new Map();
-  let session = { flag: null, lap: null, isRunning: false, ageS: null };
+  let session = { flag: null, lap: null, isRunning: false, ageS: null,
+                  finalType: null, remainingS: null, finalLaps: null, isFinished: false };
   let sessionRead = false;
 
   for (const r of rawRows) {
     if (!sessionRead && r.session_updated_at) {
       session = {
-        flag:      r.current_flag  || null,
-        lap:       r.current_lap   ?? null,
-        isRunning: Boolean(r.session_running),
-        ageS:      ageSeconds(r.session_updated_at),
+        flag:       r.current_flag  || null,
+        lap:        r.current_lap   ?? null,
+        isRunning:  Boolean(r.session_running),
+        ageS:       ageSeconds(r.session_updated_at),
+        finalType:  r.final_type    || null,
+        remainingS: calcRemainingS(r),
+        finalLaps:  r.final_laps    ?? null,
+        isFinished: Boolean(r.session_finished),
       };
       sessionRead = true;
     }
@@ -151,7 +185,7 @@ function buildPayload(rawRows, pitRows) {
     })
     .map(([code, rows]) => ({ code, rows }));
 
-  return { session, classes, updatedAt: Date.now() };
+  return { session, classes, rcMessages, updatedAt: Date.now() };
 }
 
 function queryAndSend() {
@@ -162,7 +196,8 @@ function queryAndSend() {
     const rows = stmt.all();
     if (rows.length > 0) {
       const pits = stmtPits ? stmtPits.all() : [];
-      win.webContents.send('rows-update', buildPayload(rows, pits));
+      const rc   = stmtRc   ? stmtRc.all()   : [];
+      win.webContents.send('rows-update', buildPayload(rows, pits, rc));
     }
   } catch (err) {
     console.error('[racenet] query failed:', err.message);
@@ -170,6 +205,7 @@ function queryAndSend() {
     db       = null;
     stmt     = null;
     stmtPits = null;
+    stmtRc   = null;
   }
 }
 

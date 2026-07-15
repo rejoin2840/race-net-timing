@@ -28,7 +28,10 @@ export default function CarRow({ row, index, spineColor, selected, onClick }: Pr
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onClick()}
       className={`flex items-center h-9 border-b border-border/40 cursor-pointer transition-colors
         ${selected
           ? 'bg-primary/10 border-l-2'
