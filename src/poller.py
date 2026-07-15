@@ -1,0 +1,191 @@
+"""
+poller.py — DB polling and live-event tracking (engine-side, no UI imports).
+
+Extracted from dashboard.py so the data layer can be used by both the PyQt6
+display (dashboard.py / dashboard_calm.py) and the upcoming Electron web UI
+without pulling in any Qt dependencies.
+"""
+
+import sqlite3
+from collections import deque
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+import calculator
+from timing_table import BOX_STATES
+
+ROOT = Path(__file__).resolve().parent.parent
+DB_PATH = ROOT / "data" / "race.db"
+
+REFRESH_MS      = 2000   # DB poll / re-analyse cadence (ms)
+TREND_WINDOW_S  = 300    # compare net position to this many seconds ago
+TREND_MIN_AGE_S = 45     # need at least this much history before showing a trend arrow
+STALE_AFTER_S   = 12     # data older than this → flagged stale
+MAX_DELAY_S     = 120    # max broadcast-delay offset the UI can buffer
+
+
+class Poller:
+    def __init__(self, force_oid: Optional[str] = None, series: Optional[str] = None):
+        # when set, always read this session instead of latest_session() — pins the
+        # view to e.g. a replay 'stream' so a concurrent live scraper can't steal it
+        self.force_oid = force_oid
+        # when set (and force_oid isn't), scopes latest_session() to one series so a
+        # live session for one series can't be pre-empted by a newer session in the same DB
+        self.series = series
+        self.conn: Optional[sqlite3.Connection] = None
+        self.hist: dict[str, deque] = {}
+        self.buffer: deque = deque()        # (capture_ts, snapshot) for broadcast delay
+        self.latest_ts: Optional[float] = None
+        self.latest_age: Optional[float] = None
+        # raw analyse output of the most recent fetch (for prediction logging)
+        self.last_ctx = None
+        self.last_cars = None
+        self.last_oid: Optional[str] = None
+        # live-event tracking (updated on every fetch against real-time data)
+        self.box_since:     dict[str, float] = {}  # car → ts entered box
+        self.prev_stops:    dict[str, int]   = {}  # car → last known stop count
+        self.prev_net:      dict[str, int]   = {}  # car → net_pos from previous cycle
+        self.just_pitted_ts: dict[str, float] = {} # car → ts stop count incremented
+        self.pit_before_net: dict[str, int]  = {}  # net pos the cycle before the stop
+        self.pit_delta_ts:  dict[str, float] = {}  # when delta was recorded (expires 2m)
+        self.window_locked: set[str]         = set() # cars whose pit window is latched open
+
+    def _connect(self):
+        if self.conn is None and DB_PATH.exists():
+            self.conn = sqlite3.connect(str(DB_PATH))
+            self.conn.row_factory = sqlite3.Row
+            self.conn.execute("PRAGMA busy_timeout=5000")   # ride out scraper write locks
+        return self.conn
+
+    def trend_for(self, car: str, net: Optional[int]) -> int:
+        if net is None:
+            return 0
+        now = datetime.now().timestamp()
+        dq = self.hist.setdefault(car, deque())
+        dq.append((now, net))
+        while dq and now - dq[0][0] > TREND_WINDOW_S:
+            dq.popleft()
+        ref_ts, ref_net = dq[0]
+        if now - ref_ts < TREND_MIN_AGE_S:
+            return 0
+        return 1 if ref_net > net else -1 if ref_net < net else 0
+
+    def poll(self, delay_s: int = 0):
+        """Fetch the latest snapshot into the buffer and return the one to display.
+
+        With delay_s>0 we return the snapshot captured ~delay_s ago, so the whole
+        screen matches a delayed broadcast (YouTube stream lag). Real feed health is
+        tracked separately via latest_ts/latest_age so 'live/stale' stays honest.
+        """
+        snap = self._fetch()
+        now = datetime.now().timestamp()
+        if snap is not None:
+            self.buffer.append((now, snap))
+            self.latest_ts = now
+            self.latest_age = snap[3]                       # real age at capture
+        while self.buffer and now - self.buffer[0][0] > MAX_DELAY_S + 10:
+            self.buffer.popleft()
+        if not self.buffer:
+            return None
+        if delay_s <= 0:
+            return self.buffer[-1][1]
+        target = now - delay_s
+        chosen = self.buffer[0][1]                          # oldest we have, if not enough history
+        for ts, s in self.buffer:
+            if ts <= target:
+                chosen = s
+            else:
+                break
+        return chosen
+
+    def real_age(self) -> Optional[float]:
+        """Age of the freshest data relative to now (independent of display delay)."""
+        if self.latest_ts is None or self.latest_age is None:
+            return None
+        return self.latest_age + (datetime.now().timestamp() - self.latest_ts)
+
+    def _fetch(self):
+        """Return (ctx, rows, rc_messages, age_s) or None if no data yet.
+
+        Tolerant by design: the DB may not exist, be mid-initialisation, or be
+        momentarily locked — any of those just means 'no data yet', never a crash.
+        """
+        try:
+            conn = self._connect()
+            if conn is None:
+                return None
+            oid = self.force_oid or calculator.latest_session(conn, series=self.series)
+            if not oid:
+                return None
+            ctx, cars = calculator.analyse(conn, oid)
+            self.last_ctx, self.last_cars, self.last_oid = ctx, cars, oid
+            now = datetime.now().timestamp()
+            self._update_tracking(cars, now)
+            # compute trend on the real timeline now; rows are built at display time
+            trend_map = {c.car_number: self.trend_for(c.car_number, c.net_position)
+                         for c in cars}
+            rc = conn.execute(
+                """SELECT ts, message FROM race_control WHERE session_oid=?
+                     ORDER BY ts DESC, rowid DESC LIMIT 50""", (oid,)).fetchall()
+            age = self._data_age(conn, oid)
+            return ctx, cars, rc, age, trend_map
+        except sqlite3.Error:
+            # stale/empty DB handle → drop it so the next tick reconnects cleanly
+            try:
+                if self.conn is not None:
+                    self.conn.close()
+            except sqlite3.Error:
+                pass
+            self.conn = None
+            return None
+
+    def _update_tracking(self, cars, now: float):
+        """Maintain in-box timers and just-pitted signals against live (undelayed) data."""
+        for c in cars:
+            car = c.car_number
+            # timer only runs while genuinely stopped in the box, not during the
+            # in-lap / out-lap pit-lane transit (which crawls under yellow).
+            in_box = (c.track_status or "") in BOX_STATES
+
+            # box entry / exit
+            if in_box and car not in self.box_since:
+                self.box_since[car] = now
+            elif not in_box:
+                self.box_since.pop(car, None)
+
+            # just-pitted detection: stop count increased AND car was seen in box.
+            # The feed sometimes flickers pits+1 at S/F lap registration — requiring
+            # a prior box_since entry filters those phantom increments out.
+            cur = c.stops or 0
+            prev = self.prev_stops.get(car)
+            if prev is not None and cur > prev and car in self.box_since:
+                self.just_pitted_ts[car] = now
+                if car in self.prev_net:
+                    self.pit_before_net[car] = self.prev_net[car]
+                self.pit_delta_ts[car] = now
+                self.window_locked.discard(car)   # reset latch after a stop
+            self.prev_stops[car] = cur
+            self.prev_net[car] = c.net_position or 99
+
+            # hysteresis: once window opens, keep it latched until next stop
+            if c.pit_window_open:
+                self.window_locked.add(car)
+
+        # expire just-pitted flash after 45s; expire delta display after 2 min
+        self.just_pitted_ts = {k: v for k, v in self.just_pitted_ts.items()
+                               if now - v < 45}
+        self.pit_delta_ts   = {k: v for k, v in self.pit_delta_ts.items()
+                               if now - v < 120}
+
+    def _data_age(self, conn, oid) -> Optional[float]:
+        row = conn.execute(
+            "SELECT MAX(updated_at) FROM standings_current WHERE session_oid=?",
+            (oid,)).fetchone()
+        if not row or not row[0]:
+            return None
+        try:
+            ts = datetime.fromisoformat(row[0].replace("Z", "+00:00"))
+            return (datetime.now(timezone.utc) - ts).total_seconds()
+        except Exception:
+            return None

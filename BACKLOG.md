@@ -11,6 +11,20 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-14 — Epic 9 phase 2 closed: web tech direction decided (Electron + React +
+  Vite + Tailwind). UI freeze lifted.** F1OpenViewer steal-audit (MIT) completed —
+  design-language finds: Rajdhani + Space Grotesk fonts, HSL CSS-variable palette, 36px
+  row pattern with 4px team-color spine, framer-motion for transitions. Sync engine
+  (`useSyncEngine.ts`, ~150 lines MIT) is the blueprint for the broadcast-video north
+  star. Decision: move display layer to Electron/React; Python data engine (calculator +
+  SQLite WAL) unaffected. Trade weighed honestly — PyQt6 survived the 6H São Paulo race
+  (reliability-proven) vs. web (every look owner likes, tap-to-explain panel trivial,
+  iteration speed). Electron reliability not a meaningful risk (VS Code, Slack). First
+  commit (Poller extraction to `src/poller.py`) landed same session, 118 tests green.
+  Epic 9 sequence: ① Poller extraction ✅ → ② Electron scaffold + IPC bridge → ③
+  tap-to-explain panel → ④ net cluster fact-forward. Open display bugs (P1 row drop,
+  WEC quali ordering) fold into whichever commit touches their area.
+
 - **2026-07-14 — Epic 9 phase 1 closed: product definition answered (owner sign-off,
   sounding-board session).** Five answers, all owner-approved:
   1. **One screen.** The calm board is the app; the dense timing table stays an
@@ -468,7 +482,7 @@ consume + display these new streams — see the 2026-07-04 decisions-log entry
 - **Gate for any code change:** `./check.sh` + `replay.py --stream` feel-test;
   evaluator report (`logs/stream_*.txt`) as the honesty check metrics didn't slip.
 
-### Epic 9 — Product definition + UI direction spike *(phase 1 ✅ 2026-07-14 — see decisions log; phase 2 NEXT UP; UI freeze holds until phase 2 decides)*
+### Epic 9 — Product definition + UI direction spike *(✅ both phases closed 2026-07-14 — see decisions log; direction = Electron/React/Tailwind; UI freeze LIFTED)*
 
 **Open display bugs to fold into whatever direction wins (not blockers, inputs):**
 dashboard timing table drops the P1 row (found at FP1); WEC quali
