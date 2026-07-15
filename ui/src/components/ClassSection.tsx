@@ -42,6 +42,7 @@ export default function ClassSection({ group, selectedCar, onSelectCar }: Props)
         <div className="w-20 shrink-0 text-right pr-1">Gap</div>
         <div className="w-10 shrink-0 text-center">Stops</div>
         <div className="w-14 shrink-0 text-center">Status</div>
+        <div className="w-10 shrink-0 text-center text-primary/70">NET~</div>
       </div>
 
       {/* Rows */}

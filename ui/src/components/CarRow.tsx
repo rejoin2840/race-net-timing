@@ -92,6 +92,29 @@ export default function CarRow({ row, index, spineColor, selected, onClick }: Pr
           </span>
         ) : null}
       </div>
+
+      {/* Net position */}
+      <NetCell pos={row.pos} netPos={row.netPos} settled={row.netSettled} />
+    </div>
+  );
+}
+
+function NetCell({ pos, netPos, settled }: { pos: number; netPos: number | null; settled: boolean }) {
+  if (netPos === null) {
+    return <div className="w-10 shrink-0 text-center text-muted-fg/20 text-[10px]">—</div>;
+  }
+  const delta = pos - netPos; // positive = gaining (net ahead of track)
+  const colorClass = settled
+    ? 'text-muted-fg/40'
+    : delta > 0
+    ? 'text-emerald-400'
+    : delta < 0
+    ? 'text-rose-400'
+    : 'text-muted-fg/60';
+
+  return (
+    <div className={`w-10 shrink-0 text-center tabular-nums font-heading font-bold text-[11px] ${colorClass}`}>
+      {delta > 0 ? '▲' : delta < 0 ? '▼' : ''}{netPos}
     </div>
   );
 }
