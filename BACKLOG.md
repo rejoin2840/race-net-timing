@@ -11,6 +11,18 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-15 — Epic 10 scoped: web board content migration (owner call, same
+  session as the Epic 9 merge).** Trigger: owner compared the shipped web UI v1
+  against the phase-1 sounding-board mockups and asked why they look unrelated.
+  Honest audit: the mockups' *decisions* shipped faithfully (Option C fact-forward
+  NET trailing column, tap-to-explain panel, settled-dimming, ±band in panel not
+  row) and the visual skin was the approved F1OpenViewer language — but v1 is
+  scaffolding, not the phase-1 board: **no right rail, no WYWA, no Notes column**,
+  and the panel lacks the sketch's leader-remaining comparison and per-stop cost
+  estimates. Epic 10 (below) captures that gap as acceptance criteria so it can't
+  get lost. Lesson logged: ship summaries must say "foundation, N% of the target"
+  when that's what it is.
+
 - **2026-07-15 — Epic 9 execution shipped and merged: web UI v1 on main.** The full
   planned sequence landed on `feature/epic9-web-direction` (7 commits): ① Poller
   extraction → ② Electron/React/Tailwind scaffold (browser mock mode included) → ③
@@ -503,10 +515,8 @@ dashboard timing table drops the P1 row (found at FP1); WEC quali
 `session_type="SESSION"` ordering; screen-lock freeze fix shipped (PR #9) but watch
 next event's log for "table rebuild:" lines.
 
-**Web UI v1 known-nexts (not started):** stale-data guard (grey NET column when
-`net_analysis.updated_at` goes old while raw standings stay fresh); replay-mode
-header clock uses `start_time_s` (capture-clock gotcha — wrong during replays);
-prove the web board at a live event before it can replace PyQt6 on race day.
+**Web UI v1 known-nexts:** promoted into **Epic 10** (scoped 07-15) along with the
+full mockup-vs-shipped gap list — see that section.
 
 owner (2026-07-04): research and decide before investing more in UI code — "do it
 right the first time." Two phases, one spike; phase 1 feeds phase 2.
@@ -592,6 +602,35 @@ web-tech — weigh honestly, decide once.
 
 **Output:** a decision-log entry + a scoped plan for the chosen direction.
 Until then: cosmetic UI work frozen (see 07-04 decision).
+
+### Epic 10 — Web board content migration *(scoped 2026-07-15, not started)*
+
+Close the gap between web UI v1 (scaffolding + two mockup-validated patterns) and
+the phase-1 board the sounding-board mockups describe. Everything graded on the
+Epic 9 identity metric: **seconds to re-orient after stepping away**.
+
+**Acceptance criteria (the gap list, owner-acknowledged 07-15):**
+1. **Right rail** — Battles, Projected Podium, RACE CONTROL list, DUE TO PIT,
+   Race-at-a-Glance, migrated from the calm board ("keepers — migrated as-is",
+   ▲/▼ glyph rule from 07-04 in force). The header RC ticker (Epic 9 ⑤) is a
+   stopgap, not the rail.
+2. **WYWA catch-up card** — collapsed story card first (stat header + per-class
+   event budget). ⚠ Sequencing dependency from the phase-1 doc: the ranked
+   expand/timeline has no evaluator and **cannot be signed off before the next
+   live event** — build collapsed card, defer the expand.
+3. **Notes column** — "1 stop in hand" / "undercut live" strategy notes in the
+   row's first read, per the Option C mockup.
+4. **Panel completeness** — add leader-remaining comparison and per-stop cost
+   estimates (~Ns ± band) to the tap-to-explain panel, per the Option B/C sketch.
+5. **Trust plumbing (carried from Epic 9 known-nexts):** stale-data guard (grey
+   NET when `net_analysis.updated_at` ages while standings stay fresh); replay
+   header clock fix (`start_time_s` capture-clock gotcha).
+6. **Exit test:** run the web board alongside PyQt6 at the next live event.
+   PyQt6 remains the race-day display until the web board passes that parity
+   trial — no earlier switch, whatever it looks like.
+
+Non-goals: broadcast-video work (still tiebreaker-parked), multi-user anything,
+dense-timing-table port (stays a PyQt6 escape hatch until proven needed).
 
 ## Research items (unscheduled)
 
