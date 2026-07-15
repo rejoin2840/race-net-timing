@@ -28,6 +28,16 @@ Run `./setup.sh` from the project folder. It creates the Python environment and 
 ```
 Or double-click **Overcut.app** in the project folder (Mac only; only works at the original path).
 
+### The web board (new — preview)
+There's also a browser-style version of the board with a couple of extras:
+**click any car** to open a side panel explaining its net position (the real gap,
+what its remaining stops cost, any penalty it's carrying, and its full pit-stop
+history), plus a NET column on every row.
+
+It needs a one-time extra setup step — see [ui/README.md](ui/README.md) for the
+recipe. For race day, stick with the PyQt6 dashboard above: it has survived full
+live races; the web board hasn't yet.
+
 ---
 
 ## Picking a session

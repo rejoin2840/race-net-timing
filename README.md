@@ -72,6 +72,13 @@ After first setup, launch directly:
 ./venv/bin/python src/dashboard.py
 ```
 
+### Web UI (new, 2026-07-15)
+A second display layer — Electron + React — lives in `ui/`. Same engine, same
+database; adds a tap-to-explain panel (click any car for its net-math breakdown
+and pit history) and a NET projection column. Setup and run recipe:
+[ui/README.md](ui/README.md). The PyQt6 dashboard remains the reliability-proven
+race-day display until the web board earns that trust at a live event.
+
 ### Try it immediately (no live race needed)
 Two complete IMSA sprint-race archives are included in `sample-archives/` (Long Beach 2026 · Detroit 2026). To load one: launch the dashboard, click **Session** in the top-left header, choose **IMSA → Replay**, and select a file from `sample-archives/`.
 
@@ -110,8 +117,11 @@ sets** — truncated ones skew the numbers.
 
 ```
 adapters (alkameldp / wec_live / replay)  →  SQLite data/race.db
-    →  calculator.analyse()  (pure, read-only math; hot-reloads config.json)
-    →  PyQt6 dashboards (dashboard_calm = main; dashboard = dense table)
+    →  calculator.analyse()  (pure math; hot-reloads config.json)
+    →  poller.py  (Qt-free polling loop; writes net_analysis back to the DB)
+    ├──→  PyQt6 dashboards (dashboard_calm = main; dashboard = dense table)
+    ├──→  Electron/React web UI (ui/ — reads the DB readonly; net math via
+    │     net_analysis, populated by a dashboard or src/poller_daemon.py)
     →  predictor → evaluator → validate_races  (the accuracy loop)
 ```
 
