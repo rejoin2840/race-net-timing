@@ -71,11 +71,23 @@ export default function CarRow({ row, index, spineColor, selected, onClick }: Pr
         <div className="font-heading font-bold text-[13px] tracking-wide truncate leading-none">
           {row.driver || row.car}
         </div>
-        {row.team && (
-          <div className="text-[10px] text-muted-fg font-body truncate leading-none mt-0.5">
-            {row.team}
-          </div>
-        )}
+        <div className="flex items-center gap-1.5 leading-none mt-0.5">
+          {row.team && (
+            <span className="text-[10px] text-muted-fg font-body truncate">
+              {row.team}
+            </span>
+          )}
+          {row.strategyNote && (
+            <span className="text-[9px] text-amber-400/70 font-body truncate shrink-0 max-w-[160px]">
+              {row.strategyNote}
+            </span>
+          )}
+          {!row.strategyNote && row.fuelDue === 'due' && (
+            <span className="text-[9px] text-orange-400/80 font-body shrink-0">
+              pit due
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Gap */}
