@@ -11,6 +11,34 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-15 — Epic 9 execution shipped and merged: web UI v1 on main.** The full
+  planned sequence landed on `feature/epic9-web-direction` (7 commits): ① Poller
+  extraction → ② Electron/React/Tailwind scaffold (browser mock mode included) → ③
+  tap-to-explain panel (net-math breakdown + pit history) → ④ NET trailing column
+  (▲/▼ by direction, dim when settled) → ⑤ session clock + RC ticker → ⑥ pre-merge
+  review pass (5 defects: Qt leaking into poller via timing_table, per-class tables
+  showing overall-leader gaps, pre-race clock showing FINISHED, Electron listener
+  leak, TS duplicate-identifier) → ⑦ `poller_daemon.py` + Electron path proven on
+  real São Paulo data (35 cars over IPC). Architecture: Python engine writes
+  `net_analysis` (Poller side-effect; daemon or PyQt6 dashboard), Electron reads
+  SQLite readonly. The PyQt6 dashboard remains the reliability-proven race-day
+  display until the web UI earns that trust at a live event; open PyQt6-side bugs
+  (P1 row drop, WEC quali `SESSION` ordering) stay open under Epic 9 inputs.
+
+- **2026-07-14 — Epic 9 phase 2 closed: web tech direction decided (Electron + React +
+  Vite + Tailwind). UI freeze lifted.** F1OpenViewer steal-audit (MIT) completed —
+  design-language finds: Rajdhani + Space Grotesk fonts, HSL CSS-variable palette, 36px
+  row pattern with 4px team-color spine, framer-motion for transitions. Sync engine
+  (`useSyncEngine.ts`, ~150 lines MIT) is the blueprint for the broadcast-video north
+  star. Decision: move display layer to Electron/React; Python data engine (calculator +
+  SQLite WAL) unaffected. Trade weighed honestly — PyQt6 survived the 6H São Paulo race
+  (reliability-proven) vs. web (every look owner likes, tap-to-explain panel trivial,
+  iteration speed). Electron reliability not a meaningful risk (VS Code, Slack). First
+  commit (Poller extraction to `src/poller.py`) landed same session, 118 tests green.
+  Epic 9 sequence: ① Poller extraction ✅ → ② Electron scaffold + IPC bridge → ③
+  tap-to-explain panel → ④ net cluster fact-forward. Open display bugs (P1 row drop,
+  WEC quali ordering) fold into whichever commit touches their area.
+
 - **2026-07-14 — Epic 9 phase 1 closed: product definition answered (owner sign-off,
   sounding-board session).** Five answers, all owner-approved:
   1. **One screen.** The calm board is the app; the dense timing table stays an
@@ -468,12 +496,17 @@ consume + display these new streams — see the 2026-07-04 decisions-log entry
 - **Gate for any code change:** `./check.sh` + `replay.py --stream` feel-test;
   evaluator report (`logs/stream_*.txt`) as the honesty check metrics didn't slip.
 
-### Epic 9 — Product definition + UI direction spike *(phase 1 ✅ 2026-07-14 — see decisions log; phase 2 NEXT UP; UI freeze holds until phase 2 decides)*
+### Epic 9 — Product definition + UI direction spike *(✅ CLOSED — spike 07-14, execution shipped+merged 07-15; see decisions log. Web UI v1 lives in `ui/`, run recipe in `ui/README.md`)*
 
-**Open display bugs to fold into whatever direction wins (not blockers, inputs):**
+**Open display bugs (PyQt6 side, still open):**
 dashboard timing table drops the P1 row (found at FP1); WEC quali
 `session_type="SESSION"` ordering; screen-lock freeze fix shipped (PR #9) but watch
 next event's log for "table rebuild:" lines.
+
+**Web UI v1 known-nexts (not started):** stale-data guard (grey NET column when
+`net_analysis.updated_at` goes old while raw standings stay fresh); replay-mode
+header clock uses `start_time_s` (capture-clock gotcha — wrong during replays);
+prove the web board at a live event before it can replace PyQt6 on race day.
 
 owner (2026-07-04): research and decide before investing more in UI code — "do it
 right the first time." Two phases, one spike; phase 1 feeds phase 2.

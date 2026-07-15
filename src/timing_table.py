@@ -29,11 +29,9 @@ AMBER     = "#FFB454"
 RED       = "#FF6B78"
 GREEN     = "#3DDC97"
 
-# Pit-lane state sets — shared by the row builders and Poller in dashboard.py.
-# Broad (PIT_LANE_STATES) for the in-pit indicator; strict (BOX_STATES) for the
-# stop timer so in/out-lap transit doesn't inflate the "In pits" clock.
-PIT_LANE_STATES = ("BOX", "IN_LAP", "OUT_LAP", "PIT", "STOPPED")
-BOX_STATES      = ("BOX", "PIT", "STOPPED")
+# Pit-lane state sets live in poller.py (engine-side, Qt-free) so headless
+# consumers never pull in PyQt6; re-exported here for existing display callers.
+from poller import PIT_LANE_STATES, BOX_STATES
 
 # Module-level IMSA defaults — re-exported for backward compat. Callers that
 # have a live RaceContext should pass ctx.profile to the row builders instead.
