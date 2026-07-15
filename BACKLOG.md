@@ -603,7 +603,7 @@ web-tech — weigh honestly, decide once.
 **Output:** a decision-log entry + a scoped plan for the chosen direction.
 Until then: cosmetic UI work frozen (see 07-04 decision).
 
-### Epic 10 — Web board content migration *(scoped 2026-07-15, not started)*
+### Epic 10 — Web board content migration *(scoped 2026-07-15, PR #24 open — Fable review pending)*
 
 Close the gap between web UI v1 (scaffolding + two mockup-validated patterns) and
 the phase-1 board the sounding-board mockups describe. Everything graded on the
