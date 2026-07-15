@@ -1,3 +1,10 @@
+export interface PitEvent {
+  stop: number;
+  lap: number | null;
+  flag: string | null;
+  durationMs: number | null;
+}
+
 export interface CarRow {
   car: string;
   pos: number;
@@ -8,6 +15,16 @@ export interface CarRow {
   trackStatus: string | null;
   stops: number;
   isRunning: boolean;
+  // net analysis (null when Poller hasn't run yet)
+  netPos: number | null;
+  netGapMs: number | null;
+  netGapBandMs: number | null;
+  stopsLeft: number | null;
+  penaltyS: number | null;
+  penaltyNote: string | null;
+  owesDC: boolean;
+  netSettled: boolean;
+  pitEvents: PitEvent[];
 }
 
 export interface ClassGroup {

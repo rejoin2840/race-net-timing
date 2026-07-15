@@ -16,9 +16,10 @@ const Database = require(
 // Class order mirrors timing_table.py CLASS_ORDER
 const CLASS_ORDER = ['GTP', 'HYPERCAR', 'LMP2', 'GTD PRO', 'LMGT3', 'GTD'];
 
-let win = null;
-let db  = null;
-let stmt = null;
+let win     = null;
+let db      = null;
+let stmt    = null;
+let stmtPits = null;
 
 function openDb() {
   if (db) return db;
@@ -41,18 +42,37 @@ function openDb() {
         ss.current_flag,
         CAST(ss.current_lap AS INTEGER) AS current_lap,
         ss.is_running                   AS session_running,
-        ss.updated_at                   AS session_updated_at
+        ss.updated_at                   AS session_updated_at,
+        na.net_position,
+        na.net_gap_ms,
+        na.net_gap_band_ms,
+        na.est_stops_left,
+        na.penalty_s,
+        na.penalty_note,
+        na.owes_driver_change,
+        na.net_settled
       FROM standings_current s
       LEFT JOIN session_entry e
         ON e.session_oid = s.session_oid
        AND e.car_number  = s.car_number
       LEFT JOIN session_status ss
         ON ss.session_oid = s.session_oid
+      LEFT JOIN net_analysis na
+        ON na.session_oid = s.session_oid
+       AND na.car_number  = s.car_number
       WHERE s.session_oid = (
         SELECT session_oid FROM session_status
         ORDER BY updated_at DESC LIMIT 1
       )
       ORDER BY s.car_class, CAST(s.pos_in_class AS INTEGER)
+    `);
+    stmtPits = db.prepare(`
+      SELECT car_number, stop_number, pit_lap, flag, stop_duration_ms
+      FROM pit_events
+      WHERE session_oid = (
+        SELECT session_oid FROM session_status ORDER BY updated_at DESC LIMIT 1
+      )
+      ORDER BY car_number, stop_number
     `);
     return db;
   } catch (err) {
@@ -70,7 +90,19 @@ function ageSeconds(updatedAt) {
   } catch { return null; }
 }
 
-function buildPayload(rawRows) {
+function buildPayload(rawRows, pitRows) {
+  // index pit events by car_number for O(1) lookup
+  const pitsBycar = new Map();
+  for (const p of (pitRows || [])) {
+    if (!pitsBycar.has(p.car_number)) pitsBycar.set(p.car_number, []);
+    pitsBycar.get(p.car_number).push({
+      stop:     p.stop_number,
+      lap:      p.pit_lap      ?? null,
+      flag:     p.flag         || null,
+      durationMs: p.stop_duration_ms ?? null,
+    });
+  }
+
   const classMap = new Map();
   let session = { flag: null, lap: null, isRunning: false, ageS: null };
   let sessionRead = false;
@@ -87,15 +119,24 @@ function buildPayload(rawRows) {
     }
     if (!classMap.has(r.class_code)) classMap.set(r.class_code, []);
     classMap.get(r.class_code).push({
-      car:         r.car_number,
-      pos:         r.pos,
-      driver:      r.driver,
-      team:        r.team,
-      gapMs:       r.gap_ms  ?? null,
-      laps:        r.laps    ?? 0,
-      trackStatus: r.track_status || null,
-      stops:       r.stops   ?? 0,
-      isRunning:   Boolean(r.is_running),
+      car:          r.car_number,
+      pos:          r.pos,
+      driver:       r.driver,
+      team:         r.team,
+      gapMs:        r.gap_ms        ?? null,
+      laps:         r.laps          ?? 0,
+      trackStatus:  r.track_status  || null,
+      stops:        r.stops         ?? 0,
+      isRunning:    Boolean(r.is_running),
+      netPos:       r.net_position  ?? null,
+      netGapMs:     r.net_gap_ms    ?? null,
+      netGapBandMs: r.net_gap_band_ms ?? null,
+      stopsLeft:    r.est_stops_left ?? null,
+      penaltyS:     r.penalty_s     ?? null,
+      penaltyNote:  r.penalty_note  || null,
+      owesDC:       Boolean(r.owes_driver_change),
+      netSettled:   Boolean(r.net_settled),
+      pitEvents:    pitsBycar.get(r.car_number) ?? [],
     });
   }
 
@@ -120,14 +161,15 @@ function queryAndSend() {
   try {
     const rows = stmt.all();
     if (rows.length > 0) {
-      win.webContents.send('rows-update', buildPayload(rows));
+      const pits = stmtPits ? stmtPits.all() : [];
+      win.webContents.send('rows-update', buildPayload(rows, pits));
     }
   } catch (err) {
     console.error('[racenet] query failed:', err.message);
-    // Drop the connection so openDb() reconnects next tick
     try { db.close(); } catch (_) {}
-    db   = null;
-    stmt = null;
+    db       = null;
+    stmt     = null;
+    stmtPits = null;
   }
 }
 

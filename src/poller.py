@@ -105,6 +105,53 @@ class Poller:
             return None
         return self.latest_age + (datetime.now().timestamp() - self.latest_ts)
 
+    def _ensure_net_analysis_table(self, conn) -> None:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS net_analysis (
+                session_oid        TEXT,
+                car_number         TEXT,
+                net_position       INTEGER,
+                net_gap_ms         REAL,
+                net_gap_band_ms    REAL,
+                est_stops_left     INTEGER,
+                penalty_s          REAL,
+                penalty_note       TEXT,
+                owes_driver_change INTEGER,
+                net_settled        INTEGER,
+                updated_at         TEXT,
+                PRIMARY KEY (session_oid, car_number)
+            )""")
+
+    def _write_net_analysis(self, conn, oid: str, cars) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        rows = [
+            (oid, c.car_number,
+             c.net_position, c.net_gap_ms, c.net_gap_band_ms,
+             c.est_stops_left, c.penalty_s, getattr(c, 'penalty_note', None),
+             1 if getattr(c, 'owes_driver_change', False) else 0,
+             1 if getattr(c, 'net_settled', False) else 0,
+             now)
+            for c in cars
+        ]
+        conn.executemany("""
+            INSERT INTO net_analysis
+              (session_oid, car_number, net_position, net_gap_ms, net_gap_band_ms,
+               est_stops_left, penalty_s, penalty_note, owes_driver_change,
+               net_settled, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(session_oid, car_number) DO UPDATE SET
+              net_position=excluded.net_position,
+              net_gap_ms=excluded.net_gap_ms,
+              net_gap_band_ms=excluded.net_gap_band_ms,
+              est_stops_left=excluded.est_stops_left,
+              penalty_s=excluded.penalty_s,
+              penalty_note=excluded.penalty_note,
+              owes_driver_change=excluded.owes_driver_change,
+              net_settled=excluded.net_settled,
+              updated_at=excluded.updated_at""",
+            rows)
+        conn.commit()
+
     def _fetch(self):
         """Return (ctx, rows, rc_messages, age_s) or None if no data yet.
 
@@ -129,6 +176,12 @@ class Poller:
                 """SELECT ts, message FROM race_control WHERE session_oid=?
                      ORDER BY ts DESC, rowid DESC LIMIT 50""", (oid,)).fetchall()
             age = self._data_age(conn, oid)
+            # write computed net analysis back so Electron (or any reader) can see it
+            try:
+                self._ensure_net_analysis_table(conn)
+                self._write_net_analysis(conn, oid, cars)
+            except sqlite3.Error:
+                pass  # non-fatal — Electron will just show dashes
             return ctx, cars, rc, age, trend_map
         except sqlite3.Error:
             # stale/empty DB handle → drop it so the next tick reconnects cleanly

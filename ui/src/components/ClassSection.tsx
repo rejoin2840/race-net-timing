@@ -1,7 +1,6 @@
-import type { ClassGroup } from '../types';
+import type { CarRow, ClassGroup } from '../types';
 import CarRow from './CarRow';
 
-// Spine colors per class (mirrors dashboard_calm.py CLASS_COLORS)
 const CLASS_SPINE: Record<string, string> = {
   'GTP':      '#4FC3F7',
   'HYPERCAR': '#4FC3F7',
@@ -13,9 +12,11 @@ const CLASS_SPINE: Record<string, string> = {
 
 interface Props {
   group: ClassGroup;
+  selectedCar: string | null;
+  onSelectCar: (car: CarRow, classCode: string) => void;
 }
 
-export default function ClassSection({ group }: Props) {
+export default function ClassSection({ group, selectedCar, onSelectCar }: Props) {
   const spineColor = CLASS_SPINE[group.code] ?? '#6b7280';
 
   return (
@@ -45,7 +46,14 @@ export default function ClassSection({ group }: Props) {
 
       {/* Rows */}
       {group.rows.map((row, i) => (
-        <CarRow key={row.car} row={row} index={i} spineColor={spineColor} />
+        <CarRow
+          key={row.car}
+          row={row}
+          index={i}
+          spineColor={spineColor}
+          selected={selectedCar === row.car}
+          onClick={() => onSelectCar(row, group.code)}
+        />
       ))}
     </div>
   );

@@ -225,6 +225,21 @@ CREATE INDEX IF NOT EXISTS idx_pit_events_car
     ON pit_events (session_oid, car_number, stop_number DESC);
 CREATE INDEX IF NOT EXISTS idx_predictions_car
     ON predictions (session_oid, car_number, ts);
+
+CREATE TABLE IF NOT EXISTS net_analysis (
+    session_oid       TEXT,
+    car_number        TEXT,
+    net_position      INTEGER,
+    net_gap_ms        REAL,
+    net_gap_band_ms   REAL,
+    est_stops_left    INTEGER,
+    penalty_s         REAL,
+    penalty_note      TEXT,
+    owes_driver_change INTEGER,
+    net_settled       INTEGER,
+    updated_at        TEXT,
+    PRIMARY KEY (session_oid, car_number)
+);
 """
 
 

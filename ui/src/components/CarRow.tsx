@@ -1,11 +1,11 @@
 import type { CarRow as CarRowType } from '../types';
 
-const IN_PIT = new Set(['BOX', 'PIT', 'STOPPED']);
+const IN_PIT  = new Set(['BOX', 'PIT', 'STOPPED']);
 const OUT_LAP = new Set(['OUT_LAP', 'OUT']);
 
 function fmtGap(gapMs: number | null, pos: number): string {
   if (pos === 1 || gapMs === null || gapMs === 0) return '—';
-  if (gapMs >= 600_000) return '+?L';       // sentinel / lapped unknown
+  if (gapMs >= 600_000) return '+?L';
   const s = gapMs / 1000;
   if (s < 60) return `+${s.toFixed(3)}`;
   const m = Math.floor(s / 60);
@@ -17,19 +17,28 @@ interface Props {
   row: CarRowType;
   index: number;
   spineColor: string;
+  selected: boolean;
+  onClick: () => void;
 }
 
-export default function CarRow({ row, index, spineColor }: Props) {
+export default function CarRow({ row, index, spineColor, selected, onClick }: Props) {
   const inPit  = IN_PIT.has(row.trackStatus ?? '');
   const outLap = OUT_LAP.has(row.trackStatus ?? '');
-  const dim = inPit || !row.isRunning;
+  const dim    = inPit || !row.isRunning;
 
   return (
     <div
-      className={`flex items-center h-9 border-b border-border/40 transition-colors
-        ${index % 2 === 1 ? 'bg-white/[0.012]' : ''}
-        ${dim ? 'opacity-50' : 'hover:bg-white/[0.04]'}
+      onClick={onClick}
+      className={`flex items-center h-9 border-b border-border/40 cursor-pointer transition-colors
+        ${selected
+          ? 'bg-primary/10 border-l-2'
+          : index % 2 === 1
+          ? 'bg-white/[0.012]'
+          : ''}
+        ${!selected && !dim ? 'hover:bg-white/[0.04]' : ''}
+        ${dim && !selected ? 'opacity-50' : ''}
       `}
+      style={selected ? { borderLeftColor: spineColor } : undefined}
     >
       {/* Position */}
       <div className="w-6 shrink-0 text-center font-heading font-bold text-sm tabular-nums">
