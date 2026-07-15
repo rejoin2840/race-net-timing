@@ -17,15 +17,20 @@ Live feeds                         Replay
        ▼
   calculator.analyse()   ← pure math, reads DB, never writes
        │
-       ├── dashboard_calm.py  (main UI — "calm board")
+  poller.py  (Qt-free poll loop; writes computed net math back to the
+       │      DB's net_analysis table as a side effect of every poll)
+       ├── dashboard_calm.py  (main PyQt6 UI — "calm board")
        ├── dashboard.py       (dense pit-wall table, fallback)
-       │
+       ├── poller_daemon.py   (headless net_analysis writer — run this
+       │                       when using the web UI without a dashboard)
+       ├── ui/                (Electron/React web UI — reads the DB
+       │                       readonly via better-sqlite3, no Python)
        ▼
   predictor.py  →  evaluator.py  →  validate_races.py
                    (grades predictions against actual finish — the accuracy loop)
 ```
 
-**The hard rule:** ingestion never touches the UI, the calculator never touches the UI, and the UI never touches a websocket. Everything passes through SQLite.
+**The hard rule:** ingestion never touches the UI, the calculator never touches the UI, and the UI never touches a websocket. Everything passes through SQLite. (The one sanctioned write from the display side: `Poller` persists the calculator's *outputs* to `net_analysis` so non-Python readers can display them — it never writes feed data.)
 
 ---
 
@@ -65,13 +70,41 @@ Live feeds                         Replay
 
 **`check.sh`** — the test gate. Runs the unit tests + a quick smoke-replay. Run before every commit; `--full` adds the full regression suite.
 
-### UI
+### Data-layer bridge
+
+**`poller.py`** — the Qt-free polling loop (extracted from `dashboard.py`, Epic 9). Owns
+the DB connection, calls `calculator.analyse()` every 2 s, tracks live events (box
+timers, just-pitted flashes, net trends), buffers snapshots for broadcast-delay mode —
+and writes the computed net math (`net_position`, `net_gap_ms` ±band, `class_gap_ms`,
+`laps_down`, stops left, penalty carry) back to the DB's `net_analysis` table so
+non-Python readers can display it. Also home of `PIT_LANE_STATES`/`BOX_STATES`
+(timing_table re-imports them). Importable without PyQt6 — that boundary is load-bearing.
+
+**`poller_daemon.py`** — headless runner for the loop above (same pattern as
+`headless_predictor.py`). Run it when using the web UI without a PyQt6 dashboard open;
+either one keeps `net_analysis` fresh.
+
+### UI — PyQt6 (primary, race-day proven)
 
 **`dashboard_calm.py`** — the main dashboard ("calm board"). Custom-painted `RowWidget` (single `paintEvent` pass — no child labels — for pixel-accurate breath + hairline). The right rail (RACE AT A GLANCE, RACE CONTROL, DUE TO PIT, BATTLES) is a fixed-width panel beside the scrollable board. The catch-up card (`CatchupCard`) and legend card (`LegendCard`) are floating children of the central widget, positioned and sized at runtime.
 
-**`dashboard.py`** — the original dense pit-wall table. Left intact as a fallback (`./venv/bin/python src/dashboard.py`). Shares the `Poller`, `Row`, `_build_rows`, and `FLAG_STYLE` with the calm board.
+**`dashboard.py`** — the original dense pit-wall table. Left intact as a fallback (`./venv/bin/python src/dashboard.py`). Shares `Row`, `_build_rows`, and `FLAG_STYLE` with the calm board; re-exports `Poller` from `poller.py` for backward compatibility.
 
 **`session_picker.py`** — dialog launched from the header button. Manages a `QProcess` for the selected adapter (live or replay) and hands the series identity back to the dashboard so `Poller` can scope to the right session.
+
+### UI — web (Epic 9, shipped 2026-07-15, not yet race-proven)
+
+**`ui/`** — Electron + React + Vite + Tailwind. The Electron main process
+(`ui/electron/main.cjs`) opens `race.db` readonly via `better-sqlite3`, joins
+`standings_current` + `session_entry` + `session_status` + `net_analysis` +
+`pit_events` every 2 s, and ships a JSON payload to the renderer over IPC
+(`contextBridge` → `window.racenet.onRows`). The React renderer falls back to mock
+data in a plain browser (`npm run browser`) for UI development with no race data.
+Features: class-grouped board with NET projection column (▲/▼ by direction),
+tap-to-explain panel (net-math breakdown + pit history per car), session clock,
+race-control ticker. Setup/run: `ui/README.md`. Design language borrowed from
+F1OpenViewer (MIT): Rajdhani/Space Grotesk, HSL variable palette, 36 px rows with
+class-color spines.
 
 ---
 
@@ -130,11 +163,13 @@ The app flags an undercut opportunity when a car's projected position after pitt
 
 ---
 
-## WEC-specific notes (Epic 8, in progress)
+## WEC-specific notes (Epic 8 — race-proven in the São Paulo 6h, 2026-07-12)
 
-The WEC live path (`wec_live.py`) is built but not yet race-validated. Key differences from IMSA:
+The WEC live path (`wec_live.py`) survived a full 6-hour race live; net-ordering bugs
+found in that race were fixed 2026-07-13 (see BACKLOG decisions log). Key differences
+from IMSA:
 
 - **Protocol:** Griiip SignalR Core + MessagePack v2. Bootstrap hydration delivers full field state on connect; incremental `ReceiveBatch` pushes thereafter.
 - **`--record` is mandatory.** Raw-capture every session, always. The capture is crash-safe (frame-level flush). Replay a capture offline with `--replay` to iterate parser corrections without waiting for the next live session.
-- **Field names are provisional.** The 2026 WEC field shapes (energy, override state) are inferred from the 07-03 Griiip rehearsal. After FP1 (São Paulo, ~07-10), regenerate `tests/fixtures/wec_capture_sample.jsonl.gz` from the real capture and tighten the test assertions.
+- **Field names are provisional.** The 2026 WEC field shapes (energy, override state) are inferred from the 07-03 Griiip rehearsal. Still open: regenerate `tests/fixtures/wec_capture_sample.jsonl.gz` from a real São Paulo capture (FP1 or race, both on disk) and tighten the test assertions.
 - **Timing71 fallback is data-only, post-session.** Unlike IMSA where Timing71 has a live feed, the WEC archive only becomes available after the session ends. If `wec_live.py` fails mid-race, the raw capture is the only real-time record.

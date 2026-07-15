@@ -36,3 +36,4 @@ project_bundle.txt
 # Node / Electron UI
 ui/node_modules/
 ui/dist/
+ui/.vite/
