@@ -1,5 +1,9 @@
 # Epic 9 direction — Fable's opinion (2026-07-06)
 
+> Snapshot as of 2026-07-06 — current status: BACKLOG.md. Phase 1 closed 2026-07-14
+> (decisions log); note the net-cluster recommendation evolved from "Option B" here to
+> fact-forward ("Option C") in the phase-1 sign-off.
+
 Written during the Tier-3 exit review, pulled forward so this input exists before
 the model handoff. **This is a sounding-board document, not a decision.** The UI
 freeze holds; nothing here is committed work. Each section gives options, a
