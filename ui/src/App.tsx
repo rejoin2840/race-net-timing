@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Battle, CarRow, RcMessage, RowsPayload } from './types';
 import { MOCK_PAYLOAD } from './mock';
 import Board from './components/Board';
 import DetailPanel from './components/DetailPanel';
 import RightRail from './components/RightRail';
+import WywaCard, { buildWywaSummary, type WywaSummary } from './components/WywaCard';
 
 const FLAG_LABEL: Record<string, string> = {
   GF: 'GREEN', YF: 'YELLOW', FCY: 'FULL COURSE YELLOW',
@@ -45,6 +46,30 @@ function fmtRcAge(ts: number | null): string {
 export default function App() {
   const [payload, setPayload]      = useState<RowsPayload | null>(null);
   const [selectedCar, setSelected] = useState<{ car: CarRow; classCode: string } | null>(null);
+  const [wywaSummary, setWywa]     = useState<WywaSummary | null>(null);
+  const awayFrom   = useRef<number | null>(null);
+  const snapshot   = useRef<RowsPayload | null>(null);
+  const payloadRef = useRef<RowsPayload | null>(null);
+
+  // Keep payloadRef in sync so the visibility handler can read current payload
+  useEffect(() => { payloadRef.current = payload; }, [payload]);
+
+  // Track page visibility to power WYWA card
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.hidden) {
+        awayFrom.current  = Date.now();
+        snapshot.current  = payloadRef.current;
+      } else if (awayFrom.current !== null && snapshot.current && payloadRef.current) {
+        const summary = buildWywaSummary(snapshot.current, payloadRef.current, awayFrom.current);
+        if (summary) setWywa(summary);
+        awayFrom.current = null;
+        snapshot.current = null;
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
 
   useEffect(() => {
     if (window.racenet) {
@@ -143,6 +168,9 @@ export default function App() {
       <div className="flex-1 min-h-0 flex overflow-hidden">
         {/* Main board */}
         <div className="flex-1 min-w-0 overflow-y-auto thin-scrollbar">
+          {wywaSummary && (
+            <WywaCard summary={wywaSummary} onDismiss={() => setWywa(null)} />
+          )}
           {payload ? (
             <Board
               classes={payload.classes}
