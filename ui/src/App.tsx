@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { CarRow, RcMessage, RowsPayload } from './types';
+import type { Battle, CarRow, RcMessage, RowsPayload } from './types';
 import { MOCK_PAYLOAD } from './mock';
 import Board from './components/Board';
 import DetailPanel from './components/DetailPanel';
+import RightRail from './components/RightRail';
 
 const FLAG_LABEL: Record<string, string> = {
   GF: 'GREEN', YF: 'YELLOW', FCY: 'FULL COURSE YELLOW',
@@ -71,6 +72,7 @@ export default function App() {
                finalType: null, remainingS: null, finalLaps: null, isFinished: false },
   };
   const rcMessages: RcMessage[] = payload?.rcMessages ?? [];
+  const battles: Battle[]       = payload?.battles    ?? [];
   const latestRc = rcMessages[0] ?? null;
 
   const flagColor = session.flag ? (FLAG_COLOR[session.flag] ?? '#374151') : '#374151';
@@ -137,8 +139,9 @@ export default function App() {
         )}
       </header>
 
-      {/* ── Body: board + optional detail panel ── */}
+      {/* ── Body: board + right column ── */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
+        {/* Main board */}
         <div className="flex-1 min-w-0 overflow-y-auto thin-scrollbar">
           {payload ? (
             <Board
@@ -153,14 +156,21 @@ export default function App() {
           )}
         </div>
 
-        {selectedCar && (
+        {/* Right column: detail panel (when car selected) or right rail */}
+        {selectedCar ? (
           <DetailPanel
             car={selectedCar.car}
             classCode={selectedCar.classCode}
             spineColor={CLASS_SPINE[selectedCar.classCode] ?? '#6b7280'}
             onClose={() => setSelected(null)}
           />
-        )}
+        ) : payload ? (
+          <RightRail
+            classes={payload.classes}
+            rcMessages={rcMessages}
+            battles={battles}
+          />
+        ) : null}
       </div>
     </div>
   );
