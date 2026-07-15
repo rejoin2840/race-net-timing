@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Optional
 
 import calculator
+import config
+import race_control as rc_classifier
 
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "data" / "race.db"
@@ -127,14 +129,98 @@ class Poller:
                 owes_driver_change INTEGER,
                 net_settled        INTEGER,
                 updated_at         TEXT,
+                projected_finish   INTEGER,
+                fuel_due           TEXT,
+                catching           TEXT,
+                catch_in_laps      REAL,
+                strategy_note      TEXT,
                 PRIMARY KEY (session_oid, car_number)
             )""")
-        # migrate tables created before class_gap_ms/laps_down existed
         cols = {r[1] for r in conn.execute("PRAGMA table_info(net_analysis)")}
-        if "class_gap_ms" not in cols:
-            conn.execute("ALTER TABLE net_analysis ADD COLUMN class_gap_ms REAL")
-        if "laps_down" not in cols:
-            conn.execute("ALTER TABLE net_analysis ADD COLUMN laps_down INTEGER")
+        for col, ddl in [
+            ("class_gap_ms",    "REAL"),
+            ("laps_down",       "INTEGER"),
+            ("projected_finish","INTEGER"),
+            ("fuel_due",        "TEXT"),
+            ("catching",        "TEXT"),
+            ("catch_in_laps",   "REAL"),
+            ("strategy_note",   "TEXT"),
+        ]:
+            if col not in cols:
+                conn.execute(f"ALTER TABLE net_analysis ADD COLUMN {col} {ddl}")
+
+    def _ensure_rail_battles_table(self, conn) -> None:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS rail_battles (
+                session_oid    TEXT,
+                rank           INTEGER,
+                car_class      TEXT,
+                car_ahead      TEXT,
+                car_chaser     TEXT,
+                gap_ms         REAL,
+                closing        INTEGER,
+                rate_s_per_lap REAL,
+                updated_at     TEXT,
+                PRIMARY KEY (session_oid, rank)
+            )""")
+
+    def _write_rail_battles(self, conn, oid: str, cars, cur_lap: int) -> None:
+        try:
+            gap_s        = float(config.CONFIG.BATTLE_GAP_S)
+            trend_laps   = int(config.CONFIG.BATTLE_TREND_LAPS)
+            min_drop_ms  = float(config.CONFIG.BATTLE_MIN_DROP_MS)
+            noise_tol_ms = float(config.CONFIG.BATTLE_NOISE_TOL_MS)
+        except Exception:
+            gap_s, trend_laps, min_drop_ms, noise_tol_ms = 2.0, 3, 80, 120
+
+        by_cls: dict = {}
+        for ca in cars:
+            if ca.laps_down or ca.class_gap_ms is None:
+                continue
+            by_cls.setdefault(ca.car_class, []).append(ca)
+
+        battles = []
+        for cls, cas in by_cls.items():
+            cas.sort(key=lambda c: c.class_gap_ms)
+            for ahead, chaser in zip(cas, cas[1:]):
+                gap = (chaser.class_gap_ms or 0) - (ahead.class_gap_ms or 0)
+                if 0 < gap <= gap_s * 1000:
+                    closing = bool(oid and calculator._gap_closing(
+                        oid, chaser.car_number, ahead.car_number, cur_lap, trend_laps,
+                        min_drop_ms=min_drop_ms, noise_tol_ms=noise_tol_ms))
+                    rate = (calculator._gap_close_rate_s(
+                                oid, chaser.car_number, ahead.car_number, cur_lap, trend_laps)
+                            if closing else None)
+                    battles.append((gap, cls, ahead.car_number, chaser.car_number, closing, rate))
+        battles.sort(key=lambda b: b[0])
+
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute("DELETE FROM rail_battles WHERE session_oid=?", (oid,))
+        conn.executemany(
+            """INSERT INTO rail_battles
+               (session_oid, rank, car_class, car_ahead, car_chaser, gap_ms, closing, rate_s_per_lap, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            [(oid, i, b[1], b[2], b[3], b[0], 1 if b[4] else 0, b[5], now)
+             for i, b in enumerate(battles[:6])])
+        conn.commit()
+
+    def _ensure_rc_classification(self, conn, oid: str) -> None:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(race_control)")}
+        if "tier" not in cols:
+            conn.execute("ALTER TABLE race_control ADD COLUMN tier INTEGER")
+        if "kind" not in cols:
+            conn.execute("ALTER TABLE race_control ADD COLUMN kind TEXT")
+        rows = conn.execute(
+            "SELECT rowid, message FROM race_control WHERE session_oid=? AND tier IS NULL",
+            (oid,)).fetchall()
+        if rows:
+            classified = []
+            for rowid, msg in rows:
+                tier, kind = rc_classifier.classify(msg)
+                classified.append((tier, kind, rowid))
+            conn.executemany(
+                "UPDATE race_control SET tier=?, kind=? WHERE rowid=?", classified)
+            conn.commit()
 
     def _write_net_analysis(self, conn, oid: str, cars) -> None:
         now = datetime.now(timezone.utc).isoformat()
@@ -145,7 +231,12 @@ class Poller:
              c.est_stops_left, c.penalty_s, getattr(c, 'penalty_note', None),
              1 if getattr(c, 'owes_driver_change', False) else 0,
              1 if getattr(c, 'net_settled', False) else 0,
-             now)
+             now,
+             getattr(c, 'projected_finish', None),
+             getattr(c, 'fuel_due', None),
+             getattr(c, 'catching', None),
+             getattr(c, 'catch_in_laps', None),
+             getattr(c, 'strategy_note', None) or None)
             for c in cars
         ]
         conn.executemany("""
@@ -153,8 +244,9 @@ class Poller:
               (session_oid, car_number, net_position, net_gap_ms, net_gap_band_ms,
                class_gap_ms, laps_down,
                est_stops_left, penalty_s, penalty_note, owes_driver_change,
-               net_settled, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+               net_settled, updated_at,
+               projected_finish, fuel_due, catching, catch_in_laps, strategy_note)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(session_oid, car_number) DO UPDATE SET
               net_position=excluded.net_position,
               net_gap_ms=excluded.net_gap_ms,
@@ -166,7 +258,12 @@ class Poller:
               penalty_note=excluded.penalty_note,
               owes_driver_change=excluded.owes_driver_change,
               net_settled=excluded.net_settled,
-              updated_at=excluded.updated_at""",
+              updated_at=excluded.updated_at,
+              projected_finish=excluded.projected_finish,
+              fuel_due=excluded.fuel_due,
+              catching=excluded.catching,
+              catch_in_laps=excluded.catch_in_laps,
+              strategy_note=excluded.strategy_note""",
             rows)
         conn.commit()
 
@@ -198,6 +295,9 @@ class Poller:
             try:
                 self._ensure_net_analysis_table(conn)
                 self._write_net_analysis(conn, oid, cars)
+                self._ensure_rail_battles_table(conn)
+                self._write_rail_battles(conn, oid, cars, ctx.current_lap)
+                self._ensure_rc_classification(conn, oid)
             except sqlite3.Error:
                 pass  # non-fatal — Electron will just show dashes
             return ctx, cars, rc, age, trend_map
