@@ -26,6 +26,12 @@ export interface CarRow {
   penaltyNote: string | null;
   owesDC: boolean;
   netSettled: boolean;
+  projectedFinish: number | null;
+  fuelDue: string | null;        // 'due' or null
+  catching: string | null;       // car number being caught
+  catchInLaps: number | null;
+  strategyNote: string | null;
+  netUpdatedAt: string | null;   // ISO timestamp — for stale-data guard
   pitEvents: PitEvent[];
 }
 
@@ -37,6 +43,17 @@ export interface ClassGroup {
 export interface RcMessage {
   ts: number | null;
   message: string;
+  tier: number | null;   // 0=suppress, 1=context, 2=alert
+  kind: string | null;   // 'penalty' | 'dq' | 'retired' | 'flag' | 'rescinded' | 'review' | 'incident' | 'warning' | ''
+}
+
+export interface Battle {
+  carClass: string;
+  carAhead: string;
+  carChaser: string;
+  gapMs: number;
+  closing: boolean;
+  rateSPerLap: number | null;
 }
 
 export interface RowsPayload {
@@ -52,6 +69,7 @@ export interface RowsPayload {
   };
   classes: ClassGroup[];
   rcMessages: RcMessage[];
+  battles: Battle[];
   updatedAt: number;
 }
 

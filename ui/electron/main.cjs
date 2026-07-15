@@ -16,11 +16,12 @@ const Database = require(
 // Class order mirrors timing_table.py CLASS_ORDER
 const CLASS_ORDER = ['GTP', 'HYPERCAR', 'LMP2', 'GTD PRO', 'LMGT3', 'GTD'];
 
-let win      = null;
-let db       = null;
-let stmt     = null;
-let stmtPits = null;
-let stmtRc   = null;
+let win          = null;
+let db           = null;
+let stmt         = null;
+let stmtPits     = null;
+let stmtRc       = null;
+let stmtBattles  = null;
 
 function openDb() {
   if (db) return db;
@@ -61,7 +62,13 @@ function openDb() {
         na.penalty_s,
         na.penalty_note,
         na.owes_driver_change,
-        na.net_settled
+        na.net_settled,
+        na.projected_finish,
+        na.fuel_due,
+        na.catching,
+        na.catch_in_laps,
+        na.strategy_note,
+        na.updated_at                   AS net_updated_at
       FROM standings_current s
       LEFT JOIN session_entry e
         ON e.session_oid = s.session_oid
@@ -87,11 +94,20 @@ function openDb() {
     `);
     console.log('[racenet] db opened:', DB_PATH);
     stmtRc = db.prepare(`
-      SELECT ts, message FROM race_control
+      SELECT ts, message, tier, kind FROM race_control
       WHERE session_oid = (
         SELECT session_oid FROM session_status ORDER BY updated_at DESC LIMIT 1
       )
-      ORDER BY ts DESC, rowid DESC LIMIT 5
+        AND (tier IS NULL OR tier > 0)
+      ORDER BY ts DESC, rowid DESC LIMIT 6
+    `);
+    stmtBattles = db.prepare(`
+      SELECT car_class, car_ahead, car_chaser, gap_ms, closing, rate_s_per_lap
+      FROM rail_battles
+      WHERE session_oid = (
+        SELECT session_oid FROM session_status ORDER BY updated_at DESC LIMIT 1
+      )
+      ORDER BY rank
     `);
     return db;
   } catch (err) {
@@ -123,7 +139,7 @@ function calcRemainingS(r) {
   return null; // BY_LAPS: use lap delta instead
 }
 
-function buildPayload(rawRows, pitRows, rcRows) {
+function buildPayload(rawRows, pitRows, rcRows, battleRows) {
   // index pit events by car_number for O(1) lookup
   const pitsBycar = new Map();
   for (const p of (pitRows || [])) {
@@ -136,7 +152,21 @@ function buildPayload(rawRows, pitRows, rcRows) {
     });
   }
 
-  const rcMessages = (rcRows || []).map(r => ({ ts: r.ts, message: r.message }));
+  const rcMessages = (rcRows || []).map(r => ({
+    ts:      r.ts,
+    message: r.message,
+    tier:    r.tier    ?? null,
+    kind:    r.kind    || null,
+  }));
+
+  const battles = (battleRows || []).map(r => ({
+    carClass:     r.car_class,
+    carAhead:     r.car_ahead,
+    carChaser:    r.car_chaser,
+    gapMs:        r.gap_ms,
+    closing:      Boolean(r.closing),
+    rateSPerLap:  r.rate_s_per_lap ?? null,
+  }));
 
   const classMap = new Map();
   let session = { flag: null, lap: null, isRunning: false, ageS: null,
@@ -176,9 +206,15 @@ function buildPayload(rawRows, pitRows, rcRows) {
       stopsLeft:    r.est_stops_left ?? null,
       penaltyS:     r.penalty_s     ?? null,
       penaltyNote:  r.penalty_note  || null,
-      owesDC:       Boolean(r.owes_driver_change),
-      netSettled:   Boolean(r.net_settled),
-      pitEvents:    pitsBycar.get(r.car_number) ?? [],
+      owesDC:           Boolean(r.owes_driver_change),
+      netSettled:       Boolean(r.net_settled),
+      projectedFinish:  r.projected_finish  ?? null,
+      fuelDue:          r.fuel_due          || null,
+      catching:         r.catching          || null,
+      catchInLaps:      r.catch_in_laps     ?? null,
+      strategyNote:     r.strategy_note     || null,
+      netUpdatedAt:     r.net_updated_at    || null,
+      pitEvents:        pitsBycar.get(r.car_number) ?? [],
     });
   }
 
@@ -193,7 +229,7 @@ function buildPayload(rawRows, pitRows, rcRows) {
     })
     .map(([code, rows]) => ({ code, rows }));
 
-  return { session, classes, rcMessages, updatedAt: Date.now() };
+  return { session, classes, rcMessages, battles, updatedAt: Date.now() };
 }
 
 function queryAndSend() {
@@ -203,9 +239,10 @@ function queryAndSend() {
   try {
     const rows = stmt.all();
     if (rows.length > 0) {
-      const pits = stmtPits ? stmtPits.all() : [];
-      const rc   = stmtRc   ? stmtRc.all()   : [];
-      const payload = buildPayload(rows, pits, rc);
+      const pits    = stmtPits    ? stmtPits.all()    : [];
+      const rc      = stmtRc      ? stmtRc.all()      : [];
+      const battles = stmtBattles ? stmtBattles.all() : [];
+      const payload = buildPayload(rows, pits, rc, battles);
       if (!queryAndSend.logged) {
         queryAndSend.logged = true;
         console.log(`[racenet] first payload: ${rows.length} cars, ` +
@@ -216,10 +253,11 @@ function queryAndSend() {
   } catch (err) {
     console.error('[racenet] query failed:', err.message);
     try { db.close(); } catch (_) {}
-    db       = null;
-    stmt     = null;
-    stmtPits = null;
-    stmtRc   = null;
+    db          = null;
+    stmt        = null;
+    stmtPits    = null;
+    stmtRc      = null;
+    stmtBattles = null;
   }
 }
 
