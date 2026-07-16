@@ -37,7 +37,7 @@ export default function ClassSection({ group, selectedCar, battles, onSelectCar 
       {/* Column header */}
       <div className="flex items-center h-6 px-3 text-[9px] uppercase tracking-wider text-muted-fg border-b border-border/40 bg-card/40">
         <div className="w-7 shrink-0 text-center">P</div>
-        <div className="w-2 shrink-0 mx-2" />
+        <div className="w-[3px] shrink-0 mx-2" />
         <div className="w-9 shrink-0 text-center">Car</div>
         <div className="w-[168px] shrink-0 pr-2">Driver / Team</div>
         <div className="w-[176px] shrink-0">Stint · Fuel</div>
@@ -50,7 +50,8 @@ export default function ClassSection({ group, selectedCar, battles, onSelectCar 
         <div className="flex-1 min-w-0 pl-3">Notes</div>
       </div>
 
-      {/* Rows */}
+      {/* Rows — battles scoped to this class so a car-number collision in
+          another class can never attach the wrong note */}
       {group.rows.map((row, i) => (
         <CarRow
           key={row.car}
@@ -58,7 +59,7 @@ export default function ClassSection({ group, selectedCar, battles, onSelectCar 
           index={i}
           spineColor={spineColor}
           selected={selectedCar === row.car}
-          battles={battles}
+          battles={battles.filter((b) => b.carClass === group.code)}
           onClick={() => onSelectCar(row, group.code)}
         />
       ))}

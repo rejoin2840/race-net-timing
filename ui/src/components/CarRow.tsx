@@ -147,7 +147,9 @@ export default function CarRow({ row, index, spineColor, selected, battles, onCl
             </span>
           </>
         ) : (
-          <span className="text-[10px] text-muted-fg/25 w-[52px]">—</span>
+          /* width = bar(40) + gap(8) + pct(32) so stint laps stay column-
+             aligned between cars with and without fuel telemetry */
+          <span className="text-[10px] text-muted-fg/25 w-[80px]">—</span>
         )}
         <span className="text-[11px] tabular-nums text-muted-fg">
           {row.stintLaps !== null ? `${row.stintLaps}L` : ''}
