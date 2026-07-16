@@ -644,7 +644,24 @@ Epic 9 identity metric: **seconds to re-orient after stepping away**.
    expand/timeline has no evaluator and **cannot be signed off before the next
    live event** — build collapsed card, defer the expand.
 3. **Notes column** — "1 stop in hand" / "undercut live" strategy notes in the
-   row's first read, per the Option C mockup.
+   row's first read, per the Option C mockup. **Redesigned 2026-07-16 (PR #29,
+   dedicated UX session — memory: `project-ux-redesign`):** the owner's own
+   reaction to the shipped v1 ("blank space between driver info and the
+   metrics is offputting... either add more robust data, or make things
+   easier to consume") triggered a same-day design pass. Direction landed on
+   data-dense over spread-out (owner's call, unprompted: "I have no problem
+   consuming that level of data, and it'll help me validate if the board is
+   good or junk" — the row is now also the owner's audit surface for the
+   engine's own predictions). Result: notes moved from the cramped inline
+   badge under the driver name to a dedicated far-right lane (all numeric
+   columns now contiguous, owner's explicit call — see mockup link below),
+   and now combines live battle calls with the undercut/overcut note instead
+   of surfacing only one. **Net-new scope beyond the original AC3** landed in
+   the same PR: on-row real fuel % (WEC VET telemetry, profile-gated — see
+   Epic 2 WEC section), stint laps, predicted next-stop cost ±band, and
+   last-lap-vs-personal-best delta — none of these existed on the board
+   before. Reference mockup (design of record):
+   https://claude.ai/code/artifact/b7150d12-352b-4970-af57-92718839673e
 4. **Panel completeness** — add leader-remaining comparison and per-stop cost
    estimates (~Ns ± band) to the tap-to-explain panel, per the Option B/C sketch.
 5. **Trust plumbing (carried from Epic 9 known-nexts):** stale-data guard (grey

@@ -1,4 +1,4 @@
-import type { CarRow as CarRowData, ClassGroup } from '../types';
+import type { Battle, CarRow as CarRowData, ClassGroup } from '../types';
 import CarRow from './CarRow';
 
 const CLASS_SPINE: Record<string, string> = {
@@ -13,10 +13,11 @@ const CLASS_SPINE: Record<string, string> = {
 interface Props {
   group: ClassGroup;
   selectedCar: string | null;
+  battles: Battle[];
   onSelectCar: (car: CarRowData, classCode: string) => void;
 }
 
-export default function ClassSection({ group, selectedCar, onSelectCar }: Props) {
+export default function ClassSection({ group, selectedCar, battles, onSelectCar }: Props) {
   const spineColor = CLASS_SPINE[group.code] ?? '#6b7280';
 
   return (
@@ -35,17 +36,22 @@ export default function ClassSection({ group, selectedCar, onSelectCar }: Props)
 
       {/* Column header */}
       <div className="flex items-center h-6 px-3 text-[9px] uppercase tracking-wider text-muted-fg border-b border-border/40 bg-card/40">
-        <div className="w-6 shrink-0 text-center">P</div>
-        <div className="w-2 shrink-0 mx-2" />
-        <div className="w-8 shrink-0 text-center">Car</div>
-        <div className="flex-1 min-w-0">Driver / Team</div>
-        <div className="w-20 shrink-0 text-right pr-1">Gap</div>
-        <div className="w-10 shrink-0 text-center">Stops</div>
-        <div className="w-14 shrink-0 text-center">Status</div>
+        <div className="w-7 shrink-0 text-center">P</div>
+        <div className="w-[3px] shrink-0 mx-2" />
+        <div className="w-9 shrink-0 text-center">Car</div>
+        <div className="w-[168px] shrink-0 pr-2">Driver / Team</div>
+        <div className="w-[176px] shrink-0">Stint · Fuel</div>
+        <div className="w-[76px] shrink-0 text-right pr-2">Next Stop</div>
+        <div className="w-[104px] shrink-0 pl-2">Last Lap</div>
+        <div className="w-[88px] shrink-0 text-right pr-2">Gap</div>
+        <div className="w-9 shrink-0 text-center">Stops</div>
+        <div className="w-[60px] shrink-0 text-center">Status</div>
         <div className="w-10 shrink-0 text-center text-primary/70">NET</div>
+        <div className="flex-1 min-w-0 pl-3">Notes</div>
       </div>
 
-      {/* Rows */}
+      {/* Rows — battles scoped to this class so a car-number collision in
+          another class can never attach the wrong note */}
       {group.rows.map((row, i) => (
         <CarRow
           key={row.car}
@@ -53,6 +59,7 @@ export default function ClassSection({ group, selectedCar, onSelectCar }: Props)
           index={i}
           spineColor={spineColor}
           selected={selectedCar === row.car}
+          battles={battles.filter((b) => b.carClass === group.code)}
           onClick={() => onSelectCar(row, group.code)}
         />
       ))}

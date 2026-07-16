@@ -15,6 +15,10 @@ export interface CarRow {
   trackStatus: string | null;
   stops: number;
   isRunning: boolean;
+  lastLapMs: number | null;
+  bestLapMs: number | null;
+  fuelPct: number | null;    // real tank telemetry, WEC-only today (null on IMSA)
+  stintLaps: number | null;  // laps since the last pit stop
   // net analysis (null when Poller hasn't run yet)
   netPos: number | null;
   netGapMs: number | null;

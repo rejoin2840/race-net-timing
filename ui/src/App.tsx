@@ -183,6 +183,7 @@ export default function App() {
             <Board
               classes={payload.classes}
               selectedCar={selectedCar?.car.car ?? null}
+              battles={battles}
               onSelectCar={handleSelect}
             />
           ) : (
