@@ -134,6 +134,40 @@ export default function DetailPanel({ car, classCode, spineColor, onClose }: Pro
             Net math available once Poller has run
           </div>
         )}
+
+        {/* Leader-remaining comparison */}
+        {hasNet && car.stopsLeft !== null && car.classLeaderStopsLeft !== null
+          && car.classLeaderStopsLeft !== car.stopsLeft && (
+          <div className="mt-2 pt-2 border-t border-border/30">
+            <Row
+              label="Leader stops left"
+              value={String(car.classLeaderStopsLeft)}
+            />
+            {car.stopsLeft > car.classLeaderStopsLeft ? (
+              <div className="text-[9px] text-amber-400/80 mt-0.5">
+                {car.stopsLeft - car.classLeaderStopsLeft} more stop
+                {car.stopsLeft - car.classLeaderStopsLeft > 1 ? 's' : ''} than leader
+              </div>
+            ) : (
+              <div className="text-[9px] text-emerald-400/80 mt-0.5">
+                {car.classLeaderStopsLeft - car.stopsLeft} fewer stop
+                {car.classLeaderStopsLeft - car.stopsLeft > 1 ? 's' : ''} than leader
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Per-stop cost estimate */}
+        {car.nextStopMs !== null && (
+          <div className="mt-2 pt-2 border-t border-border/30">
+            <Row
+              label="Est. next stop cost"
+              value={`${fmtMs(car.nextStopMs)}${
+                car.nextStopStdMs ? ` ±${(car.nextStopStdMs / 1000).toFixed(1)}s` : ''
+              }`}
+            />
+          </div>
+        )}
       </div>
 
       {/* Pit history */}

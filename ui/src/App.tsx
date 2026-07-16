@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
-import type { CarRow, RcMessage, RowsPayload } from './types';
-import { MOCK_PAYLOAD } from './mock';
+import { useEffect, useRef, useState } from 'react';
+import type { Battle, CarRow, RcMessage, RowsPayload } from './types';
+import { buildMockPayload } from './mock';
 import Board from './components/Board';
 import DetailPanel from './components/DetailPanel';
+import RightRail from './components/RightRail';
+import WywaCard, { buildWywaSummary, type WywaSummary } from './components/WywaCard';
 
 const FLAG_LABEL: Record<string, string> = {
   GF: 'GREEN', YF: 'YELLOW', FCY: 'FULL COURSE YELLOW',
@@ -34,7 +36,7 @@ function fmtRemaining(s: number): string {
 }
 
 function fmtRcAge(ts: number | null): string {
-  if (ts === null) return '';
+  if (ts === null || ts <= 0) return '';  // feed stores 0 when it has no timestamp
   const s = Math.round((Date.now() - ts) / 1000);
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
@@ -44,6 +46,38 @@ function fmtRcAge(ts: number | null): string {
 export default function App() {
   const [payload, setPayload]      = useState<RowsPayload | null>(null);
   const [selectedCar, setSelected] = useState<{ car: CarRow; classCode: string } | null>(null);
+  const [wywaSummary, setWywa]     = useState<WywaSummary | null>(null);
+  const awayFrom   = useRef<number | null>(null);
+  const snapshot   = useRef<RowsPayload | null>(null);
+  const payloadRef = useRef<RowsPayload | null>(null);
+
+  // Keep payloadRef in sync so the focus handlers can read the current payload
+  useEffect(() => { payloadRef.current = payload; }, [payload]);
+
+  // Track window focus to power the WYWA card. Focus loss — not visibility —
+  // is the "stepped away" signal: a board on a second monitor stays visible
+  // (visibilitychange never fires) while the user works elsewhere. Mirrors the
+  // PyQt board's QEvent.ActivationChange trigger.
+  useEffect(() => {
+    function handleBlur() {
+      awayFrom.current = Date.now();
+      snapshot.current = payloadRef.current;
+    }
+    function handleFocus() {
+      if (awayFrom.current !== null && snapshot.current && payloadRef.current) {
+        const summary = buildWywaSummary(snapshot.current, payloadRef.current, awayFrom.current);
+        if (summary) setWywa(summary);
+      }
+      awayFrom.current = null;
+      snapshot.current = null;
+    }
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
 
   useEffect(() => {
     if (window.racenet) {
@@ -51,8 +85,8 @@ export default function App() {
       window.racenet.onRows(cb);
       return () => window.racenet!.offRows(cb);
     } else {
-      setPayload(MOCK_PAYLOAD);
-      const t = setInterval(() => setPayload({ ...MOCK_PAYLOAD, updatedAt: Date.now() }), 2000);
+      setPayload(buildMockPayload());
+      const t = setInterval(() => setPayload(buildMockPayload()), 2000);
       return () => clearInterval(t);
     }
   }, []);
@@ -71,6 +105,7 @@ export default function App() {
                finalType: null, remainingS: null, finalLaps: null, isFinished: false },
   };
   const rcMessages: RcMessage[] = payload?.rcMessages ?? [];
+  const battles: Battle[]       = payload?.battles    ?? [];
   const latestRc = rcMessages[0] ?? null;
 
   const flagColor = session.flag ? (FLAG_COLOR[session.flag] ?? '#374151') : '#374151';
@@ -137,9 +172,13 @@ export default function App() {
         )}
       </header>
 
-      {/* ── Body: board + optional detail panel ── */}
+      {/* ── Body: board + right column ── */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
+        {/* Main board */}
         <div className="flex-1 min-w-0 overflow-y-auto thin-scrollbar">
+          {wywaSummary && (
+            <WywaCard summary={wywaSummary} onDismiss={() => setWywa(null)} />
+          )}
           {payload ? (
             <Board
               classes={payload.classes}
@@ -153,14 +192,21 @@ export default function App() {
           )}
         </div>
 
-        {selectedCar && (
+        {/* Right column: detail panel (when car selected) or right rail */}
+        {selectedCar ? (
           <DetailPanel
             car={selectedCar.car}
             classCode={selectedCar.classCode}
             spineColor={CLASS_SPINE[selectedCar.classCode] ?? '#6b7280'}
             onClose={() => setSelected(null)}
           />
-        )}
+        ) : payload ? (
+          <RightRail
+            classes={payload.classes}
+            rcMessages={rcMessages}
+            battles={battles}
+          />
+        ) : null}
       </div>
     </div>
   );

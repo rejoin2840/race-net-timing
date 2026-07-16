@@ -71,11 +71,23 @@ export default function CarRow({ row, index, spineColor, selected, onClick }: Pr
         <div className="font-heading font-bold text-[13px] tracking-wide truncate leading-none">
           {row.driver || row.car}
         </div>
-        {row.team && (
-          <div className="text-[10px] text-muted-fg font-body truncate leading-none mt-0.5">
-            {row.team}
-          </div>
-        )}
+        <div className="flex items-center gap-1.5 leading-none mt-0.5">
+          {row.team && (
+            <span className="text-[10px] text-muted-fg font-body truncate">
+              {row.team}
+            </span>
+          )}
+          {row.strategyNote && (
+            <span className="text-[9px] text-amber-400/70 font-body truncate shrink-0 max-w-[160px]">
+              {row.strategyNote}
+            </span>
+          )}
+          {!row.strategyNote && row.fuelDue === 'due' && (
+            <span className="text-[9px] text-orange-400/80 font-body shrink-0">
+              pit due
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Gap */}
@@ -102,17 +114,34 @@ export default function CarRow({ row, index, spineColor, selected, onClick }: Pr
       </div>
 
       {/* Net position */}
-      <NetCell pos={row.pos} netPos={row.netPos} settled={row.netSettled} />
+      <NetCell pos={row.pos} netPos={row.netPos} settled={row.netSettled} netUpdatedAt={row.netUpdatedAt} />
     </div>
   );
 }
 
-function NetCell({ pos, netPos, settled }: { pos: number; netPos: number | null; settled: boolean }) {
+const STALE_AFTER_MS = 12_000;
+
+function isStale(netUpdatedAt: string | null): boolean {
+  if (!netUpdatedAt) return false;
+  // the poller stamps '+00:00' (not 'Z') — only append 'Z' when the string
+  // carries no timezone at all; appending to an existing offset parses as NaN
+  const iso = /(Z|[+-]\d\d:?\d\d)$/.test(netUpdatedAt) ? netUpdatedAt : netUpdatedAt + 'Z';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return false;
+  return Date.now() - t > STALE_AFTER_MS;
+}
+
+function NetCell({ pos, netPos, settled, netUpdatedAt }: {
+  pos: number; netPos: number | null; settled: boolean; netUpdatedAt: string | null;
+}) {
   if (netPos === null) {
     return <div className="w-10 shrink-0 text-center text-muted-fg/20 text-[10px]">—</div>;
   }
+  const stale = isStale(netUpdatedAt);
   const delta = pos - netPos; // positive = gaining (net ahead of track)
-  const colorClass = settled
+  const colorClass = stale
+    ? 'text-muted-fg/25'
+    : settled
     ? 'text-muted-fg/40'
     : delta > 0
     ? 'text-emerald-400'
