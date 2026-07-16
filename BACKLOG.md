@@ -361,8 +361,10 @@ than hypothesized — **unblocked, ready to build**:
   "Hypercar-only" caveat is dead. 3,677 frames in the race capture; per-car items
   `{pid, e, t}` where `e` is energy % showing a clean sawtooth (starts ~99, decays
   linearly to ~0-2 over the stint, refills to ~90 at each pit-in — verified against
-  `pit-in` frames on car 007's 5 stops). `t` field meaning unknown (large negative
-  ms-scale value, 0 when e=100) — decode before trusting it for anything.
+  `pit-in` frames on car 007's 5 stops). `t` field decoded (2026-07-15): resets to
+  ~0 each time `e` ticks down by 1 integer percent, then grows more negative at
+  real-time rate — it is "ms since this integer % was first reached," a sub-percent
+  timer. Not actionable for strategy; `e` alone is the sole useful signal. Ignore.
 - Rides the same Griiip feed Epic 8 already captures; `_handle_vet` stub already
   exists (`wec_live.py:843`) — wiring = fill the stub → `fuel_pct` → `fuel_due`.
   No separate scrape (unlike IMSA's standalone `telemetry.imsa.com` AppSync feed).
@@ -374,8 +376,8 @@ than hypothesized — **unblocked, ready to build**:
   (config, default 5% ≈ 1.5 laps). SP-capture replay: 35/35 cars get fuel_pct;
   VET added 76 DUE car-cycles vs baseline, 100% of them genuinely ≤5% tank, zero
   field-wide false-DUE (worst-cycle clustering is pre-existing stint-estimate
-  behaviour, unchanged). Remaining: confirm live at next WEC event; `t` field
-  still undecoded.
+  behaviour, unchanged). Remaining: confirm live at next WEC event. `t` field
+  decoded same day — sub-percent timer, not actionable (see above).
 
 **Validation scope for both:** practice/qualifying sessions exist ONLY to prove we can
 consume + display these new streams — see the 2026-07-04 decisions-log entry

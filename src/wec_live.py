@@ -527,7 +527,9 @@ class WecLiveClient:
         session_name = data.get("sessionName") or "Session"
         session_type = data.get("sessionType") or ""
 
-        type_map = {"Race": "RACE", "Qualifying": "QUALIFYING",
+        type_map = {"Race": "RACE",
+                    "Qualifying": "QUALIFYING", "Qualify": "QUALIFYING",
+                    "Hyperpole": "QUALIFYING",
                     "Practice": "PRACTICE", "Free Practice": "PRACTICE",
                     "Warmup": "PRACTICE"}
         stype = type_map.get(session_type, "SESSION")
