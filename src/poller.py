@@ -31,6 +31,9 @@ TREND_WINDOW_S  = 300    # compare net position to this many seconds ago
 TREND_MIN_AGE_S = 45     # need at least this much history before showing a trend arrow
 STALE_AFTER_S   = 12     # data older than this → flagged stale
 MAX_DELAY_S     = 120    # max broadcast-delay offset the UI can buffer
+LAPPED_RELEASE_S = 60    # latched +1L releases after this long of continuous on-lead-lap
+                         # readings — frame-scale 0↔1 chatter at the lap boundary never
+                         # sustains, a genuine un-lap (leader pits) does
 
 
 class Poller:
@@ -58,6 +61,8 @@ class Poller:
         self.pit_before_net: dict[str, int]  = {}  # net pos the cycle before the stop
         self.pit_delta_ts:  dict[str, float] = {}  # when delta was recorded (expires 2m)
         self.window_locked: set[str]         = set() # cars whose pit window is latched open
+        self.lapped_latch:  set[str]         = set() # cars latched at +1L to suppress S/F flicker
+        self.lap0_since:    dict[str, float] = {}  # latched car → ts it started reading on-lead-lap
 
     def _connect(self):
         if self.conn is None and DB_PATH.exists():
@@ -368,12 +373,34 @@ class Poller:
                     self.pit_before_net[car] = self.prev_net[car]
                 self.pit_delta_ts[car] = now
                 self.window_locked.discard(car)   # reset latch after a stop
+                self.lapped_latch.discard(car)    # pit resets lapped display latch
+                self.lap0_since.pop(car, None)
             self.prev_stops[car] = cur
             self.prev_net[car] = c.net_position or 99
 
             # hysteresis: once window opens, keep it latched until next stop
             if c.pit_window_open:
                 self.window_locked.add(car)
+
+            # lapped-display latch: suppress +1L ↔ on-lap flicker at S/F crossings.
+            # A car that reads laps_down≥1 holds the +1L display until it pits
+            # (cleared above), goes 2+ down (its own display bucket), or reads
+            # on-lead-lap continuously for LAPPED_RELEASE_S — so boundary chatter
+            # is suppressed but a genuine un-lap still shows within a minute.
+            down = c.laps_down or 0
+            if down >= 2:
+                self.lapped_latch.discard(car)
+                self.lap0_since.pop(car, None)
+            elif down == 1:
+                self.lapped_latch.add(car)
+                self.lap0_since.pop(car, None)   # any +1L reading re-arms the hold
+            elif car in self.lapped_latch:
+                t0 = self.lap0_since.setdefault(car, now)
+                if now - t0 >= LAPPED_RELEASE_S:
+                    self.lapped_latch.discard(car)   # sustained: genuinely back on lead lap
+                    self.lap0_since.pop(car, None)
+                else:
+                    c.laps_down = 1              # enforce latch — don't flip to 0
 
         # expire just-pitted flash after 45s; expire delta display after 2 min
         self.just_pitted_ts = {k: v for k, v in self.just_pitted_ts.items()
