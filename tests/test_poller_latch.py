@@ -95,22 +95,31 @@ class TestLappedLatch(unittest.TestCase):
         self.assertNotIn("7", self.p.lapped_latch)
 
     def test_any_one_reading_rearms(self):
-        """A single +1L reading in the middle of a sustained-0 run restarts the timer."""
-        now = 3000.0
-        self._tick([_car("7", laps_down=1)], now)
+        """A single +1L reading mid-run restarts the release timer.
 
-        # advance almost to release
-        halfway = now + LAPPED_RELEASE_S - 5
-        self._tick([_car("7", laps_down=0)], halfway)
+        Probe at a time where the ORIGINAL timer (from the first zero-tick)
+        would already have expired but the restarted one has not — a broken
+        re-arm releases there, a correct one still holds.
+        """
+        t0 = 3000.0
+        self._tick([_car("7", laps_down=1)], t0)
 
-        # one +1L reading re-arms
-        self._tick([_car("7", laps_down=1)], halfway + 2)
-        self.p.lap0_since.pop("7", None)   # clear timer (re-arm resets it)
+        first_zero = t0 + 55                       # timer would expire t0+115
+        self._tick([_car("7", laps_down=0)], first_zero)
 
-        # the previous near-threshold elapsed time must not count — latch holds
+        self._tick([_car("7", laps_down=1)], t0 + 57)   # re-arm: must pop timer
+        self._tick([_car("7", laps_down=0)], t0 + 58)   # new timer starts here
+
+        # t0+116: old timer expired (61s > release), new one hasn't (58s)
         c = _car("7", laps_down=0)
-        self._tick([c], halfway + 4)
-        self.assertEqual(c.laps_down, 1, "re-arm must restart the hold timer")
+        self._tick([c], t0 + 116)
+        self.assertEqual(c.laps_down, 1,
+                         "stale pre-re-arm timer must not count toward release")
+
+        # and the restarted timer still releases on schedule
+        c2 = _car("7", laps_down=0)
+        self._tick([c2], t0 + 58 + LAPPED_RELEASE_S + 1)
+        self.assertEqual(c2.laps_down, 0, "restarted timer must still release")
 
     # ── C: pit stop release ───────────────────────────────────────────────
 

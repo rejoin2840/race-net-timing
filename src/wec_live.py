@@ -529,6 +529,7 @@ class WecLiveClient:
 
         type_map = {"Race": "RACE",
                     "Qualifying": "QUALIFYING", "Qualify": "QUALIFYING",
+                    "Hyperpole": "QUALIFYING",
                     "Practice": "PRACTICE", "Free Practice": "PRACTICE",
                     "Warmup": "PRACTICE"}
         stype = type_map.get(session_type, "SESSION")

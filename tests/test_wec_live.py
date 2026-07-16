@@ -1090,8 +1090,21 @@ class TestSessionTypeMapping(unittest.TestCase):
     def test_practice_maps_to_practice(self):
         self.assertEqual(self._stype("Practice"), "PRACTICE")
 
+    def test_hyperpole_maps_to_qualifying(self):
+        self.assertEqual(self._stype("Hyperpole"), "QUALIFYING")
+
     def test_unknown_falls_back_to_session(self):
-        self.assertEqual(self._stype("Hyperpole"), "SESSION")
+        self.assertEqual(self._stype("Rolling Start Test"), "SESSION")
+
+    def test_quali_type_is_non_race_in_calculator(self):
+        """Cross-module contract: the mapped WEC quali type must be in
+        calculator.RACE_EXCLUDE_TYPES, or is_race stays True and quali gets
+        race-logic ordering — the exact bug the 'Qualify' mapping exists to fix."""
+        import calculator
+        self.assertIn(self._stype("Qualify"), calculator.RACE_EXCLUDE_TYPES)
+        self.assertIn(self._stype("Hyperpole"), calculator.RACE_EXCLUDE_TYPES)
+        self.assertIn(self._stype("Practice"), calculator.RACE_EXCLUDE_TYPES)
+        self.assertNotIn(self._stype("Race"), calculator.RACE_EXCLUDE_TYPES)
 
 
 if __name__ == "__main__":

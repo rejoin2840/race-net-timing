@@ -131,7 +131,12 @@ _PIT_SEQUENCE_STATES = ("BOX", "IN_LAP", "OUT_LAP", "PIT", "STOPPED")
 GREEN_FLAGS   = {"GF"}
 CAUTION_FLAGS = {"YF", "FCY", "CY", "SC", "VSC", "FCY1", "SCS"}
 VSC_FLAGS     = {"VSC"}
-RACE_EXCLUDE_TYPES = {"QUALIFYING_BEST_LAP", "QUALIFYING_AVG_LAP", "PRACTICE", "WARM_UP"}
+# "QUALIFYING" is the WEC adapter's mapped type (feed sends "Qualify"); the
+# _BEST_LAP/_AVG_LAP variants are IMSA's. All must be here or a quali session
+# computes is_race=True and gets race-logic ordering (the FP1 P1-row-drop bug's
+# quali sibling — the pit-parked official leader sinks off the visible board).
+RACE_EXCLUDE_TYPES = {"QUALIFYING", "QUALIFYING_BEST_LAP", "QUALIFYING_AVG_LAP",
+                      "PRACTICE", "WARM_UP"}
 
 
 # ── data shapes ─────────────────────────────────────────────────────────────
