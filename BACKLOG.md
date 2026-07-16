@@ -344,22 +344,31 @@ module-level IMSA dicts remain only as a fallback for callers without a live con
   violation: Stop+100/200/300s) — a hard regulatory ceiling, not the soft
   consumption-rate estimate `fuel_due` currently leans on. Worth cross-checking
   predicted stint energy against that cap as an additional DUE TO PIT signal once
-  live telemetry is flowing. Needs the actual per-class cap values (published in
-  the Technical Regulations, not the Sporting Regs — not yet sourced). Likely
+  live telemetry is flowing. **Cap values sourced (07-15):** they are NOT fixed
+  constants — per-event, per-manufacturer BoP values in each event's Technical
+  Bulletin PDF (e.g. Detroit TB-IWSC-26-37c1: GTP 896–914 MJ across manufacturers,
+  retuned every event). Consistent with the 07-14 never-hardcode decision; using
+  them means per-event bulletin ingestion, which raises the cost side of the
+  "validate it adds signal first" gate below. Likely
   partially redundant with the existing `_class_stint_laps` empirical stint-length
   tracking (`calculator.py`), so validate it adds real signal before wiring it in —
   don't build it speculatively.
 
-**WEC side** — capture blocked on São Paulo FP1 (~07-10):
-- Confirm the `VET` column hypothesis (Virtual Energy Tank % for Hypercar) from the
-  first live `livetiming.fiawec.com` capture (see [[project-wec-pipeline]] +
-  `wec_spike_findings.md:111`). Unconfirmed and, per current evidence, Hypercar-only —
-  no LMP2/LMGT3 equivalent found yet.
-- If confirmed, it rides the same SignalR/msgpack feed Epic 8 already builds — no
-  separate scrape needed (unlike IMSA, which requires the standalone
-  `telemetry.imsa.com` AppSync feed).
+**WEC side** — ✅ VET CONFIRMED (2026-07-15, from the SP race capture) and better
+than hypothesized — **unblocked, ready to build**:
+- `cars-energy-tanks` channel = Virtual Energy Tank %, and it covers the **entire
+  field, both classes** (17 HYPERCAR + 18 LMGT3, all 35 cars) — the old
+  "Hypercar-only" caveat is dead. 3,677 frames in the race capture; per-car items
+  `{pid, e, t}` where `e` is energy % showing a clean sawtooth (starts ~99, decays
+  linearly to ~0-2 over the stint, refills to ~90 at each pit-in — verified against
+  `pit-in` frames on car 007's 5 stops). `t` field meaning unknown (large negative
+  ms-scale value, 0 when e=100) — decode before trusting it for anything.
+- Rides the same Griiip feed Epic 8 already captures; `_handle_vet` stub already
+  exists (`wec_live.py:843`) — wiring = fill the stub → `fuel_pct` → `fuel_due`.
+  No separate scrape (unlike IMSA's standalone `telemetry.imsa.com` AppSync feed).
 - Same adapter pattern as IMSA: wire into `fuel_due` only when sane, same debounce
-  discipline.
+  discipline. Cleanliness of the SP traces suggests less debounce trouble than
+  IMSA's documented-unreliable VFT, but prove it per-race.
 
 **Validation scope for both:** practice/qualifying sessions exist ONLY to prove we can
 consume + display these new streams — see the 2026-07-04 decisions-log entry
@@ -660,9 +669,19 @@ dense-timing-table port (stays a PyQt6 escape hatch until proven needed).
   approaches the 4h cap or remaining mins can't otherwise be met; needs per-driver
   seat-time accounting from `driver_changes` timestamps. Would upgrade
   `_driver_obligation` (calculator.py:612) from count-based to time-based.
-- **WEC VET column:** hypothesis = Virtual Energy Tank % for Hypercar. Confirm from first
-  São Paulo capture; if correct, scope as Epic 2 sibling for WEC.
-- **"+1 lap" flicker** — cosmetic; hysteresis fix idea documented in session notes.
+- ✅ **WEC VET column confirmed (2026-07-15, SP race capture analysis).** Virtual
+  Energy Tank % for **both classes, all 35 cars** — full findings + build path under
+  Epic 2's WEC section (which is now unblocked).
+- **"+1 lap" flicker** — cosmetic; researched 07-15 (the original session notes
+  aren't in the repo — reconstructed from code). Current state: the *calculation*
+  side is already time-gated (`calculator.py:932` only calls a car lapped when the
+  cumulative-time gap exceeds a lap; `replay.py:75` `_gap_ms` never infers lapped
+  from integer lap subtraction), so remaining flicker is transition chatter when the
+  time gap hovers right at the one-lap boundary. Fix idea = display-side latch,
+  prior art in-repo: the pit-window hysteresis at `poller.py:374` (once a state
+  flips, hold it until a genuine reset event, or require N consecutive cycles
+  before flipping back). Small UI-side change; do it when next touching the row
+  render path.
 - **F1OpenViewer steal-audit** — promoted into Epic 9 phase 2 (2026-07-04).
 
 ## Parked north star (no work — direction only)
