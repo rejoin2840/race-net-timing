@@ -369,6 +369,13 @@ than hypothesized — **unblocked, ready to build**:
 - Same adapter pattern as IMSA: wire into `fuel_due` only when sane, same debounce
   discipline. Cleanliness of the SP traces suggests less debounce trouble than
   IMSA's documented-unreliable VFT, but prove it per-race.
+- **BUILT + replay-validated (2026-07-15, PR #27):** `_handle_vet` filled →
+  `fuel_pct` → WEC-only (profile-gated) `fuel_due` override at ≤`VET_DUE_PCT`
+  (config, default 5% ≈ 1.5 laps). SP-capture replay: 35/35 cars get fuel_pct;
+  VET added 76 DUE car-cycles vs baseline, 100% of them genuinely ≤5% tank, zero
+  field-wide false-DUE (worst-cycle clustering is pre-existing stint-estimate
+  behaviour, unchanged). Remaining: confirm live at next WEC event; `t` field
+  still undecoded.
 
 **Validation scope for both:** practice/qualifying sessions exist ONLY to prove we can
 consume + display these new streams — see the 2026-07-04 decisions-log entry
@@ -681,7 +688,11 @@ dense-timing-table port (stays a PyQt6 escape hatch until proven needed).
   prior art in-repo: the pit-window hysteresis at `poller.py:374` (once a state
   flips, hold it until a genuine reset event, or require N consecutive cycles
   before flipping back). Small UI-side change; do it when next touching the row
-  render path.
+  render path. **FIXED (2026-07-15, PR #27):** `lapped_latch` in poller.py —
+  +1L display holds through boundary chatter, releases on the car's own pit
+  stop, on going 2+ down, or after 60s of continuous on-lead-lap readings
+  (`LAPPED_RELEASE_S`) so a genuine un-lap still shows within a minute.
+  Simulation-validated; confirm live at next event.
 - **F1OpenViewer steal-audit** — promoted into Epic 9 phase 2 (2026-07-04).
 
 ## Parked north star (no work — direction only)
