@@ -603,7 +603,14 @@ web-tech — weigh honestly, decide once.
 **Output:** a decision-log entry + a scoped plan for the chosen direction.
 Until then: cosmetic UI work frozen (see 07-04 decision).
 
-### Epic 10 — Web board content migration *(scoped 2026-07-15, PR #24 open — Fable review pending)*
+### Epic 10 — Web board content migration *(built + merged 2026-07-15, PR #24; AC 1–5 shipped, AC 6 exit test calendar-blocked)*
+
+**Status:** AC 1–5 implemented (Sonnet build + Fable review; 4 confirmed review
+findings fixed pre-merge — see PR #24 comment for the table). Remaining before
+close: **AC 6 exit test** (web board alongside PyQt6 at the next live event) and
+the WYWA **ranked expand** (deferred by design until that event). Note for the
+exit test: run PyQt6 from current main — its poller feeds the web board's new
+SQLite tables (`rail_battles`, `session_computed`, RC tier/kind).
 
 Close the gap between web UI v1 (scaffolding + two mockup-validated patterns) and
 the phase-1 board the sounding-board mockups describe. Everything graded on the
