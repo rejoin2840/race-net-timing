@@ -43,6 +43,7 @@ DEFAULTS = {
         # observed — tune live via config.json during FP/race)
         "HYPERCAR": 33, "LMGT3": 30},
     "PIT_WINDOW_LAPS":        5,        # fuel-laps-left at/under which the pit window is "open"
+    "VET_DUE_PCT":            5.0,      # WEC energy-tank % at/under which fuel_due lights (≈1.5 laps at a 33-lap stint; VET is WEC-only, IMSA ignores this)
     "FINISH_BLEND_MAX_W":     0.3,      # projected-finish blend: cap on net's weight
     "FINISH_BLEND_W_PER_STOP": 0.08,    # …net weight gained per estimated remaining stop
                                         # (halved 07-13: on honest post-official-rank data

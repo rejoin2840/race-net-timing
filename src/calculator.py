@@ -808,10 +808,12 @@ def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAn
         ca.tire_compound  = r["tire_compound"]
         ca.tire_age       = r["tire_age"]
         ca.override_state = r["override_state"]
-        # NOTE: fuel_due is NOT derived from the VFT flag. That telemetry is replay-only
-        # (the live Al Kamel feed carries no VFT) and proved unreliable — cars read
-        # near-empty for laps after refuelling, lighting "DUE" on the whole field. fuel_due
-        # is set below from the stint estimate (pit window open + ~1 lap of fuel left).
+        # NOTE: fuel_due is NOT derived from the IMSA VFT flag. That telemetry is
+        # replay-only (the live Al Kamel feed carries no VFT) and proved unreliable —
+        # cars read near-empty for laps after refuelling, lighting "DUE" on the whole
+        # field. fuel_due is set in _derive_class from the stint estimate (pit window
+        # open + ~1 lap of fuel left); WEC is the one exception — its live VET tank %
+        # proved clean in the SP 2026 capture and overrides there, profile-gated.
         ca.avg_pace_ms = _avg_pace(conn, oid, r["car_number"], r["best_lap_ms"])
         if r["last_pit_lap"] is not None and r["laps"] is not None:
             ca.stint_laps = max(0, r["laps"] - r["last_pit_lap"])
@@ -973,11 +975,16 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
             if ca.pit_window_open and ca.fuel_laps_left <= 1:
                 ca.fuel_due = "due"
 
-        # WEC VET override: real tank % beats the stint estimate when available and sane.
-        # VET decays linearly 99→0 over a stint and refills to ~90 immediately after a stop.
-        # Exclude the refill transient (>90%) and a noisy extreme floor (<2%).
-        if (ca.fuel_pct is not None
-                and 2.0 <= ca.fuel_pct < 10.0
+        # WEC VET override: the real tank % (cars-energy-tanks) beats the stint
+        # estimate when it reads low. WEC-ONLY: IMSA's fuel_pct is the replay-only
+        # VFT that reads near-empty for laps after refuelling (see NOTE above) —
+        # the profile gate keeps that documented failure from coming back. WEC VET
+        # decays cleanly ~99→0 over a stint and jumps straight to ~90 at refuel
+        # (SP 2026 capture), so a low reading is trustworthy on its own — no floor:
+        # a car at 1% is the MOST due, never less.
+        if (ctx.profile.key == "wec"
+                and ca.fuel_pct is not None
+                and ca.fuel_pct <= VET_DUE_PCT
                 and (ca.est_stops_left or 0) > 0):
             ca.fuel_due = "due"
 
