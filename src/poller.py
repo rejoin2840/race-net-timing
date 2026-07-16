@@ -58,6 +58,7 @@ class Poller:
         self.pit_before_net: dict[str, int]  = {}  # net pos the cycle before the stop
         self.pit_delta_ts:  dict[str, float] = {}  # when delta was recorded (expires 2m)
         self.window_locked: set[str]         = set() # cars whose pit window is latched open
+        self.lapped_latch:  set[str]         = set() # cars latched at +1L to suppress S/F flicker
 
     def _connect(self):
         if self.conn is None and DB_PATH.exists():
@@ -368,12 +369,23 @@ class Poller:
                     self.pit_before_net[car] = self.prev_net[car]
                 self.pit_delta_ts[car] = now
                 self.window_locked.discard(car)   # reset latch after a stop
+                self.lapped_latch.discard(car)    # pit resets lapped display latch
             self.prev_stops[car] = cur
             self.prev_net[car] = c.net_position or 99
 
             # hysteresis: once window opens, keep it latched until next stop
             if c.pit_window_open:
                 self.window_locked.add(car)
+
+            # lapped-display latch: suppress +1L ↔ on-lap flicker at S/F crossings.
+            # Once a car reads laps_down≥1, hold it there until the car genuinely pits
+            # (latch cleared above) or goes 2+ laps down (own separate display bucket).
+            if (c.laps_down or 0) >= 2:
+                self.lapped_latch.discard(car)   # 2+ down is its own display state
+            elif (c.laps_down or 0) == 1:
+                self.lapped_latch.add(car)
+            elif car in self.lapped_latch:
+                c.laps_down = 1                  # enforce latch — don't flip to 0
 
         # expire just-pitted flash after 45s; expire delta display after 2 min
         self.just_pitted_ts = {k: v for k, v in self.just_pitted_ts.items()

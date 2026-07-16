@@ -973,6 +973,14 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
             if ca.pit_window_open and ca.fuel_laps_left <= 1:
                 ca.fuel_due = "due"
 
+        # WEC VET override: real tank % beats the stint estimate when available and sane.
+        # VET decays linearly 99→0 over a stint and refills to ~90 immediately after a stop.
+        # Exclude the refill transient (>90%) and a noisy extreme floor (<2%).
+        if (ca.fuel_pct is not None
+                and 2.0 <= ca.fuel_pct < 10.0
+                and (ca.est_stops_left or 0) > 0):
+            ca.fuel_due = "due"
+
     # sector deltas vs the class-best sector (who's losing time where)
     for s in (1, 2, 3):
         vals = [getattr(c, f"best_s{s}_ms") for c in group_sorted

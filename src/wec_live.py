@@ -306,6 +306,7 @@ class WecLiveState:
     car_status: dict = field(default_factory=dict)     # car -> running status
     car_classes: dict = field(default_factory=dict)    # car -> class string
     car_tires: dict = field(default_factory=dict)      # car -> tire info
+    car_vet:   dict = field(default_factory=dict)      # car -> energy tank % (0–100)
 
     entries_written: set = field(default_factory=set)
     pit_in_times: dict = field(default_factory=dict)   # car -> entry epoch ms
@@ -841,7 +842,17 @@ class WecLiveClient:
         pass
 
     def _handle_vet(self, data):
-        pass
+        if not isinstance(data, dict):
+            return
+        for item in (data.get("items") or []):
+            pid = item.get("pid")
+            e   = item.get("e")
+            if pid is None or e is None:
+                continue
+            car = self.state.pid_to_car.get(int(pid))
+            if car:
+                self.state.car_vet[car] = float(e)
+                self._flush_car(car)
 
     def _handle_race_log(self, data):
         if not isinstance(data, dict) or not self.db:
@@ -900,6 +911,7 @@ class WecLiveClient:
             "elapsedTime": gaps.get("elapsed_ms"),
             "tireCompound": tires.get("compound"),
             "tireAge": tires.get("age"),
+            "fuelPct": self.state.car_vet.get(car),
         }
 
         self.db.ingest_car(car, d, standing, self.state.current_lap,
