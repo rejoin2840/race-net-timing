@@ -123,10 +123,12 @@ const STALE_AFTER_MS = 12_000;
 
 function isStale(netUpdatedAt: string | null): boolean {
   if (!netUpdatedAt) return false;
-  try {
-    const ts = new Date(netUpdatedAt.endsWith('Z') ? netUpdatedAt : netUpdatedAt + 'Z');
-    return Date.now() - ts.getTime() > STALE_AFTER_MS;
-  } catch { return false; }
+  // the poller stamps '+00:00' (not 'Z') — only append 'Z' when the string
+  // carries no timezone at all; appending to an existing offset parses as NaN
+  const iso = /(Z|[+-]\d\d:?\d\d)$/.test(netUpdatedAt) ? netUpdatedAt : netUpdatedAt + 'Z';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return false;
+  return Date.now() - t > STALE_AFTER_MS;
 }
 
 function NetCell({ pos, netPos, settled, netUpdatedAt }: {

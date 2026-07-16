@@ -33,7 +33,7 @@ function Divider() {
 }
 
 function fmtRcAge(ts: number | null): string {
-  if (ts === null) return '';
+  if (ts === null || ts <= 0) return '';  // feed stores 0 when it has no timestamp
   const s = Math.round((Date.now() - ts) / 1000);
   if (s < 60) return `${s}s`;
   return `${Math.floor(s / 60)}m`;

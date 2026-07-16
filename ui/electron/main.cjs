@@ -12,6 +12,7 @@ const DB_PATH = path.resolve(__dirname, '../../data/race.db');
 const Database = require(
   path.resolve(__dirname, '../node_modules/better-sqlite3')
 );
+const schema = require('./schema.cjs');
 
 // Class order mirrors timing_table.py CLASS_ORDER
 const CLASS_ORDER = ['GTP', 'HYPERCAR', 'LMP2', 'GTD PRO', 'LMGT3', 'GTD'];
@@ -23,115 +24,78 @@ let stmtPits         = null;
 let stmtRc           = null;
 let stmtBattles      = null;
 let stmtSessionComp  = null;
+let dbSchemaSig      = null;   // signature of the shape we prepared against
+let dbSchemaComplete = false;  // false → keep re-probing (poller may migrate the DB live)
+
+function closeDb() {
+  try { if (db) db.close(); } catch (_) {}
+  db              = null;
+  stmt            = null;
+  stmtPits        = null;
+  stmtRc          = null;
+  stmtBattles     = null;
+  stmtSessionComp = null;
+  dbSchemaSig     = null;
+}
 
 function openDb() {
   if (db) return db;
   if (!fs.existsSync(DB_PATH)) return null;
   try {
     db = new Database(DB_PATH, { readonly: true, fileMustExist: true });
-    stmt = db.prepare(`
-      SELECT
-        s.car_number,
-        CAST(s.pos_in_class AS INTEGER) AS pos,
-        s.car_class                     AS class_code,
-        s.gap_ms,
-        CAST(s.laps AS INTEGER)         AS laps,
-        s.track_status,
-        CAST(s.pits AS INTEGER)         AS stops,
-        s.is_running,
-        s.updated_at                    AS car_updated_at,
-        COALESCE(e.name,  s.car_number) AS driver,
-        COALESCE(e.team,  '')           AS team,
-        ss.current_flag,
-        CAST(ss.current_lap AS INTEGER) AS current_lap,
-        ss.is_running                   AS session_running,
-        ss.is_finished                  AS session_finished,
-        ss.final_type,
-        ss.final_time_s,
-        ss.final_laps,
-        ss.start_time_s,
-        ss.stopped_s,
-        ss.has_extra_time,
-        ss.extra_time_s,
-        ss.updated_at                   AS session_updated_at,
-        na.net_position,
-        na.net_gap_ms,
-        na.net_gap_band_ms,
-        na.class_gap_ms,
-        na.laps_down,
-        na.est_stops_left,
-        na.penalty_s,
-        na.penalty_note,
-        na.owes_driver_change,
-        na.net_settled,
-        na.projected_finish,
-        na.fuel_due,
-        na.catching,
-        na.catch_in_laps,
-        na.strategy_note,
-        na.next_stop_ms,
-        na.next_stop_std_ms,
-        na.updated_at                   AS net_updated_at
-      FROM standings_current s
-      LEFT JOIN session_entry e
-        ON e.session_oid = s.session_oid
-       AND e.car_number  = s.car_number
-      LEFT JOIN session_status ss
-        ON ss.session_oid = s.session_oid
-      LEFT JOIN net_analysis na
-        ON na.session_oid = s.session_oid
-       AND na.car_number  = s.car_number
-      WHERE s.session_oid = (
-        SELECT session_oid FROM session_status
-        ORDER BY updated_at DESC LIMIT 1
-      )
-      ORDER BY s.car_class, CAST(s.pos_in_class AS INTEGER)
-    `);
-    stmtPits = db.prepare(`
-      SELECT car_number, stop_number, pit_lap, flag, stop_duration_ms
-      FROM pit_events
-      WHERE session_oid = (
-        SELECT session_oid FROM session_status ORDER BY updated_at DESC LIMIT 1
-      )
-      ORDER BY car_number, stop_number
-    `);
-    console.log('[racenet] db opened:', DB_PATH);
-    stmtRc = db.prepare(`
-      SELECT ts, message, tier, kind FROM race_control
-      WHERE session_oid = (
-        SELECT session_oid FROM session_status ORDER BY updated_at DESC LIMIT 1
-      )
-        AND (tier IS NULL OR tier > 0)
-      ORDER BY ts DESC, rowid DESC LIMIT 6
-    `);
-    stmtBattles = db.prepare(`
-      SELECT car_class, car_ahead, car_chaser, gap_ms, closing, rate_s_per_lap
-      FROM rail_battles
-      WHERE session_oid = (
-        SELECT session_oid FROM session_status ORDER BY updated_at DESC LIMIT 1
-      )
-      ORDER BY rank
-    `);
-    stmtSessionComp = db.prepare(`
-      SELECT remaining_s, elapsed_s FROM session_computed
-      WHERE session_oid = (
-        SELECT session_oid FROM session_status ORDER BY updated_at DESC LIMIT 1
-      )
-    `);
+    // Build SQL against whatever shape this DB actually has: archives and
+    // scraper-only DBs predate the poller's tables/columns, and a prepare
+    // naming a missing column would otherwise blank the whole board.
+    const p = schema.probeSchema(db);
+    dbSchemaSig      = schema.schemaSig(p);
+    dbSchemaComplete = schema.schemaComplete(p);
+    stmt     = db.prepare(schema.buildMainSql(p));
+    stmtPits = db.prepare(schema.buildPitsSql());
+    stmtRc   = db.prepare(schema.buildRcSql(p));
+    stmtBattles     = p.hasBattles     ? db.prepare(schema.buildBattlesSql())     : null;
+    stmtSessionComp = p.hasSessionComp ? db.prepare(schema.buildSessionCompSql()) : null;
+    console.log('[racenet] db opened:', DB_PATH,
+                dbSchemaComplete ? '' : '(partial schema — will re-probe)');
     return db;
   } catch (err) {
     console.error('[racenet] DB open failed:', err.message);
-    db = null;
+    closeDb();
     return null;
   }
+}
+
+// If we opened against a partial schema, the poller may add its tables/columns
+// at any moment — re-probe cheaply each tick and rebuild when the shape grows.
+function maybeReprobe() {
+  if (!db || dbSchemaComplete) return;
+  try {
+    if (schema.schemaSig(schema.probeSchema(db)) !== dbSchemaSig) {
+      console.log('[racenet] schema changed — rebuilding statements');
+      closeDb();
+    }
+  } catch (_) {}
 }
 
 function ageSeconds(updatedAt) {
   if (!updatedAt) return null;
   try {
-    const ts = new Date(updatedAt.endsWith('Z') ? updatedAt : updatedAt + 'Z');
-    return (Date.now() - ts.getTime()) / 1000;
+    // scraper stamps end in 'Z', the poller's in '+00:00' — only append 'Z'
+    // when there's no timezone at all (appending to an offset makes NaN)
+    const iso = /(Z|[+-]\d\d:?\d\d)$/.test(updatedAt) ? updatedAt : updatedAt + 'Z';
+    const t = new Date(iso).getTime();
+    return Number.isNaN(t) ? null : (Date.now() - t) / 1000;
   } catch { return null; }
+}
+
+// Python-computed clock (fixes the replay capture-clock gotcha) — but only
+// when it's a real value and the poller is alive: pre-start the calculator
+// leaves remaining_s at 0.0 (not "finished"), and a dead poller must not
+// freeze the header clock, so both cases fall back to calcRemainingS.
+function pythonRemainingS(sc) {
+  if (!sc || sc.remaining_s == null) return null;
+  const age = ageSeconds(sc.updated_at);
+  if (age === null || age > 30) return null;
+  return sc.remaining_s;
 }
 
 function calcRemainingS(r) {
@@ -190,7 +154,7 @@ function buildPayload(rawRows, pitRows, rcRows, battleRows, sessionComp) {
         isRunning:  Boolean(r.session_running),
         ageS:       ageSeconds(r.session_updated_at),
         finalType:  r.final_type    || null,
-        remainingS: sessionComp?.remaining_s ?? calcRemainingS(r),
+        remainingS: pythonRemainingS(sessionComp) ?? calcRemainingS(r),
         finalLaps:  r.final_laps    ?? null,
         isFinished: Boolean(r.session_finished),
       };
@@ -252,6 +216,7 @@ function buildPayload(rawRows, pitRows, rcRows, battleRows, sessionComp) {
 
 function queryAndSend() {
   if (!win || win.isDestroyed()) return;
+  maybeReprobe();
   const d = openDb();
   if (!d || !stmt) return;
   try {
@@ -272,13 +237,7 @@ function queryAndSend() {
     }
   } catch (err) {
     console.error('[racenet] query failed:', err.message);
-    try { db.close(); } catch (_) {}
-    db              = null;
-    stmt            = null;
-    stmtPits        = null;
-    stmtRc          = null;
-    stmtBattles     = null;
-    stmtSessionComp = null;
+    closeDb();
   }
 }
 

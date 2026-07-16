@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Battle, CarRow, RcMessage, RowsPayload } from './types';
-import { MOCK_PAYLOAD } from './mock';
+import { buildMockPayload } from './mock';
 import Board from './components/Board';
 import DetailPanel from './components/DetailPanel';
 import RightRail from './components/RightRail';
@@ -36,7 +36,7 @@ function fmtRemaining(s: number): string {
 }
 
 function fmtRcAge(ts: number | null): string {
-  if (ts === null) return '';
+  if (ts === null || ts <= 0) return '';  // feed stores 0 when it has no timestamp
   const s = Math.round((Date.now() - ts) / 1000);
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
@@ -51,24 +51,32 @@ export default function App() {
   const snapshot   = useRef<RowsPayload | null>(null);
   const payloadRef = useRef<RowsPayload | null>(null);
 
-  // Keep payloadRef in sync so the visibility handler can read current payload
+  // Keep payloadRef in sync so the focus handlers can read the current payload
   useEffect(() => { payloadRef.current = payload; }, [payload]);
 
-  // Track page visibility to power WYWA card
+  // Track window focus to power the WYWA card. Focus loss — not visibility —
+  // is the "stepped away" signal: a board on a second monitor stays visible
+  // (visibilitychange never fires) while the user works elsewhere. Mirrors the
+  // PyQt board's QEvent.ActivationChange trigger.
   useEffect(() => {
-    function handleVisibility() {
-      if (document.hidden) {
-        awayFrom.current  = Date.now();
-        snapshot.current  = payloadRef.current;
-      } else if (awayFrom.current !== null && snapshot.current && payloadRef.current) {
+    function handleBlur() {
+      awayFrom.current = Date.now();
+      snapshot.current = payloadRef.current;
+    }
+    function handleFocus() {
+      if (awayFrom.current !== null && snapshot.current && payloadRef.current) {
         const summary = buildWywaSummary(snapshot.current, payloadRef.current, awayFrom.current);
         if (summary) setWywa(summary);
-        awayFrom.current = null;
-        snapshot.current = null;
       }
+      awayFrom.current = null;
+      snapshot.current = null;
     }
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
 
   useEffect(() => {
@@ -77,8 +85,8 @@ export default function App() {
       window.racenet.onRows(cb);
       return () => window.racenet!.offRows(cb);
     } else {
-      setPayload(MOCK_PAYLOAD);
-      const t = setInterval(() => setPayload({ ...MOCK_PAYLOAD, updatedAt: Date.now() }), 2000);
+      setPayload(buildMockPayload());
+      const t = setInterval(() => setPayload(buildMockPayload()), 2000);
       return () => clearInterval(t);
     }
   }, []);

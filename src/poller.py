@@ -233,6 +233,11 @@ class Poller:
                 updated_at   TEXT
             )""")
         now = datetime.now(timezone.utc).isoformat()
+        # the calculator leaves both at 0.0 when the clock hasn't started (or
+        # for BY_LAPS sessions) — write NULL so readers can't mistake a
+        # not-yet-started race for a finished one
+        remaining = getattr(ctx, 'remaining_s', None) or None
+        elapsed   = getattr(ctx, 'elapsed_s', None) or None
         conn.execute("""
             INSERT INTO session_computed (session_oid, remaining_s, elapsed_s, updated_at)
             VALUES (?,?,?,?)
@@ -240,7 +245,7 @@ class Poller:
               remaining_s=excluded.remaining_s,
               elapsed_s=excluded.elapsed_s,
               updated_at=excluded.updated_at""",
-            (oid, getattr(ctx, 'remaining_s', None), getattr(ctx, 'elapsed_s', None), now))
+            (oid, remaining, elapsed, now))
         conn.commit()
 
     def _write_net_analysis(self, conn, oid: str, cars) -> None:
