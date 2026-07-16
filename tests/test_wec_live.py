@@ -1010,5 +1010,89 @@ class TestRestartReassertsSession(_DbTestCase):
             first)
 
 
+class TestVetHandler(_DbTestCase):
+    """_handle_vet round-trips through _flush_car into standings_current.fuel_pct."""
+
+    def setUp(self):
+        super().setUp()
+        # register a participant so pid→car resolution works
+        self.client._handle_participants({
+            "carNumber": "7", "pid": 405001, "classId": "HYPERCAR",
+        })
+        # seed a ranks frame so _flush_car has a position to write
+        self.client._handle_ranks({"pos": 1, "posInClass": 1, "pid": 405001})
+
+    def test_energy_stored_in_state(self):
+        self.client._handle_vet({"items": [{"pid": 405001, "e": 72.5, "t": -12000}]})
+        self.assertAlmostEqual(self.client.state.car_vet["7"], 72.5)
+
+    def test_energy_written_to_db(self):
+        self.client._handle_vet({"items": [{"pid": 405001, "e": 72.5, "t": -12000}]})
+        rows = self._query(
+            "SELECT fuel_pct FROM standings_current WHERE car_number='7'")
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["fuel_pct"], 72.5)
+
+    def test_multiple_cars_in_one_frame(self):
+        self.client._handle_participants({
+            "carNumber": "9", "pid": 405002, "classId": "HYPERCAR",
+        })
+        self.client._handle_ranks({"pos": 2, "posInClass": 2, "pid": 405002})
+        self.client._handle_vet({"items": [
+            {"pid": 405001, "e": 40.0, "t": -5000},
+            {"pid": 405002, "e": 55.0, "t": -3000},
+        ]})
+        self.assertAlmostEqual(self.client.state.car_vet["7"], 40.0)
+        self.assertAlmostEqual(self.client.state.car_vet["9"], 55.0)
+
+    def test_unknown_pid_ignored(self):
+        self.client._handle_vet({"items": [{"pid": 999999, "e": 50.0, "t": -1000}]})
+        self.assertNotIn(999999, self.client.state.car_vet)
+
+    def test_t_field_not_stored(self):
+        self.client._handle_vet({"items": [{"pid": 405001, "e": 80.0, "t": -99999}]})
+        self.assertNotIn("t", self.client.state.car_vet)
+        self.assertEqual(set(self.client.state.car_vet.keys()), {"7"})
+
+    def test_non_dict_data_ignored(self):
+        self.client._handle_vet(None)
+        self.client._handle_vet([])
+        self.assertEqual(self.client.state.car_vet, {})
+
+
+class TestSessionTypeMapping(unittest.TestCase):
+    """The WEC feed sends 'Qualify' (not 'Qualifying') — must map to QUALIFYING
+    so non-race sessions get official best-lap ordering, not race-logic ordering."""
+
+    def _stype(self, feed_value):
+        import tempfile, db as dbmod
+        with tempfile.TemporaryDirectory() as d:
+            client = WecLiveClient(db_path="", no_db=True)
+            client.db = dbmod.RaceDB(os.path.join(d, "t.db"))
+            client._handle_session_info({
+                "sid": 1, "eventName": "WEC", "sessionName": "Quali",
+                "sessionType": feed_value,
+            })
+            rows = client.db.conn.execute(
+                "SELECT session_type FROM sessions").fetchall()
+            client.db.close()
+            return rows[0]["session_type"] if rows else None
+
+    def test_qualify_maps_to_qualifying(self):
+        self.assertEqual(self._stype("Qualify"), "QUALIFYING")
+
+    def test_qualifying_still_works(self):
+        self.assertEqual(self._stype("Qualifying"), "QUALIFYING")
+
+    def test_race_maps_to_race(self):
+        self.assertEqual(self._stype("Race"), "RACE")
+
+    def test_practice_maps_to_practice(self):
+        self.assertEqual(self._stype("Practice"), "PRACTICE")
+
+    def test_unknown_falls_back_to_session(self):
+        self.assertEqual(self._stype("Hyperpole"), "SESSION")
+
+
 if __name__ == "__main__":
     unittest.main()
