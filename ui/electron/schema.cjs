@@ -34,11 +34,17 @@ function tableColumns(d, name) {
 function probeSchema(d) {
   const naCols = tableColumns(d, 'net_analysis');
   const rcCols = tableColumns(d, 'race_control');
+  const scCols = tableColumns(d, 'standings_current');
   return {
     naCols,
     rcHasTier:      rcCols.has('tier') && rcCols.has('kind'),
     hasBattles:     tableExists(d, 'rail_battles'),
     hasSessionComp: tableExists(d, 'session_computed'),
+    // fuel_pct arrived via ALTER TABLE (2026-07-15, WEC VET wiring) — older
+    // archives/scraper DBs predate it, same degrade-to-NULL treatment as
+    // everything else here. last_lap_ms/best_lap_ms/last_pit_lap are in the
+    // original CREATE TABLE, so no probe needed for those.
+    hasFuelPct:     scCols.has('fuel_pct'),
   };
 }
 
@@ -46,13 +52,13 @@ function probeSchema(d) {
 function schemaSig(p) {
   return [
     [...p.naCols].sort().join(','),
-    p.rcHasTier, p.hasBattles, p.hasSessionComp,
+    p.rcHasTier, p.hasBattles, p.hasSessionComp, p.hasFuelPct,
   ].join('|');
 }
 
 // true when every optional feature is present — nothing left to re-probe for
 function schemaComplete(p) {
-  return p.rcHasTier && p.hasBattles && p.hasSessionComp
+  return p.rcHasTier && p.hasBattles && p.hasSessionComp && p.hasFuelPct
     && NA_COLS.every(c => p.naCols.has(c));
 }
 
@@ -69,6 +75,7 @@ function buildMainSql(p) {
         ON na.session_oid = s.session_oid
        AND na.car_number  = s.car_number`
     : '';
+  const fuelPctSel = p.hasFuelPct ? 's.fuel_pct' : 'NULL AS fuel_pct';
   return `
       SELECT
         s.car_number,
@@ -80,6 +87,10 @@ function buildMainSql(p) {
         CAST(s.pits AS INTEGER)         AS stops,
         s.is_running,
         s.updated_at                    AS car_updated_at,
+        s.last_lap_ms,
+        s.best_lap_ms,
+        CAST(s.last_pit_lap AS INTEGER) AS last_pit_lap,
+        ${fuelPctSel},
         COALESCE(e.name,  s.car_number) AS driver,
         COALESCE(e.team,  '')           AS team,
         ss.current_flag,

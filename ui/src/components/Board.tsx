@@ -1,4 +1,4 @@
-import type { CarRow, ClassGroup } from '../types';
+import type { Battle, CarRow, ClassGroup } from '../types';
 import ClassSection from './ClassSection';
 
 const CLASS_ORDER = ['GTP', 'HYPERCAR', 'LMP2', 'GTD PRO', 'LMGT3', 'GTD'];
@@ -6,10 +6,11 @@ const CLASS_ORDER = ['GTP', 'HYPERCAR', 'LMP2', 'GTD PRO', 'LMGT3', 'GTD'];
 interface Props {
   classes: ClassGroup[];
   selectedCar: string | null;
+  battles: Battle[];
   onSelectCar: (car: CarRow, classCode: string) => void;
 }
 
-export default function Board({ classes, selectedCar, onSelectCar }: Props) {
+export default function Board({ classes, selectedCar, battles, onSelectCar }: Props) {
   const sorted = [...classes].sort((a, b) => {
     const ai = CLASS_ORDER.indexOf(a.code);
     const bi = CLASS_ORDER.indexOf(b.code);
@@ -26,6 +27,7 @@ export default function Board({ classes, selectedCar, onSelectCar }: Props) {
           key={cls.code}
           group={cls}
           selectedCar={selectedCar}
+          battles={battles}
           onSelectCar={onSelectCar}
         />
       ))}

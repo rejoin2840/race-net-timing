@@ -171,6 +171,13 @@ function buildPayload(rawRows, pitRows, rcRows, battleRows, sessionComp) {
       trackStatus:  r.track_status  || null,
       stops:        r.stops         ?? 0,
       isRunning:    Boolean(r.is_running),
+      lastLapMs:    r.last_lap_ms   ?? null,
+      bestLapMs:    r.best_lap_ms   ?? null,
+      fuelPct:      r.fuel_pct      ?? null,
+      // laps into the current stint — same "laps minus last pit lap" the
+      // Python calculator uses (calculator.py analyse(), ~L817)
+      stintLaps:    (r.last_pit_lap != null && r.laps != null)
+                      ? Math.max(0, r.laps - r.last_pit_lap) : null,
       netPos:       r.net_position  ?? null,
       netGapMs:     r.net_gap_ms    ?? null,
       netGapBandMs: r.net_gap_band_ms ?? null,

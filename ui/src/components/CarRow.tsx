@@ -1,4 +1,4 @@
-import type { CarRow as CarRowType } from '../types';
+import type { Battle, CarRow as CarRowType } from '../types';
 
 const IN_PIT  = new Set(['BOX', 'PIT', 'STOPPED']);
 const OUT_LAP = new Set(['OUT_LAP', 'OUT']);
@@ -18,18 +18,71 @@ function fmtGap(row: CarRowType): string {
   return `+${m}:${rem}`;
 }
 
+function fmtLapTime(ms: number | null): string {
+  if (ms === null) return '—';
+  const s = ms / 1000;
+  const m = Math.floor(s / 60);
+  const rem = (s % 60).toFixed(3).padStart(6, '0');
+  return `${m}:${rem}`;
+}
+
+function fmtNextStop(ms: number | null, stdMs: number | null): string {
+  if (ms === null) return '—';
+  const base = `${(ms / 1000).toFixed(1)}s`;
+  return stdMs !== null ? `${base} ±${(stdMs / 1000).toFixed(1)}` : base;
+}
+
+// personal-best delta for the LAST LAP column — 'best' when this lap tied or
+// beat the car's own best (equality still reads 'best', not '+0.00')
+function lapDelta(lastMs: number | null, bestMs: number | null): { text: string; isBest: boolean } {
+  if (lastMs === null || bestMs === null) return { text: '', isBest: false };
+  const d = lastMs - bestMs;
+  if (d <= 0) return { text: 'best', isBest: true };
+  return { text: `+${(d / 1000).toFixed(2)}`, isBest: false };
+}
+
+type NoteTone = 'penalty' | 'battle' | 'strategy' | 'quiet';
+
+// priority order: a penalty always wins the notes lane (it's the one thing
+// that must never be missed); otherwise combine a live battle call with the
+// engine's undercut/overcut read, since both can be true at once
+function buildNote(row: CarRowType, battles: Battle[]): { text: string; tone: NoteTone } {
+  if (row.penaltyNote) return { text: row.penaltyNote, tone: 'penalty' };
+
+  const chasing = battles.find((b) => b.carChaser === row.car && b.closing);
+  const parts: string[] = [];
+  if (chasing) {
+    const rate = chasing.rateSPerLap !== null ? `, −${chasing.rateSPerLap.toFixed(1)}/lap` : '';
+    parts.push(`▲ closing on #${chasing.carAhead} — ${(chasing.gapMs / 1000).toFixed(1)}s${rate}`);
+  }
+  if (row.strategyNote) parts.push(row.strategyNote);
+
+  if (parts.length === 0) return { text: '—', tone: 'quiet' };
+  return { text: parts.join(' · '), tone: chasing ? 'battle' : 'strategy' };
+}
+
+const NOTE_COLOR: Record<NoteTone, string> = {
+  penalty:  'text-amber-400',
+  battle:   'text-emerald-400/90',
+  strategy: 'text-amber-400/60',
+  quiet:    'text-muted-fg/30',
+};
+
 interface Props {
   row: CarRowType;
   index: number;
   spineColor: string;
   selected: boolean;
+  battles: Battle[];
   onClick: () => void;
 }
 
-export default function CarRow({ row, index, spineColor, selected, onClick }: Props) {
+export default function CarRow({ row, index, spineColor, selected, battles, onClick }: Props) {
   const inPit  = IN_PIT.has(row.trackStatus ?? '');
   const outLap = OUT_LAP.has(row.trackStatus ?? '');
   const dim    = inPit || !row.isRunning;
+  const delta  = lapDelta(row.lastLapMs, row.bestLapMs);
+  const note   = buildNote(row, battles);
 
   return (
     <div
@@ -37,7 +90,7 @@ export default function CarRow({ row, index, spineColor, selected, onClick }: Pr
       tabIndex={0}
       onClick={onClick}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onClick()}
-      className={`flex items-center h-9 border-b border-border/40 cursor-pointer transition-colors
+      className={`flex items-center h-11 border-b border-border/40 cursor-pointer transition-colors
         ${selected
           ? 'bg-primary/10 border-l-2'
           : index % 2 === 1
@@ -49,7 +102,7 @@ export default function CarRow({ row, index, spineColor, selected, onClick }: Pr
       style={selected ? { borderLeftColor: spineColor } : undefined}
     >
       {/* Position */}
-      <div className="w-6 shrink-0 text-center font-heading font-bold text-sm tabular-nums">
+      <div className="w-7 shrink-0 text-center font-heading font-bold text-base tabular-nums">
         {row.pos}
       </div>
 
@@ -60,48 +113,90 @@ export default function CarRow({ row, index, spineColor, selected, onClick }: Pr
       />
 
       {/* Car number */}
-      <div className="w-8 shrink-0 text-center">
+      <div className="w-9 shrink-0 text-center">
         <span className="text-[10px] font-heading font-bold tracking-wide text-muted-fg">
           #{row.car}
         </span>
       </div>
 
       {/* Driver / Team */}
-      <div className="flex-1 min-w-0 pr-2 overflow-hidden">
+      <div className="w-[168px] shrink-0 pr-2 overflow-hidden">
         <div className="font-heading font-bold text-[13px] tracking-wide truncate leading-none">
           {row.driver || row.car}
         </div>
-        <div className="flex items-center gap-1.5 leading-none mt-0.5">
-          {row.team && (
-            <span className="text-[10px] text-muted-fg font-body truncate">
-              {row.team}
-            </span>
-          )}
-          {row.strategyNote && (
-            <span className="text-[9px] text-amber-400/70 font-body truncate shrink-0 max-w-[160px]">
-              {row.strategyNote}
-            </span>
-          )}
-          {!row.strategyNote && row.fuelDue === 'due' && (
-            <span className="text-[9px] text-orange-400/80 font-body shrink-0">
-              pit due
-            </span>
-          )}
+        <div className="text-[10px] text-muted-fg font-body truncate mt-0.5">
+          {row.team}
         </div>
       </div>
 
+      {/* Stint · fuel */}
+      <div className="w-[176px] shrink-0 flex items-center gap-2">
+        {row.fuelPct !== null ? (
+          <>
+            <div className="w-10 h-[5px] rounded-sm bg-white/10 overflow-hidden shrink-0">
+              <div
+                className="h-full rounded-sm"
+                style={{
+                  width: `${Math.max(0, Math.min(100, row.fuelPct))}%`,
+                  background: row.fuelDue === 'due' ? '#d19a3d' : '#5d6b7d',
+                }}
+              />
+            </div>
+            <span className="text-[11px] tabular-nums text-muted-fg w-8 text-right">
+              {row.fuelPct.toFixed(0)}%
+            </span>
+          </>
+        ) : (
+          <span className="text-[10px] text-muted-fg/25 w-[52px]">—</span>
+        )}
+        <span className="text-[11px] tabular-nums text-muted-fg">
+          {row.stintLaps !== null ? `${row.stintLaps}L` : ''}
+        </span>
+        {row.fuelDue === 'due' && (
+          <span className="text-[9px] font-heading font-bold text-amber-400 tracking-wide ml-auto">
+            DUE
+          </span>
+        )}
+      </div>
+
+      {/* Next stop */}
+      <div className="w-[76px] shrink-0 text-right font-body tabular-nums text-[11px] text-muted-fg pr-2">
+        {row.nextStopMs !== null ? (
+          <>
+            <span className="text-fg/90 font-semibold">{(row.nextStopMs / 1000).toFixed(1)}s</span>
+            {row.nextStopStdMs !== null && (
+              <span className="text-muted-fg/50 text-[9px] ml-0.5">±{(row.nextStopStdMs / 1000).toFixed(1)}</span>
+            )}
+          </>
+        ) : '—'}
+      </div>
+
+      {/* Last lap */}
+      <div className="w-[104px] shrink-0 font-body tabular-nums text-[11px] text-muted-fg pl-2">
+        {row.lastLapMs !== null ? (
+          <>
+            <span className="text-fg/90">{fmtLapTime(row.lastLapMs)}</span>
+            {delta.text && (
+              <span className={`ml-1 text-[9px] ${delta.isBest ? 'text-emerald-400' : 'text-muted-fg/50'}`}>
+                {delta.text}
+              </span>
+            )}
+          </>
+        ) : '—'}
+      </div>
+
       {/* Gap */}
-      <div className="w-20 shrink-0 text-right pr-3 font-body tabular-nums text-[11px] text-muted-fg">
+      <div className="w-[88px] shrink-0 text-right pr-2 font-body tabular-nums text-[11px] text-muted-fg">
         {fmtGap(row)}
       </div>
 
       {/* Stops */}
-      <div className="w-10 shrink-0 text-center font-body tabular-nums text-[11px] text-muted-fg">
+      <div className="w-9 shrink-0 text-center font-body tabular-nums text-[11px] text-muted-fg">
         {row.stops > 0 ? row.stops : <span className="text-muted-fg/30">—</span>}
       </div>
 
       {/* Pit status */}
-      <div className="w-14 shrink-0 flex justify-center">
+      <div className="w-[60px] shrink-0 flex justify-center">
         {inPit ? (
           <span className="text-[9px] font-heading font-bold px-1.5 py-0.5 rounded bg-blue-900/60 text-blue-300 tracking-wider">
             IN PIT
@@ -115,6 +210,11 @@ export default function CarRow({ row, index, spineColor, selected, onClick }: Pr
 
       {/* Net position */}
       <NetCell pos={row.pos} netPos={row.netPos} settled={row.netSettled} netUpdatedAt={row.netUpdatedAt} />
+
+      {/* Notes — far right, flex, quiet dash when nothing to say */}
+      <div className={`flex-1 min-w-0 pl-3 pr-3 text-[11px] font-body truncate ${NOTE_COLOR[note.tone]}`}>
+        {note.text}
+      </div>
     </div>
   );
 }
