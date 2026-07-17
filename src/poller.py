@@ -150,6 +150,8 @@ class Poller:
             ("catching",        "TEXT"),
             ("catch_in_laps",   "REAL"),
             ("strategy_note",   "TEXT"),
+            ("fuel_laps_left",  "INTEGER"),
+            ("must_pit_lap",    "INTEGER"),
             ("next_stop_ms",    "REAL"),
             ("next_stop_std_ms","REAL"),
         ]:
@@ -198,6 +200,12 @@ class Poller:
                     rate = (calculator._gap_close_rate_s(
                                 oid, chaser.car_number, ahead.car_number, cur_lap, trend_laps)
                             if closing else None)
+                    # a rival's pit stop reads as a 30+s/lap gap collapse over the
+                    # trend window — the "closing" arrow stays meaningful, but the
+                    # rate number is a pit-cycle artifact, not pace ("what is
+                    # −33.7/lap telling me?", live feel-test 07-16). Suppress it.
+                    if rate is not None and rate > 5.0:
+                        rate = None
                     battles.append((gap, cls, ahead.car_number, chaser.car_number, closing, rate))
         battles.sort(key=lambda b: b[0])
 
@@ -268,6 +276,8 @@ class Poller:
              getattr(c, 'catching', None),
              getattr(c, 'catch_in_laps', None),
              getattr(c, 'strategy_note', None) or None,
+             getattr(c, 'fuel_laps_left', None),
+             getattr(c, 'must_pit_lap', None),
              getattr(c, 'next_stop_ms', None),
              getattr(c, 'next_stop_std_ms', None))
             for c in cars
@@ -279,8 +289,9 @@ class Poller:
                est_stops_left, penalty_s, penalty_note, owes_driver_change,
                net_settled, updated_at,
                projected_finish, fuel_due, catching, catch_in_laps, strategy_note,
+               fuel_laps_left, must_pit_lap,
                next_stop_ms, next_stop_std_ms)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(session_oid, car_number) DO UPDATE SET
               net_position=excluded.net_position,
               net_gap_ms=excluded.net_gap_ms,
@@ -298,6 +309,8 @@ class Poller:
               catching=excluded.catching,
               catch_in_laps=excluded.catch_in_laps,
               strategy_note=excluded.strategy_note,
+              fuel_laps_left=excluded.fuel_laps_left,
+              must_pit_lap=excluded.must_pit_lap,
               next_stop_ms=excluded.next_stop_ms,
               next_stop_std_ms=excluded.next_stop_std_ms""",
             rows)

@@ -28,11 +28,21 @@ export function buildWywaSummary(
   if (awaySecs < MIN_AWAY_S) return null;
 
   // RC alerts that arrived while away (current.rcMessages is already ts DESC,
-  // so this preserves most-recent-first without a re-sort)
+  // so this preserves most-recent-first without a re-sort). "Arrived" is
+  // judged on detectedAt (wall-clock at ingest) when present — the raw `ts`
+  // is the message's race-original time, which during a replay is weeks in
+  // the past and would never test > awayFrom, silently emptying WYWA of RC
+  // events in every feel-test.
   const alertEvents: WywaEvent[] = [];
   let contextRcCount = 0;
   for (const m of current.rcMessages) {
-    if (m.ts !== null && m.ts > awayFrom) {
+    let arrived: number | null = m.ts;
+    if (m.detectedAt) {
+      const iso = /(Z|[+-]\d\d:?\d\d)$/.test(m.detectedAt) ? m.detectedAt : m.detectedAt + 'Z';
+      const t = new Date(iso).getTime();
+      if (!Number.isNaN(t)) arrived = t;
+    }
+    if (arrived !== null && arrived > awayFrom) {
       if (m.tier === 2) {
         alertEvents.push({ key: `rc-${m.ts}-${m.message}`, tone: 'alert', text: m.message });
       } else if (m.tier === 1) {

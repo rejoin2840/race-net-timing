@@ -18,7 +18,8 @@ const NA_COLS = [
   'net_position', 'net_gap_ms', 'net_gap_band_ms', 'class_gap_ms', 'laps_down',
   'est_stops_left', 'penalty_s', 'penalty_note', 'owes_driver_change',
   'net_settled', 'projected_finish', 'fuel_due', 'catching', 'catch_in_laps',
-  'strategy_note', 'next_stop_ms', 'next_stop_std_ms',
+  'strategy_note', 'fuel_laps_left', 'must_pit_lap',
+  'next_stop_ms', 'next_stop_std_ms',
 ];
 
 function tableExists(d, name) {

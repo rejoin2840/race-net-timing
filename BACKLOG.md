@@ -710,6 +710,33 @@ Epic 9 identity metric: **seconds to re-orient after stepping away**.
 - RC message text bumped 10px→11px, `leading-tight`→`leading-normal`
   (owner: dense text, "especially letters," felt cramped).
 
+**Feel-test round 2 (2026-07-16, same PR #30, owner re-ran the board):**
+- **Double-click open reverted to single click** — owner verdict after
+  trying it: with click-anywhere-close, an accidental open costs one click
+  to undo, so the deliberate-open friction wasn't worth it. Row click stops
+  propagation so open and catch-all close don't fight.
+- **NEXT STOP (cost ±σ) → NEXT PIT (timing)** on the row: `~NL by L{x}`
+  from `fuel_laps_left`/`must_pit_lap` — computed by the calculator since
+  Epic 7 but never persisted; now written to net_analysis and wired
+  through. Owner: cost "is helpful for you to calculate," not to read —
+  it stays in the detail panel only. Timing is the strategy read.
+- **"−33.7/lap" catch-rate artifact suppressed engine-side** (poller nulls
+  rate > 5 s/lap): a rival's pit stop reads as a massive one-lap gap
+  collapse — the closing arrow stays meaningful, the number was garbage.
+  Note wording now "(gaining 0.4s/lap)" instead of bare "−0.4/lap".
+- **Undercut/overcut labels were SWAPPED vs standard racing usage** —
+  owner flagged the wording as strange; code inspection confirmed the
+  deeper bug: "undercut #X (it pits sooner)" fired when #X stops first
+  and you stay out, which is the OVERCUT. Corrected + reworded to
+  mechanism-first plain language: "#X must stop first — overcut chance" /
+  "stops before #X — undercut chance". Owner liked the content
+  ("really great") — only the words were wrong.
+- **STATUS column header → PIT** (it only ever shows IN PIT / OUT — the
+  PyQt calm board's name for the same cell).
+- WYWA's while-away RC filter now uses `detected_at` (found in Fable
+  review): it compared the message's race-original `ts` against wall-clock
+  away-time, so replay feel-tests silently showed zero RC events in WYWA.
+
 Non-goals: broadcast-video work (still tiebreaker-parked), multi-user anything,
 dense-timing-table port (stays a PyQt6 escape hatch until proven needed).
 
