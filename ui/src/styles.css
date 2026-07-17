@@ -6,6 +6,7 @@
 @import '@fontsource/space-grotesk/400.css';
 @import '@fontsource/space-grotesk/500.css';
 @import '@fontsource/space-grotesk/600.css';
+@import '@fontsource/space-grotesk/700.css'; /* headings say font-bold — real 700, not faux-bold, when the clean type mode is active */
 
 @tailwind base;
 @tailwind components;
@@ -13,6 +14,11 @@
 
 @layer base {
   :root {
+    /* Type toggle (press T): 'racing' = Rajdhani headings (F1OpenViewer skin),
+       'clean' = Space Grotesk everywhere (the calmer T71-ish read). One wins
+       after the live feel-test; the loser and this toggle then get deleted. */
+    --font-heading: 'Rajdhani', sans-serif;
+
     /* Palette — stolen from F1OpenViewer, accent swapped from F1 red to neutral */
     --background:        220 20% 6%;
     --foreground:        0 0% 95%;
@@ -24,6 +30,10 @@
     --accent:            220 15% 18%;
     --primary:           210 100% 56%;   /* soft blue — used for LIVE pill */
     --radius:            0.375rem;
+  }
+
+  :root[data-type='clean'] {
+    --font-heading: 'Space Grotesk', system-ui, sans-serif;
   }
 
   * { @apply border-border; }
@@ -44,7 +54,7 @@
   body::-webkit-scrollbar { display: none; }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Rajdhani', sans-serif;
+    font-family: var(--font-heading);
     font-weight: 700;
     letter-spacing: 0.04em;
   }

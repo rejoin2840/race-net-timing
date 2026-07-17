@@ -47,12 +47,33 @@ export default function App() {
   const [payload, setPayload]      = useState<RowsPayload | null>(null);
   const [selectedCar, setSelected] = useState<{ car: CarRow; classCode: string } | null>(null);
   const [wywaSummary, setWywa]     = useState<WywaSummary | null>(null);
+  // Type toggle (feel-test aid, deleted once a winner is picked): 'racing' =
+  // Rajdhani headings, 'clean' = Space Grotesk everywhere. Press T to flip;
+  // persisted so a reload mid-replay keeps the choice.
+  const [typeMode, setTypeMode] = useState<'racing' | 'clean'>(
+    () => (localStorage.getItem('racenet-type') === 'clean' ? 'clean' : 'racing'),
+  );
   const awayFrom   = useRef<number | null>(null);
   const snapshot   = useRef<RowsPayload | null>(null);
   const payloadRef = useRef<RowsPayload | null>(null);
 
   // Keep payloadRef in sync so the focus handlers can read the current payload
   useEffect(() => { payloadRef.current = payload; }, [payload]);
+
+  // Apply + persist the type mode; T flips it
+  useEffect(() => {
+    document.documentElement.dataset.type = typeMode;
+    localStorage.setItem('racenet-type', typeMode);
+  }, [typeMode]);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 't' || e.key === 'T') {
+        setTypeMode((m) => (m === 'racing' ? 'clean' : 'racing'));
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Track window focus to power the WYWA card. Focus loss — not visibility —
   // is the "stepped away" signal: a board on a second monitor stays visible
@@ -118,6 +139,13 @@ export default function App() {
 
   return (
     <div className="h-full flex flex-col bg-bg overflow-hidden">
+      {/* ── Flag band — full-width, the calm board's glanceability model:
+             the flag state readable from across the room, not a corner pill ── */}
+      <div
+        className="h-1 w-full shrink-0 transition-colors duration-500"
+        style={{ backgroundColor: flagColor }}
+      />
+
       {/* ── Header ── */}
       <header
         className="flex items-center gap-3 px-4 py-2 border-b border-border shrink-0 transition-colors duration-500"
@@ -164,6 +192,9 @@ export default function App() {
         )}
 
         <span className="ml-auto text-[10px] font-body text-muted-fg tabular-nums shrink-0">{ageLabel}</span>
+        {typeMode === 'clean' && (
+          <span className="text-[9px] text-muted-fg/50 font-body tracking-wider shrink-0">TYPE B</span>
+        )}
         {!payload && (
           <span className="text-[10px] text-muted-fg shrink-0">waiting for data…</span>
         )}

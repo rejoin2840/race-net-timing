@@ -5,7 +5,9 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        heading: ['Rajdhani', 'sans-serif'],
+        // routed through a CSS var so the runtime type toggle (press T) can
+        // swap every heading at once — see styles.css :root / [data-type]
+        heading: 'var(--font-heading)',
         body: ['Space Grotesk', 'system-ui', 'sans-serif'],
       },
       colors: {
