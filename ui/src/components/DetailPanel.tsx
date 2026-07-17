@@ -34,7 +34,13 @@ export default function DetailPanel({ car, classCode, spineColor, onClose }: Pro
   const netDelta = car.pos - (car.netPos ?? car.pos);
 
   return (
-    <div className="w-[320px] shrink-0 flex flex-col border-l border-border/60 bg-card overflow-y-auto">
+    // stopPropagation: App's root catches any click to close this panel —
+    // without this, clicking inside the panel (e.g. the pit history table)
+    // would immediately self-close it
+    <div
+      className="w-[320px] shrink-0 flex flex-col border-l border-border/60 bg-card overflow-y-auto"
+      onClick={(e) => e.stopPropagation()}
+    >
       {/* Header */}
       <div
         className="flex items-start justify-between px-4 py-3 border-b border-border/60"

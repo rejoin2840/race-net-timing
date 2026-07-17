@@ -52,6 +52,10 @@ export interface RcMessage {
   message: string;
   tier: number | null;   // 0=suppress, 1=context, 2=alert
   kind: string | null;   // 'penalty' | 'dq' | 'retired' | 'flag' | 'rescinded' | 'review' | 'incident' | 'warning' | ''
+  // real wall-clock when this row was written — use for "N ago" display.
+  // `ts` is the message's RACE-original timestamp (a replay/archive's `ts`
+  // can be weeks old); detectedAt is always sane, live or replayed.
+  detectedAt: string | null;
 }
 
 export interface Battle {

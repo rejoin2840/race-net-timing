@@ -28,9 +28,9 @@ export const buildMockPayload = (): RowsPayload => ({
   session: { flag: 'GF', lap: 23, isRunning: true, ageS: 1.2,
              finalType: 'BY_TIME', remainingS: 9252, finalLaps: null, isFinished: false },
   rcMessages: [
-    { ts: Date.now() - 90000,  message: '#60 - Drive Through Penalty - Pit Lane Speeding', tier: 2, kind: 'penalty' },
-    { ts: Date.now() - 420000, message: 'Full Course Yellow - Incident at Turn 5',          tier: 2, kind: 'flag'    },
-    { ts: Date.now() - 900000, message: 'Green Flag - Racing Resumed',                       tier: 1, kind: 'flag'   },
+    { ts: Date.now() - 90000,  message: '#60 - Drive Through Penalty - Pit Lane Speeding', tier: 2, kind: 'penalty', detectedAt: pollerIso(90000) },
+    { ts: Date.now() - 420000, message: 'Full Course Yellow - Incident at Turn 5',          tier: 2, kind: 'flag',    detectedAt: pollerIso(420000) },
+    { ts: Date.now() - 900000, message: 'Green Flag - Racing Resumed',                       tier: 1, kind: 'flag',    detectedAt: pollerIso(900000) },
   ],
   battles: [
     { carClass: 'GTP', carAhead: '10', carChaser: '31', gapMs: 1240, closing: true,  rateSPerLap: 0.4 },
@@ -71,6 +71,11 @@ export const buildMockPayload = (): RowsPayload => ({
         { car: '93', pos: 5, driver: 'R. Heistand',    team: 'Racers Edge Motorsports', gapMs: 78234,  laps: 46, trackStatus: 'OUT_LAP', stops: 2, isRunning: true,
           lastLapMs: null, bestLapMs: 77890, fuelPct: 49, stintLaps: 13,
           ...noNet, pitEvents: [{ stop: 1, lap: 13, flag: 'GF', durationMs: 49200 }, { stop: 2, lap: 29, flag: 'GF', durationMs: 48600 }] },
+        // pos 6-7: past the TOP_N=5 fold — exercises the class accordion in browser mode
+        { car: '35', pos: 6, driver: 'M. Wilkins',     team: 'ARC Bratislava',          gapMs: 89012,  laps: 46, trackStatus: 'TRACK',   stops: 2, isRunning: true,
+          ...noNet, ...noLapData, pitEvents: [] },
+        { car: '81', pos: 7, driver: 'L. Deletraz',    team: 'DragonSpeed',             gapMs: 95678,  laps: 45, trackStatus: 'TRACK',   stops: 3, isRunning: true,
+          ...noNet, ...noLapData, pitEvents: [] },
       ],
     },
     {

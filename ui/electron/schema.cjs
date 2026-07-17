@@ -120,8 +120,12 @@ function buildMainSql(p) {
 }
 
 function buildRcSql(p) {
-  const cols   = p.rcHasTier ? 'ts, message, tier, kind'
-                             : 'ts, message, NULL AS tier, NULL AS kind';
+  // detected_at is baseline race_control schema (original CREATE TABLE) —
+  // safe unconditionally. It's real wall-clock at ingest, used for "N ago"
+  // display; `ts` (message's race-original time) stays the sort key so
+  // ordering is unaffected by whether this is live or a replay/archive.
+  const cols   = p.rcHasTier ? 'ts, message, tier, kind, detected_at'
+                             : 'ts, message, NULL AS tier, NULL AS kind, detected_at';
   const filter = p.rcHasTier ? 'AND (tier IS NULL OR tier > 0)' : '';
   // 50 deep: the rail shows 6, but the WYWA card diffs against this list and
   // must see everything that happened across a long absence

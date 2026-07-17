@@ -35,12 +35,30 @@ function fmtRemaining(s: number): string {
   return `${sec}s remaining`;
 }
 
-function fmtRcAge(ts: number | null): string {
-  if (ts === null || ts <= 0) return '';  // feed stores 0 when it has no timestamp
+// RC ts is the message's RACE-original timestamp (needed by the Python
+// calculator for time-gating) — during a replay/stream feel-test that can be
+// weeks old, so age must come from detectedAt (real wall-clock at ingest,
+// live and replay alike) instead. Falls back to ts only for pre-migration
+// DBs that predate detectedAt, with a sanity clamp so a stale archive can
+// never render nonsense like "106826m ago".
+const MAX_PLAUSIBLE_AGE_S = 6 * 3600;
+
+function rcAgeSeconds(ts: number | null, detectedAt: string | null): number | null {
+  if (detectedAt) {
+    const iso = /(Z|[+-]\d\d:?\d\d)$/.test(detectedAt) ? detectedAt : detectedAt + 'Z';
+    const t = new Date(iso).getTime();
+    if (!Number.isNaN(t)) return Math.round((Date.now() - t) / 1000);
+  }
+  if (ts === null || ts <= 0) return null;  // feed stores 0 when it has no timestamp
   const s = Math.round((Date.now() - ts) / 1000);
+  return s <= MAX_PLAUSIBLE_AGE_S ? s : null;
+}
+
+function fmtRcAge(ts: number | null, detectedAt: string | null): string {
+  const s = rcAgeSeconds(ts, detectedAt);
+  if (s === null) return '';
   if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  return `${m}m ago`;
+  return `${Math.floor(s / 60)}m ago`;
 }
 
 export default function App() {
@@ -138,7 +156,14 @@ export default function App() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-bg overflow-hidden">
+    // Click anywhere closes the open detail panel — DetailPanel itself
+    // stops propagation, so this only ever fires for clicks outside it
+    // (background, header, rail). A stray trackpad click to regain window
+    // focus used to pop the panel open; now nothing single-click opens it.
+    <div
+      className="h-full flex flex-col bg-bg overflow-hidden"
+      onClick={() => selectedCar && setSelected(null)}
+    >
       {/* ── Flag band — full-width, the calm board's glanceability model:
              the flag state readable from across the room, not a corner pill ── */}
       <div
@@ -182,11 +207,11 @@ export default function App() {
             <span className="text-[9px] font-heading font-bold tracking-widest text-amber-500/80 shrink-0 uppercase">
               RC
             </span>
-            <span className="text-[10px] font-body text-fg/50 truncate">
+            <span className="text-[11px] leading-normal font-body text-fg/50 truncate">
               {latestRc.message}
             </span>
             <span className="text-[9px] text-muted-fg/50 shrink-0 tabular-nums">
-              {fmtRcAge(latestRc.ts)}
+              {fmtRcAge(latestRc.ts, latestRc.detectedAt)}
             </span>
           </div>
         )}

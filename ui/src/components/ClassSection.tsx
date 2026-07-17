@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Battle, CarRow as CarRowData, ClassGroup } from '../types';
 import CarRow from './CarRow';
 
@@ -10,6 +11,10 @@ const CLASS_SPINE: Record<string, string> = {
   'GTD':      '#CE93D8',
 };
 
+// Matches the PyQt calm board's accordion: top-N per class curates a long
+// field down to a glanceable list, "+N more" reveals the rest on demand.
+const TOP_N = 5;
+
 interface Props {
   group: ClassGroup;
   selectedCar: string | null;
@@ -19,6 +24,15 @@ interface Props {
 
 export default function ClassSection({ group, selectedCar, battles, onSelectCar }: Props) {
   const spineColor = CLASS_SPINE[group.code] ?? '#6b7280';
+  const [userExpanded, setUserExpanded] = useState(false);
+
+  const hiddenCount = Math.max(0, group.rows.length - TOP_N);
+  // a selected car buried past the fold would otherwise vanish when this
+  // class collapses — auto-expand rather than hide the thing you're looking at
+  const selectionHidden = hiddenCount > 0
+    && group.rows.slice(TOP_N).some((r) => r.car === selectedCar);
+  const expanded = userExpanded || selectionHidden;
+  const visibleRows = expanded ? group.rows : group.rows.slice(0, TOP_N);
 
   return (
     <div className="rounded-md overflow-hidden border border-border/60">
@@ -34,15 +48,16 @@ export default function ClassSection({ group, selectedCar, battles, onSelectCar 
         </span>
       </div>
 
-      {/* Column header */}
+      {/* Column header — order mirrors CarRow: identity, then pace, then
+          strategy (fuel+next-stop), then position facts, then notes */}
       <div className="flex items-center h-6 px-3 text-[9px] uppercase tracking-wider text-muted-fg border-b border-border/40 bg-card/40">
         <div className="w-7 shrink-0 text-center">P</div>
         <div className="w-[3px] shrink-0 mx-2" />
         <div className="w-9 shrink-0 text-center">Car</div>
         <div className="w-[168px] shrink-0 pr-2">Driver / Team</div>
-        <div className="w-[176px] shrink-0">Stint · Fuel</div>
+        <div className="w-[104px] shrink-0">Last Lap</div>
+        <div className="w-[176px] shrink-0 pl-2">Stint · Fuel</div>
         <div className="w-[76px] shrink-0 text-right pr-2">Next Stop</div>
-        <div className="w-[104px] shrink-0 pl-2">Last Lap</div>
         <div className="w-[88px] shrink-0 text-right pr-2">Gap</div>
         <div className="w-9 shrink-0 text-center">Stops</div>
         <div className="w-[60px] shrink-0 text-center">Status</div>
@@ -52,7 +67,7 @@ export default function ClassSection({ group, selectedCar, battles, onSelectCar 
 
       {/* Rows — battles scoped to this class so a car-number collision in
           another class can never attach the wrong note */}
-      {group.rows.map((row, i) => (
+      {visibleRows.map((row, i) => (
         <CarRow
           key={row.car}
           row={row}
@@ -60,9 +75,18 @@ export default function ClassSection({ group, selectedCar, battles, onSelectCar 
           spineColor={spineColor}
           selected={selectedCar === row.car}
           battles={battles.filter((b) => b.carClass === group.code)}
-          onClick={() => onSelectCar(row, group.code)}
+          onOpen={() => onSelectCar(row, group.code)}
         />
       ))}
+
+      {hiddenCount > 0 && (
+        <button
+          onClick={() => setUserExpanded((e) => !e)}
+          className="w-full h-7 flex items-center justify-center gap-1.5 text-[10px] font-heading font-bold tracking-wider text-muted-fg hover:text-fg hover:bg-white/[0.03] transition-colors border-t border-border/30"
+        >
+          {expanded ? 'SHOW LESS ▲' : `+${hiddenCount} MORE ▼`}
+        </button>
+      )}
     </div>
   );
 }

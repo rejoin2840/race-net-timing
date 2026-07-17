@@ -126,10 +126,11 @@ function buildPayload(rawRows, pitRows, rcRows, battleRows, sessionComp) {
   }
 
   const rcMessages = (rcRows || []).map(r => ({
-    ts:      r.ts,
-    message: r.message,
-    tier:    r.tier    ?? null,
-    kind:    r.kind    || null,
+    ts:          r.ts,
+    message:     r.message,
+    tier:        r.tier         ?? null,
+    kind:        r.kind         || null,
+    detectedAt:  r.detected_at  || null,
   }));
 
   const battles = (battleRows || []).map(r => ({
