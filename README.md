@@ -72,16 +72,20 @@ After first setup, launch directly:
 ./venv/bin/python src/dashboard.py
 ```
 
-### Web UI (new, 2026-07-15)
+### Web UI
 A second display layer — Electron + React — lives in `ui/`. Same engine, same
-database; adds a tap-to-explain panel (click any car for its net-math breakdown
-and pit history) and a NET projection column. Setup and run recipe:
-[ui/README.md](ui/README.md). The PyQt6 dashboard remains the reliability-proven
-race-day display until the web board earns that trust at a live event.
+database; denser rows than the PyQt6 board (last lap vs. personal best, real
+fuel % + stint laps, next-pit timing, NET projection, a notes lane for battle/
+undercut/overcut calls), a tap-to-explain panel (click any car for its net-math
+breakdown, per-stop cost, and pit history), and a full-width flag band. Setup
+and run recipe: [ui/README.md](ui/README.md). The PyQt6 dashboard remains the
+reliability-proven race-day display until the web board earns that trust at a
+live event.
 
-![Web board with the tap-to-explain panel open — NET column shows projected
-gains/losses; the panel breaks down car #60's net position: on-track gap, stops
-left, penalty carry, net gap ±band, and pit history](docs/img/web-board.png)
+![Web board with the tap-to-explain panel open for car #60 — rows show last
+lap vs. personal best, fuel % and stint laps, next-pit timing, gap, NET
+projection, and a notes lane; the panel breaks down net position: on-track
+gap, stops left, penalty carry, net gap ±band, and pit history](docs/img/web-board.png)
 *(shown with mock data — browser dev mode)*
 
 ### Try it immediately (no live race needed)

@@ -97,14 +97,21 @@ either one keeps `net_analysis` fresh.
 **`ui/`** — Electron + React + Vite + Tailwind. The Electron main process
 (`ui/electron/main.cjs`) opens `race.db` readonly via `better-sqlite3`, joins
 `standings_current` + `session_entry` + `session_status` + `net_analysis` +
-`pit_events` every 2 s, and ships a JSON payload to the renderer over IPC
-(`contextBridge` → `window.racenet.onRows`). The React renderer falls back to mock
-data in a plain browser (`npm run browser`) for UI development with no race data.
-Features: class-grouped board with NET projection column (▲/▼ by direction),
-tap-to-explain panel (net-math breakdown + pit history per car), session clock,
-race-control ticker. Setup/run: `ui/README.md`. Design language borrowed from
-F1OpenViewer (MIT): Rajdhani/Space Grotesk, HSL variable palette, 36 px rows with
-class-color spines.
+`pit_events` + `rail_battles` + `race_control` + `session_computed` every 2 s
+(schema-probed per table/column — `ui/electron/schema.cjs` — so older DBs
+degrade individual fields to NULL instead of failing the whole query), and
+ships a JSON payload to the renderer over IPC (`contextBridge` →
+`window.racenet.onRows`). The React renderer falls back to mock data in a
+plain browser (`npm run browser`) for UI development with no race data.
+Features: class-grouped board (top-5 accordion per class), strategy-dense
+rows (last lap vs. personal best, real fuel % + stint laps where telemetry
+exists, next-pit timing, NET projection ▲/▼, a notes lane combining battle
+calls with undercut/overcut reads), tap-to-explain panel (net-math
+breakdown, per-stop cost estimate, pit history per car), full-width flag
+band, session clock, race-control ticker, and a "while you were away" card
+(ranked events, collapsed to the top 3). Setup/run: `ui/README.md`. Design
+language borrowed from F1OpenViewer (MIT): Rajdhani/Space Grotesk, HSL
+variable palette, 44 px rows with class-color spines.
 
 ---
 
