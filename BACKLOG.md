@@ -638,11 +638,18 @@ Epic 9 identity metric: **seconds to re-orient after stepping away**.
 1. **Right rail** — Battles, Projected Podium, RACE CONTROL list, DUE TO PIT,
    Race-at-a-Glance, migrated from the calm board ("keepers — migrated as-is",
    ▲/▼ glyph rule from 07-04 in force). The header RC ticker (Epic 9 ⑤) is a
-   stopgap, not the rail.
+   stopgap, not the rail. **Amended 2026-07-16 (PR #30, live feel-test):**
+   Race-at-a-Glance CUT, not migrated — a live replay-stream test showed it
+   duplicating the board's own P1 rows with no added story ("what is this
+   even telling me anymore"); owner's call. The other four sections stand.
 2. **WYWA catch-up card** — collapsed story card first (stat header + per-class
    event budget). ⚠ Sequencing dependency from the phase-1 doc: the ranked
    expand/timeline has no evaluator and **cannot be signed off before the next
-   live event** — build collapsed card, defer the expand.
+   live event** — build collapsed card, defer the expand. **Fixed 2026-07-16
+   (PR #30):** shipped collapsed state showed the header only (zero events),
+   which the owner correctly called useless — a summary that hides every
+   event summarizes nothing. Collapsed default now shows the top 3 ranked
+   events (class-lead changes first, then RC alerts); MORE extends past 3.
 3. **Notes column** — "1 stop in hand" / "undercut live" strategy notes in the
    row's first read, per the Option C mockup. **Redesigned 2026-07-16 (PR #29,
    dedicated UX session — memory: `project-ux-redesign`):** the owner's own
@@ -662,6 +669,11 @@ Epic 9 identity metric: **seconds to re-orient after stepping away**.
    last-lap-vs-personal-best delta — none of these existed on the board
    before. Reference mockup (design of record):
    https://claude.ai/code/artifact/b7150d12-352b-4970-af57-92718839673e
+   **Column order corrected 2026-07-16 (PR #30, live feel-test):** owner's
+   actual scan on a live board was pace-first, not fuel-first as guessed —
+   order is now identity → LAST LAP → STINT·FUEL → NEXT STOP → GAP → STOPS
+   → STATUS → NET → NOTES (fuel and next-stop stay adjacent, one story: how
+   empty, what the stop costs). Notes lane confirmed correct as designed.
 4. **Panel completeness** — add leader-remaining comparison and per-stop cost
    estimates (~Ns ± band) to the tap-to-explain panel, per the Option B/C sketch.
 5. **Trust plumbing (carried from Epic 9 known-nexts):** stale-data guard (grey
@@ -670,6 +682,60 @@ Epic 9 identity metric: **seconds to re-orient after stepping away**.
 6. **Exit test:** run the web board alongside PyQt6 at the next live event.
    PyQt6 remains the race-day display until the web board passes that parity
    trial — no earlier switch, whatever it looks like.
+7. **Design principle (added 2026-07-16, owner reaction):** shown AC4's
+   already-shipped leader-remaining comparison ("1 more stop than leader")
+   during the feel-test, owner's reaction was unprompted and unambiguous:
+   "that's exactly the kind of stuff I want to see a lot more of. tell the
+   story with data and words." This is now the standing bar for anything
+   added to the board or panel — a derived sentence beats a raw number.
+   Weigh future additions against it before defaulting to another column.
+
+**Interaction fixes (2026-07-16, PR #30, live feel-test):**
+- Detail panel now opens on **double-click only**; single click no longer
+  selects a row. Root cause: a stray trackpad click to regain window focus
+  was popping the panel open unintentionally. Keyboard Enter/Space still
+  opens on one press (a keypress is already deliberate, not click-drift).
+- **Click anywhere closes** the open panel (background, header, rail) —
+  the panel itself stops propagation so clicks inside it don't self-close.
+- **Class accordion restored:** top-5 per class + "+N more", the calm
+  board's pattern that the web port never actually had (confirmed via git
+  history — not a regression, an Epic 9 scaffold gap). A selected car
+  buried past the fold auto-expands its class rather than hiding.
+- **RC message ages were showing archive time, not "ago"** (a July replay
+  of a May race showed "106826m ago"). Root cause: `race_control.ts` is
+  the message's race-original timestamp — correct for the calculator's
+  penalty time-gating, wrong for a UI age. Fixed by reading `detected_at`
+  (real wall-clock at ingest, baseline schema, always sane) for display;
+  `ts` stays the sort key. Same fix in the header ticker and the rail.
+- RC message text bumped 10px→11px, `leading-tight`→`leading-normal`
+  (owner: dense text, "especially letters," felt cramped).
+
+**Feel-test round 2 (2026-07-16, same PR #30, owner re-ran the board):**
+- **Double-click open reverted to single click** — owner verdict after
+  trying it: with click-anywhere-close, an accidental open costs one click
+  to undo, so the deliberate-open friction wasn't worth it. Row click stops
+  propagation so open and catch-all close don't fight.
+- **NEXT STOP (cost ±σ) → NEXT PIT (timing)** on the row: `~NL by L{x}`
+  from `fuel_laps_left`/`must_pit_lap` — computed by the calculator since
+  Epic 7 but never persisted; now written to net_analysis and wired
+  through. Owner: cost "is helpful for you to calculate," not to read —
+  it stays in the detail panel only. Timing is the strategy read.
+- **"−33.7/lap" catch-rate artifact suppressed engine-side** (poller nulls
+  rate > 5 s/lap): a rival's pit stop reads as a massive one-lap gap
+  collapse — the closing arrow stays meaningful, the number was garbage.
+  Note wording now "(gaining 0.4s/lap)" instead of bare "−0.4/lap".
+- **Undercut/overcut labels were SWAPPED vs standard racing usage** —
+  owner flagged the wording as strange; code inspection confirmed the
+  deeper bug: "undercut #X (it pits sooner)" fired when #X stops first
+  and you stay out, which is the OVERCUT. Corrected + reworded to
+  mechanism-first plain language: "#X must stop first — overcut chance" /
+  "stops before #X — undercut chance". Owner liked the content
+  ("really great") — only the words were wrong.
+- **STATUS column header → PIT** (it only ever shows IN PIT / OUT — the
+  PyQt calm board's name for the same cell).
+- WYWA's while-away RC filter now uses `detected_at` (found in Fable
+  review): it compared the message's race-original `ts` against wall-clock
+  away-time, so replay feel-tests silently showed zero RC events in WYWA.
 
 Non-goals: broadcast-video work (still tiebreaker-parked), multi-user anything,
 dense-timing-table port (stays a PyQt6 escape hatch until proven needed).

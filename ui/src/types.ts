@@ -35,7 +35,9 @@ export interface CarRow {
   catching: string | null;       // car number being caught
   catchInLaps: number | null;
   strategyNote: string | null;
-  nextStopMs: number | null;         // predicted next pit cost (ms)
+  fuelLapsLeft: number | null;       // laps until fuel runs out at avg stint
+  mustPitLap: number | null;         // session lap this car must pit by
+  nextStopMs: number | null;         // predicted next pit cost (ms) — panel-only since 07-16
   nextStopStdMs: number | null;      // 1σ spread on next pit cost (ms)
   classLeaderStopsLeft: number | null; // net P1's est_stops_left in this class
   netUpdatedAt: string | null;   // ISO timestamp — for stale-data guard
@@ -52,6 +54,10 @@ export interface RcMessage {
   message: string;
   tier: number | null;   // 0=suppress, 1=context, 2=alert
   kind: string | null;   // 'penalty' | 'dq' | 'retired' | 'flag' | 'rescinded' | 'review' | 'incident' | 'warning' | ''
+  // real wall-clock when this row was written — use for "N ago" display.
+  // `ts` is the message's RACE-original timestamp (a replay/archive's `ts`
+  // can be weeks old); detectedAt is always sane, live or replayed.
+  detectedAt: string | null;
 }
 
 export interface Battle {

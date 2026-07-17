@@ -126,10 +126,11 @@ function buildPayload(rawRows, pitRows, rcRows, battleRows, sessionComp) {
   }
 
   const rcMessages = (rcRows || []).map(r => ({
-    ts:      r.ts,
-    message: r.message,
-    tier:    r.tier    ?? null,
-    kind:    r.kind    || null,
+    ts:          r.ts,
+    message:     r.message,
+    tier:        r.tier         ?? null,
+    kind:        r.kind         || null,
+    detectedAt:  r.detected_at  || null,
   }));
 
   const battles = (battleRows || []).map(r => ({
@@ -193,6 +194,8 @@ function buildPayload(rawRows, pitRows, rcRows, battleRows, sessionComp) {
       catching:         r.catching          || null,
       catchInLaps:      r.catch_in_laps     ?? null,
       strategyNote:     r.strategy_note     || null,
+      fuelLapsLeft:     r.fuel_laps_left    ?? null,
+      mustPitLap:       r.must_pit_lap      ?? null,
       nextStopMs:       r.next_stop_ms      ?? null,
       nextStopStdMs:    r.next_stop_std_ms  ?? null,
       netUpdatedAt:     r.net_updated_at    || null,

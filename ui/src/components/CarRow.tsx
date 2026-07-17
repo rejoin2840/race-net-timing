@@ -26,11 +26,6 @@ function fmtLapTime(ms: number | null): string {
   return `${m}:${rem}`;
 }
 
-function fmtNextStop(ms: number | null, stdMs: number | null): string {
-  if (ms === null) return '—';
-  const base = `${(ms / 1000).toFixed(1)}s`;
-  return stdMs !== null ? `${base} ±${(stdMs / 1000).toFixed(1)}` : base;
-}
 
 // personal-best delta for the LAST LAP column — 'best' when this lap tied or
 // beat the car's own best (equality still reads 'best', not '+0.00')
@@ -52,7 +47,10 @@ function buildNote(row: CarRowType, battles: Battle[]): { text: string; tone: No
   const chasing = battles.find((b) => b.carChaser === row.car && b.closing);
   const parts: string[] = [];
   if (chasing) {
-    const rate = chasing.rateSPerLap !== null ? `, −${chasing.rateSPerLap.toFixed(1)}/lap` : '';
+    // rate > 5 s/lap is a pit-cycle artifact, nulled engine-side (poller) —
+    // this guard is defensive for older DB rows written before that fix
+    const rate = (chasing.rateSPerLap !== null && chasing.rateSPerLap <= 5)
+      ? ` (gaining ${chasing.rateSPerLap.toFixed(1)}s/lap)` : '';
     parts.push(`▲ closing on #${chasing.carAhead} — ${(chasing.gapMs / 1000).toFixed(1)}s${rate}`);
   }
   if (row.strategyNote) parts.push(row.strategyNote);
@@ -74,10 +72,14 @@ interface Props {
   spineColor: string;
   selected: boolean;
   battles: Battle[];
-  onClick: () => void;
+  onOpen: () => void;
 }
 
-export default function CarRow({ row, index, spineColor, selected, battles, onClick }: Props) {
+// Single click opens (reverted from double-click after the 07-16 feel-test:
+// with click-anywhere-to-close, an accidental open costs one click to undo,
+// so the deliberate-open protection wasn't worth the friction). Propagation
+// is stopped so the open doesn't immediately bubble to App's catch-all close.
+export default function CarRow({ row, index, spineColor, selected, battles, onOpen }: Props) {
   const inPit  = IN_PIT.has(row.trackStatus ?? '');
   const outLap = OUT_LAP.has(row.trackStatus ?? '');
   const dim    = inPit || !row.isRunning;
@@ -88,8 +90,8 @@ export default function CarRow({ row, index, spineColor, selected, battles, onCl
     <div
       role="button"
       tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onClick()}
+      onClick={(e) => { e.stopPropagation(); onOpen(); }}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onOpen()}
       className={`flex items-center h-11 border-b border-border/40 cursor-pointer transition-colors
         ${selected
           ? 'bg-primary/10 border-l-2'
@@ -129,8 +131,23 @@ export default function CarRow({ row, index, spineColor, selected, battles, onCl
         </div>
       </div>
 
-      {/* Stint · fuel */}
-      <div className="w-[176px] shrink-0 flex items-center gap-2">
+      {/* Last lap — leads the metric cluster now (owner's scan: pace first) */}
+      <div className="w-[104px] shrink-0 font-body tabular-nums text-[11px] text-muted-fg">
+        {row.lastLapMs !== null ? (
+          <>
+            <span className="text-fg/90">{fmtLapTime(row.lastLapMs)}</span>
+            {delta.text && (
+              <span className={`ml-1 text-[9px] ${delta.isBest ? 'text-emerald-400' : 'text-muted-fg/50'}`}>
+                {delta.text}
+              </span>
+            )}
+          </>
+        ) : '—'}
+      </div>
+
+      {/* Stint · fuel — stays adjacent to next stop; one story ("how empty,
+          and what the stop costs") split across two columns */}
+      <div className="w-[176px] shrink-0 flex items-center gap-2 pl-2">
         {row.fuelPct !== null ? (
           <>
             <div className="w-10 h-[5px] rounded-sm bg-white/10 overflow-hidden shrink-0">
@@ -161,27 +178,16 @@ export default function CarRow({ row, index, spineColor, selected, battles, onCl
         )}
       </div>
 
-      {/* Next stop */}
-      <div className="w-[76px] shrink-0 text-right font-body tabular-nums text-[11px] text-muted-fg pr-2">
-        {row.nextStopMs !== null ? (
+      {/* Pit in — WHEN the next stop happens (laps left in tank + the session
+          lap it must pit by). Replaced the stop-cost estimate 07-16: cost is
+          engine bookkeeping ("helpful for you to calculate, not for me"), and
+          still lives in the detail panel. Timing is the strategy read. */}
+      <div className="w-[96px] shrink-0 text-right font-body tabular-nums text-[11px] text-muted-fg pr-2">
+        {row.fuelLapsLeft !== null ? (
           <>
-            <span className="text-fg/90 font-semibold">{(row.nextStopMs / 1000).toFixed(1)}s</span>
-            {row.nextStopStdMs !== null && (
-              <span className="text-muted-fg/50 text-[9px] ml-0.5">±{(row.nextStopStdMs / 1000).toFixed(1)}</span>
-            )}
-          </>
-        ) : '—'}
-      </div>
-
-      {/* Last lap */}
-      <div className="w-[104px] shrink-0 font-body tabular-nums text-[11px] text-muted-fg pl-2">
-        {row.lastLapMs !== null ? (
-          <>
-            <span className="text-fg/90">{fmtLapTime(row.lastLapMs)}</span>
-            {delta.text && (
-              <span className={`ml-1 text-[9px] ${delta.isBest ? 'text-emerald-400' : 'text-muted-fg/50'}`}>
-                {delta.text}
-              </span>
+            <span className="text-fg/90 font-semibold">~{row.fuelLapsLeft}L</span>
+            {row.mustPitLap !== null && (
+              <span className="text-muted-fg/60 text-[10px] ml-1">by L{row.mustPitLap}</span>
             )}
           </>
         ) : '—'}

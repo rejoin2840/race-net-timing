@@ -1118,10 +1118,13 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
         a_stint = ahead.stint_laps if ahead.stint_laps is not None else -1
         c_stint = ca.stint_laps if ca.stint_laps is not None else -1
         if a_stint >= 0 and c_stint >= 0:
+            # Labels follow standard racing usage (corrected 07-16 — they were
+            # swapped): OVERCUT = the rival stops first and you run long past
+            # them; UNDERCUT = you stop first and jump them on fresher tires.
             if a_stint > c_stint + 2:
-                ca.strategy_note = f"undercut #{ahead.car_number} (it pits sooner)"
+                ca.strategy_note = f"#{ahead.car_number} must stop first — overcut chance"
             elif c_stint > a_stint + 2:
-                ca.strategy_note = f"overcut #{ahead.car_number} (more fuel in hand)"
+                ca.strategy_note = f"stops before #{ahead.car_number} — undercut chance"
 
     # ── projected finish: TRACK-ANCHORED blend ──
     # Validated across 6 complete races (validate_races.py): the running order is

@@ -3,12 +3,19 @@ import type { RcMessage, RowsPayload } from '../types';
 
 // Minimum away time before showing the card (2 minutes)
 const MIN_AWAY_S = 120;
+// Collapsed default shows this many ranked events — NOT zero. A collapse
+// that hides every event summarizes nothing; "MORE" extends past this count,
+// it doesn't reveal the first event.
+const COLLAPSED_N = 3;
+
+export type WywaEvent =
+  | { key: string; tone: 'lead'; classCode: string; prev: string; curr: string }
+  | { key: string; tone: 'alert'; text: string };
 
 export interface WywaSummary {
   awaySecs: number;
-  alertRc: RcMessage[];          // tier-2 RC events while away
-  contextRcCount: number;        // tier-1 RC events while away
-  classChanges: { code: string; prev: string; curr: string }[]; // class leader changes
+  events: WywaEvent[];       // ranked, most important first: lead changes, then RC alerts
+  contextRcCount: number;    // tier-1 RC events while away (footer count, not ranked)
 }
 
 /** Compute what happened between snapshot and current payload while the user was away. */
@@ -20,33 +27,48 @@ export function buildWywaSummary(
   const awaySecs = (Date.now() - awayFrom) / 1000;
   if (awaySecs < MIN_AWAY_S) return null;
 
-  // RC events that arrived while away
-  const alertRc: RcMessage[] = [];
+  // RC alerts that arrived while away (current.rcMessages is already ts DESC,
+  // so this preserves most-recent-first without a re-sort). "Arrived" is
+  // judged on detectedAt (wall-clock at ingest) when present — the raw `ts`
+  // is the message's race-original time, which during a replay is weeks in
+  // the past and would never test > awayFrom, silently emptying WYWA of RC
+  // events in every feel-test.
+  const alertEvents: WywaEvent[] = [];
   let contextRcCount = 0;
   for (const m of current.rcMessages) {
-    if (m.ts !== null && m.ts > awayFrom) {
-      if (m.tier === 2) alertRc.push(m);
-      else if (m.tier === 1) contextRcCount++;
+    let arrived: number | null = m.ts;
+    if (m.detectedAt) {
+      const iso = /(Z|[+-]\d\d:?\d\d)$/.test(m.detectedAt) ? m.detectedAt : m.detectedAt + 'Z';
+      const t = new Date(iso).getTime();
+      if (!Number.isNaN(t)) arrived = t;
+    }
+    if (arrived !== null && arrived > awayFrom) {
+      if (m.tier === 2) {
+        alertEvents.push({ key: `rc-${m.ts}-${m.message}`, tone: 'alert', text: m.message });
+      } else if (m.tier === 1) {
+        contextRcCount++;
+      }
     }
   }
 
-  // Class leader changes (net P1)
+  // Class leader changes (net P1) — ranked above RC alerts: the identity of
+  // the race changing is the single most important catch-up fact
   const prevLeaders = new Map<string, string>();
   for (const cls of snapshot.classes) {
     const p1 = cls.rows.find((r) => r.netPos === 1) ?? cls.rows[0];
     if (p1) prevLeaders.set(cls.code, p1.car);
   }
-  const classChanges: WywaSummary['classChanges'] = [];
+  const leadEvents: WywaEvent[] = [];
   for (const cls of current.classes) {
     const p1 = cls.rows.find((r) => r.netPos === 1) ?? cls.rows[0];
     if (!p1) continue;
     const prev = prevLeaders.get(cls.code);
     if (prev && prev !== p1.car) {
-      classChanges.push({ code: cls.code, prev, curr: p1.car });
+      leadEvents.push({ key: `lead-${cls.code}`, tone: 'lead', classCode: cls.code, prev, curr: p1.car });
     }
   }
 
-  return { awaySecs, alertRc, contextRcCount, classChanges };
+  return { awaySecs, events: [...leadEvents, ...alertEvents], contextRcCount };
 }
 
 function fmtAway(s: number): string {
@@ -64,11 +86,16 @@ interface Props {
 export default function WywaCard({ summary, onDismiss }: Props) {
   const [expanded, setExpanded] = useState(false);
 
-  const totalEvents = summary.alertRc.length + summary.contextRcCount + summary.classChanges.length;
-  const hasDetail = totalEvents > 0;
+  const total = summary.events.length;
+  const hasMore = total > COLLAPSED_N;
+  const visible = expanded ? summary.events : summary.events.slice(0, COLLAPSED_N);
+  const showBody = visible.length > 0 || summary.contextRcCount > 0;
 
   return (
-    <div className="mx-3 mt-2 mb-1 rounded-md border border-amber-500/30 bg-amber-500/5 overflow-hidden">
+    <div
+      className="mx-3 mt-2 mb-1 rounded-md border border-amber-500/30 bg-amber-500/5 overflow-hidden"
+      onClick={(e) => e.stopPropagation()}  // sits inside App's click-anywhere-closes-panel region; must not double as a click-through
+    >
       {/* Header row */}
       <div className="flex items-center gap-2 px-3 py-2">
         <span className="text-[9px] font-heading font-bold tracking-widest text-amber-400 uppercase shrink-0">
@@ -77,17 +104,12 @@ export default function WywaCard({ summary, onDismiss }: Props) {
         <span className="text-[11px] font-body text-fg/80">
           Away {fmtAway(summary.awaySecs)}
         </span>
-        {totalEvents > 0 && (
-          <span className="text-[10px] text-muted-fg">
-            — {totalEvents} event{totalEvents !== 1 ? 's' : ''}
-          </span>
-        )}
-        {totalEvents === 0 && (
-          <span className="text-[10px] text-muted-fg">— no notable changes</span>
-        )}
+        <span className="text-[10px] text-muted-fg">
+          {total > 0 ? `— ${total} event${total !== 1 ? 's' : ''}` : '— no notable changes'}
+        </span>
 
         <div className="flex items-center gap-2 ml-auto">
-          {hasDetail && (
+          {hasMore && (
             <button
               onClick={() => setExpanded((e) => !e)}
               className="text-[9px] font-heading font-bold text-amber-400/70 hover:text-amber-400 uppercase tracking-wider"
@@ -105,39 +127,17 @@ export default function WywaCard({ summary, onDismiss }: Props) {
         </div>
       </div>
 
-      {/* Inline budget chips (always visible) */}
-      {totalEvents > 0 && !expanded && (
-        <div className="flex flex-wrap gap-1.5 px-3 pb-2">
-          {summary.classChanges.map((c) => (
-            <span key={c.code} className="text-[9px] font-body px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-300">
-              {c.code} lead: #{c.prev}→#{c.curr}
-            </span>
-          ))}
-          {summary.alertRc.length > 0 && (
-            <span className="text-[9px] font-body px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-300">
-              {summary.alertRc.length} RC alert{summary.alertRc.length !== 1 ? 's' : ''}
-            </span>
-          )}
-          {summary.contextRcCount > 0 && (
-            <span className="text-[9px] font-body px-1.5 py-0.5 rounded bg-white/10 text-muted-fg">
-              +{summary.contextRcCount} context
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Expanded detail */}
-      {expanded && (
+      {/* Ranked events — collapsed shows top 3, MORE extends to the full list */}
+      {showBody && (
         <div className="border-t border-amber-500/20 px-3 py-2 space-y-1">
-          {summary.classChanges.map((c) => (
-            <div key={c.code} className="text-[10px] font-body text-fg/80">
-              <span className="text-emerald-400 font-bold">{c.code}</span>
-              {' '}lead change: #{c.prev} → #{c.curr}
+          {visible.map((ev) => ev.tone === 'lead' ? (
+            <div key={ev.key} className="text-[11px] leading-normal font-body text-fg/80">
+              <span className="text-emerald-400 font-bold">{ev.classCode}</span>
+              {' '}lead change: #{ev.prev} → #{ev.curr}
             </div>
-          ))}
-          {summary.alertRc.map((m, i) => (
-            <div key={i} className="text-[10px] font-body text-amber-300/90">
-              ● {m.message}
+          ) : (
+            <div key={ev.key} className="text-[11px] leading-normal font-body text-amber-300/90">
+              ● {ev.text}
             </div>
           ))}
           {summary.contextRcCount > 0 && (

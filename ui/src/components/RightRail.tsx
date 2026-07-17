@@ -32,11 +32,25 @@ function Divider() {
   return <div className="border-t border-border/40 my-2.5" />;
 }
 
-function fmtRcAge(ts: number | null): string {
+// ts is the message's RACE-original timestamp (needed for penalty
+// time-gating in the calculator) — during a replay that can be weeks old,
+// so age comes from detectedAt (real wall-clock at ingest) instead. Same
+// fix as App.tsx's header ticker; see that file for the full rationale.
+const MAX_PLAUSIBLE_AGE_S = 6 * 3600;
+
+function fmtRcAge(ts: number | null, detectedAt: string | null): string {
+  if (detectedAt) {
+    const iso = /(Z|[+-]\d\d:?\d\d)$/.test(detectedAt) ? detectedAt : detectedAt + 'Z';
+    const t = new Date(iso).getTime();
+    if (!Number.isNaN(t)) {
+      const s = Math.round((Date.now() - t) / 1000);
+      return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m`;
+    }
+  }
   if (ts === null || ts <= 0) return '';  // feed stores 0 when it has no timestamp
   const s = Math.round((Date.now() - ts) / 1000);
-  if (s < 60) return `${s}s`;
-  return `${Math.floor(s / 60)}m`;
+  if (s > MAX_PLAUSIBLE_AGE_S) return '';
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m`;
 }
 
 function fmtGapS(ms: number): string {
@@ -139,13 +153,13 @@ function RaceControl({ rcMessages }: { rcMessages: RcMessage[] }) {
             const color = m.kind ? (KIND_COLOR[m.kind] ?? '#d1d5db') : '#6b7280';
             const dim = m.tier === 1;
             return (
-              <div key={i} className="flex gap-1 items-start text-[10px] font-body leading-tight">
+              <div key={i} className="flex gap-1 items-start text-[11px] font-body leading-normal">
                 <span className="shrink-0 mt-px" style={{ color, opacity: dim ? 0.6 : 1 }}>●</span>
                 <span className="flex-1 min-w-0 break-words" style={{ color: dim ? '#9ca3af' : '#d1d5db' }}>
                   {m.message}
                 </span>
                 <span className="shrink-0 text-[9px] text-muted-fg/40 tabular-nums">
-                  {fmtRcAge(m.ts)}
+                  {fmtRcAge(m.ts, m.detectedAt)}
                 </span>
               </div>
             );
@@ -183,38 +197,10 @@ function DueToPit({ classes }: { classes: ClassGroup[] }) {
   );
 }
 
-// ── RACE AT A GLANCE section ──────────────────────────────────────────────
-function RaceAtAGlance({ classes }: { classes: ClassGroup[] }) {
-  const leaders = classes
-    .map(({ code, rows }) => {
-      const leader = rows.find((r) => r.netPos === 1) ?? rows[0] ?? null;
-      return leader ? { code, car: leader.car, laps: leader.laps } : null;
-    })
-    .filter(Boolean) as { code: string; car: string; laps: number }[];
-
-  return (
-    <section>
-      <RailLabel>Race at a Glance</RailLabel>
-      {leaders.length === 0 ? (
-        <span className="text-[10px] text-muted-fg/50 font-body">—</span>
-      ) : (
-        <div className="flex flex-col gap-0.5">
-          {leaders.map(({ code, car, laps }) => (
-            <div key={code} className="flex items-center gap-1 text-[10px] font-body">
-              <span className="w-14 shrink-0 font-bold truncate" style={{ color: spineColor(code) }}>
-                {code}
-              </span>
-              <span className="text-fg/80 font-bold">#{car}</span>
-              <span className="text-muted-fg/50 tabular-nums ml-auto">{laps}L</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
 // ── Root export ───────────────────────────────────────────────────────────
+// "Race at a Glance" (leaders + lap counts) was dropped 2026-07-16 — it
+// duplicated the board's own P1 rows with no added story, and the owner
+// called it dead weight in the feel-test. See BACKLOG.md Epic 10.
 interface RightRailProps {
   classes: ClassGroup[];
   rcMessages: RcMessage[];
@@ -224,8 +210,6 @@ interface RightRailProps {
 export default function RightRail({ classes, rcMessages, battles }: RightRailProps) {
   return (
     <aside className="w-[210px] shrink-0 border-l border-border overflow-y-auto thin-scrollbar bg-bg px-3 py-3 flex flex-col gap-0">
-      <RaceAtAGlance classes={classes} />
-      <Divider />
       <Battles battles={battles} />
       <Divider />
       <DueToPit classes={classes} />
