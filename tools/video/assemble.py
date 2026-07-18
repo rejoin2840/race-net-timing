@@ -2,8 +2,8 @@
 import subprocess, os
 SCR = os.path.dirname(__file__)
 FR = os.path.join(SCR, "frames")
-frames = ["00_title","01_overview","02_rows","03_net","04_detail","05_wywa","06_fcy","07_rc","08_battles"]
-d = [4.0, 9.0, 9.0, 9.5, 9.5, 9.0, 8.5, 9.5, 8.5]
+frames = ["00_title","01_overview","02_rows","03_net","04_detail","05_wywa","06_fcy","07_rc","08_battles","09_accuracy"]
+d = [4.0, 9.0, 9.0, 9.5, 9.5, 9.0, 8.5, 9.5, 8.5, 12.0]
 T = 0.6
 FPS = 30
 OUT = os.path.join(SCR, "out", "dashboard_demo.mp4")
