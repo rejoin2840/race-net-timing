@@ -1,4 +1,5 @@
 import type { CarRow } from '../types';
+import { formatDriverName } from '../driverName';
 
 interface Props {
   car: CarRow;
@@ -55,7 +56,9 @@ export default function DetailPanel({ car, classCode, spineColor, onClose }: Pro
               {classCode}
             </span>
           </div>
-          <div className="font-heading font-bold text-sm mt-0.5">{car.driver || car.car}</div>
+          <div className="font-heading font-bold text-sm mt-0.5">
+            {car.driver ? formatDriverName(car.driver) : car.car}
+          </div>
           {car.team && (
             <div className="text-[10px] text-muted-fg mt-0.5">{car.team}</div>
           )}

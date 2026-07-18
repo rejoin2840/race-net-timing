@@ -1,4 +1,5 @@
 import type { Battle, CarRow as CarRowType } from '../types';
+import { formatDriverName } from '../driverName';
 
 const IN_PIT  = new Set(['BOX', 'PIT', 'STOPPED']);
 const OUT_LAP = new Set(['OUT_LAP', 'OUT']);
@@ -124,7 +125,7 @@ export default function CarRow({ row, index, spineColor, selected, battles, onOp
       {/* Driver / Team */}
       <div className="w-[168px] shrink-0 pr-2 overflow-hidden">
         <div className="font-heading font-bold text-[13px] tracking-wide truncate leading-none">
-          {row.driver || row.car}
+          {row.driver ? formatDriverName(row.driver) : row.car}
         </div>
         <div className="text-[10px] text-muted-fg font-body truncate mt-0.5">
           {row.team}
