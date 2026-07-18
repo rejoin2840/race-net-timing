@@ -119,6 +119,40 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // DEMO capture mode (throwaway): ?scene=green|fcy loads a real recorded
+    // Rolex-24 frame from /demo/*.json so the board can be screenshotted for the
+    // explainer video. ?wywa=1 also pops the "While you were away" card.
+    const params = new URLSearchParams(location.search);
+    const scene = params.get('scene');
+    if (scene) {
+      const file = scene === 'fcy' ? 'fcy' : 'green';
+      fetch(`/demo/${file}.json`).then((r) => r.json()).then((p) => {
+        // Recorded frames carry the replay's wall-clock net_updated_at (minutes
+        // old), which trips the 12s stale-guard and greys every NET cell. Stamp
+        // fresh so the real green/red projections render for the screenshot.
+        const now = new Date().toISOString();
+        for (const c of p.classes) for (const row of c.rows) row.netUpdatedAt = now;
+        p.session.ageS = 1;
+        // Recorded RC rows carry the replay's ingest wall-clock (hours old by the
+        // time we screenshot), which renders nonsense ages like "545m ago". Re-
+        // stamp so the ticker/rail read live: newest ~now, older ones staggered.
+        p.rcMessages.forEach((m: RcMessage, i: number) => {
+          m.detectedAt = new Date(Date.now() - i * 75000).toISOString();
+        });
+        setPayload(p);
+        const carNum = params.get('car');
+        if (carNum) {
+          for (const c of p.classes) {
+            const found = c.rows.find((r) => r.car === carNum);
+            if (found) { setSelected({ car: found, classCode: c.code }); break; }
+          }
+        }
+      });
+      if (params.get('wywa')) {
+        fetch('/demo/wywa.json').then((r) => r.json()).then((d) => setWywa(d.summary));
+      }
+      return;
+    }
     if (window.racenet) {
       const cb = (p: RowsPayload) => setPayload(p);
       window.racenet.onRows(cb);
@@ -223,7 +257,7 @@ export default function App() {
         {!payload && (
           <span className="text-[10px] text-muted-fg shrink-0">waiting for data…</span>
         )}
-        {!window.racenet && (
+        {!window.racenet && !new URLSearchParams(location.search).get('scene') && (
           <span className="text-[10px] text-amber-500/70 font-body shrink-0">MOCK DATA</span>
         )}
       </header>
