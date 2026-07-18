@@ -143,7 +143,7 @@ export default function App() {
         const carNum = params.get('car');
         if (carNum) {
           for (const c of p.classes) {
-            const found = c.rows.find((r) => r.car === carNum);
+            const found = c.rows.find((r: CarRow) => r.car === carNum);
             if (found) { setSelected({ car: found, classCode: c.code }); break; }
           }
         }
