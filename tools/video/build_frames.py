@@ -66,15 +66,18 @@ def load(name): return Image.open(os.path.join(SCENES,name)).convert("RGBA")
 def title_frame():
     img = Image.new("RGBA",(W,H),(9,11,15,255))
     d = ImageDraw.Draw(img)
-    tf = font(150); sf = font(62, bold=False)
-    t = "RACE STRATEGY DASHBOARD"
+    tf = font(230); sf = font(64, bold=False); rf = font(46, bold=False)
+    t = "OVERCUT"
     tw = d.textlength(t, font=tf)
-    d.text(((W-tw)/2, H/2-160), t, font=tf, fill=GOLD)
-    s = "A real 24-hour race, replayed — the Rolex 24 at Daytona"
+    d.text(((W-tw)/2, H/2-260), t, font=tf, fill=GOLD)
+    s = "The Endurance Race Companion You Really Don't Need"
     sw = d.textlength(s, font=sf)
-    d.text(((W-sw)/2, H/2+40), s, font=sf, fill=SUB)
+    d.text(((W-sw)/2, H/2+60), s, font=sf, fill=SUB)
     # thin gold rule
-    d.rectangle([ (W-tw)/2, H/2+14, (W-tw)/2+tw, H/2+18 ], fill=(245,198,74,90))
+    d.rectangle([ (W-tw)/2, H/2+24, (W-tw)/2+tw, H/2+28 ], fill=(245,198,74,90))
+    r = "A real 24-hour race, replayed — the Rolex 24 at Daytona"
+    rw = d.textlength(r, font=rf)
+    d.text(((W-rw)/2, H/2+220), r, font=rf, fill=(120,128,138))
     return img
 
 def accuracy_frame():
