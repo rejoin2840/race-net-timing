@@ -4,13 +4,18 @@ Epic-structured roadmap, reconciled 2026-07-03 from the original phased plan + a
 external (Cursor) audit + owner feedback. This file is the single source of truth for
 "what's next and why" — code comments should point here, not at phase numbers.
 
-**Product identity:** primary = *endurance race strategy companion* (IMSA → WEC) with
+**Product identity:** name = **Overcut**. primary = *endurance race strategy companion* (IMSA → WEC) with
 honest confidence signaling. Secondary = *strategy learning lab* (replay → evaluate →
 tune). top pain points, which shape acceptance criteria everywhere:
 **#1 wrong class-leader gap · #2 DUE TO PIT called too early.**
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-17 — Product name confirmed: Overcut (owner sign-off).** Coined during
+  the explainer-video session (USER_GUIDE + Overcut.app already used it); owner
+  confirmed it as the official name. Propagated to README titles, browser-tab and
+  Electron window titles, ui/package.json, GitHub repo description, and the video
+  title slide (PR #35). Repo slug stays `race-net-timing`.
 - **2026-07-15 — Epic 10 scoped: web board content migration (owner call, same
   session as the Epic 9 merge).** Trigger: owner compared the shipped web UI v1
   against the phase-1 sounding-board mockups and asked why they look unrelated.

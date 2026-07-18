@@ -1,4 +1,4 @@
-# Race Net Timing
+# Overcut
 
 An **endurance race strategy companion** for watching IMSA and WEC at home.
 It answers the question TV timing can't: **who is really winning once everyone's

@@ -1,7 +1,7 @@
 {
   "name": "racenet-ui",
   "version": "0.1.0",
-  "description": "Race Net Timing \u2014 Electron/React display layer",
+  "description": "Overcut \u2014 Electron/React display layer",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {

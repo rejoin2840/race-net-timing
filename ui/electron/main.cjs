@@ -255,7 +255,7 @@ function createWindow() {
   win = new BrowserWindow({
     width:  1280,
     height: 800,
-    title:  'Race Net Timing',
+    title:  'Overcut',
     backgroundColor: '#0d1115',
     webPreferences: {
       preload:          path.join(__dirname, 'preload.cjs'),
