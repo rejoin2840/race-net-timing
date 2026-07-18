@@ -1,5 +1,6 @@
 #!/bin/bash
-# check.sh — local test gate (this repo has no remote, so this IS the CI).
+# check.sh — the test gate. Runs locally before every commit, and in GitHub
+# Actions on every push/PR (.github/workflows/ci.yml runs the fast tier only).
 #
 #   ./check.sh          fast: run every tests/test_*.py (standalone runners, no pytest)
 #   ./check.sh --full   also run the IMSA regression suite (validate_races.py —
