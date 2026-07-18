@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "racenet-ui",
+      "name": "board-ui",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "browser"],
+      "runtimeArgs": ["--prefix", "ui", "run", "vite"],
       "port": 5173
     }
   ]
