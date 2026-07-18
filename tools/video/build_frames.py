@@ -66,15 +66,56 @@ def load(name): return Image.open(os.path.join(SCENES,name)).convert("RGBA")
 def title_frame():
     img = Image.new("RGBA",(W,H),(9,11,15,255))
     d = ImageDraw.Draw(img)
-    tf = font(150); sf = font(62, bold=False)
-    t = "RACE STRATEGY DASHBOARD"
+    tf = font(230); sf = font(64, bold=False); rf = font(46, bold=False)
+    t = "OVERCUT"
     tw = d.textlength(t, font=tf)
-    d.text(((W-tw)/2, H/2-160), t, font=tf, fill=GOLD)
-    s = "A real 24-hour race, replayed — the Rolex 24 at Daytona"
+    d.text(((W-tw)/2, H/2-260), t, font=tf, fill=GOLD)
+    s = "The Endurance Race Companion You Really Don't Need"
     sw = d.textlength(s, font=sf)
-    d.text(((W-sw)/2, H/2+40), s, font=sf, fill=SUB)
+    d.text(((W-sw)/2, H/2+60), s, font=sf, fill=SUB)
     # thin gold rule
-    d.rectangle([ (W-tw)/2, H/2+14, (W-tw)/2+tw, H/2+18 ], fill=(245,198,74,90))
+    d.rectangle([ (W-tw)/2, H/2+24, (W-tw)/2+tw, H/2+28 ], fill=(245,198,74,90))
+    r = "A real 24-hour race, replayed — the Rolex 24 at Daytona"
+    rw = d.textlength(r, font=rf)
+    d.text(((W-rw)/2, H/2+220), r, font=rf, fill=(120,128,138))
+    return img
+
+def accuracy_frame():
+    """Closing slide: current + projected accuracy, in plain language.
+    Numbers come from the evaluator's 14-race regression set (BACKLOG.md
+    decisions log, 07-13 recalibration) — update them when the evaluator does."""
+    img = Image.new("RGBA",(W,H),(9,11,15,255))
+    d = ImageDraw.Draw(img)
+    tf = font(120); lf = font(56); bf = font(54, bold=False); sf = font(46, bold=False)
+    t = "HOW ACCURATE IS IT?"
+    tw = d.textlength(t, font=tf)
+    d.text(((W-tw)/2, 170), t, font=tf, fill=GOLD)
+    s = "Today's numbers, graded against 14 full recorded races — honesty over hype"
+    sw = d.textlength(s, font=sf)
+    d.text(((W-sw)/2, 330), s, font=sf, fill=SUB)
+
+    rows = [
+        ("PROJECTED FINISH",
+         "typically off by 2–4 positions mid-race — and the error shrinks "
+         "every lap as real pit stops replace estimates."),
+        ("CATCH CALLS",
+         "“the #7 is coming for the leader” — right about 9 times in 10 in "
+         "testing so far, usually flagged within ~3 laps of the real move."),
+        ("PIT-STOP COSTS",
+         "every estimate carries a visible ± band. Crash repairs and long "
+         "garage stops are reported as they happen, never guessed."),
+        ("COMING NEXT",
+         "live fuel telemetry — pit-window calls within ~2 laps of the actual "
+         "stop, and tighter finish projections from real tank data."),
+    ]
+    y = 660
+    for label, body in rows:
+        d.text((260, y), label, font=lf, fill=GOLD)
+        ly = y
+        for ln in wrap(d, body, bf, W-1320):
+            d.text((1060, ly), ln, font=bf, fill=WHITE)
+            ly += int(54*1.4)
+        y = max(y + 290, ly + 120)
     return img
 
 def zoom_rows(highlight_net=False):
@@ -136,5 +177,7 @@ save(caption(spotlight([1403,410,185,318]),
 save(caption(spotlight([1403,53,185,336]),
     "Close fights are flagged the instant they form, and each class’s projected podium is recomputed lap after lap.",
     size=58), "08_battles.png")
+
+save(accuracy_frame(), "09_accuracy.png")
 
 print("frames:", sorted(os.listdir(OUT)))
