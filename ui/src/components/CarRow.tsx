@@ -178,23 +178,17 @@ export default function CarRow({ row, index, spineColor, selected, battles, onOp
         )}
       </div>
 
-      {/* Pit in — WHEN the next stop happens (laps left in tank + the session
-          lap it must pit by). Replaced the stop-cost estimate 07-16: cost is
-          engine bookkeeping ("helpful for you to calculate, not for me"), and
-          still lives in the detail panel. Timing is the strategy read. */}
-      <div className="w-[96px] shrink-0 text-right font-body tabular-nums text-[11px] text-muted-fg pr-2">
+      {/* Next stop — laps left in the tank. The "by Lxxx" session lap was
+          dropped 07-17 (owner: noise); mustPitLap still arrives in the
+          payload if it's ever wanted back. */}
+      <div className="w-[72px] shrink-0 text-center font-body tabular-nums text-[11px]">
         {row.fuelLapsLeft !== null ? (
-          <>
-            <span className="text-fg/90 font-semibold">~{row.fuelLapsLeft}L</span>
-            {row.mustPitLap !== null && (
-              <span className="text-muted-fg/60 text-[10px] ml-1">by L{row.mustPitLap}</span>
-            )}
-          </>
-        ) : '—'}
+          <span className="text-fg/90 font-semibold">~{row.fuelLapsLeft}L</span>
+        ) : <span className="text-muted-fg">—</span>}
       </div>
 
       {/* Gap */}
-      <div className="w-[88px] shrink-0 text-right pr-2 font-body tabular-nums text-[11px] text-muted-fg">
+      <div className="w-[96px] shrink-0 text-center font-body tabular-nums text-[11px] text-muted-fg">
         {fmtGap(row)}
       </div>
 

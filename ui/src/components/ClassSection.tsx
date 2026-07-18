@@ -57,8 +57,8 @@ export default function ClassSection({ group, selectedCar, battles, onSelectCar 
         <div className="w-[168px] shrink-0 pr-2">Driver / Team</div>
         <div className="w-[104px] shrink-0">Last Lap</div>
         <div className="w-[176px] shrink-0 pl-2">Stint · Fuel</div>
-        <div className="w-[96px] shrink-0 text-right pr-2">Next Pit</div>
-        <div className="w-[88px] shrink-0 text-right pr-2">Gap</div>
+        <div className="w-[72px] shrink-0 text-center">Next Stop</div>
+        <div className="w-[96px] shrink-0 text-center">Gap</div>
         <div className="w-9 shrink-0 text-center">Stops</div>
         <div className="w-[60px] shrink-0 text-center">Pit</div>
         <div className="w-10 shrink-0 text-center text-primary/70">NET</div>
