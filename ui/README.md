@@ -1,4 +1,4 @@
-# Race Net Timing — web UI
+# Overcut — web UI
 
 Electron + React + Vite + Tailwind display layer. Reads the same
 `data/race.db` SQLite file the Python engine writes; no Python required
