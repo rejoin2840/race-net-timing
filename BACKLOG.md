@@ -11,6 +11,31 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-18 — Out-lap study: "tire warm-up coefficient" REJECTED for WEC;
+  IMSA deficit localized to the post-stop transition (tools/studies/
+  outlap_error_study.py — rerun it before touching any conclusion here).**
+  Every regression-set prediction sample bucketed by laps-since-own-pit,
+  grading per evaluator convention.
+  **IMSA:** NET matches or beats the track baseline in every mid/late-stint
+  bucket (net−trk −0.16…−0.00); the ENTIRE deficit sits in pre-first-stop
+  (+0.19, n=13.1k) and the first flying lap after a stop (+0.37, n=8.4k).
+  **WEC:** deficit is broad (+0.44…+1.25 in every bucket) and WORST in deep
+  steady state (13+ laps since stop: +1.25, n=52k) — an out-lap fix would
+  close ≲10% of the WEC gap; the lever remains core stop/energy modeling
+  (Epic 2), consistent with the known driver-change and VET findings.
+  **Sign decomposition:** the bucket-1 excess is systematic OPTIMISM — net
+  bias −0.49 (IMSA) / −1.37 (WEC) vs track +0.32/+0.85 — i.e. right after a
+  car's stop completes, the model over-credits it by ~0.5–1.4 positions. So
+  the mechanism is the accounting/projection handoff at the stop transition,
+  not tire warm-up per se. Side finding: the feed's pit counter trails
+  detected pit_events during the out-lap (55% of IMSA / 78% of WEC bucket-0
+  samples have stale `predictions.stops`) — anything reading feed stops
+  within a lap of a stop sees stale state.
+  **Scoped follow-up (unscheduled):** audit the post-stop handoff
+  (stops/est_stops_left transition + what the projection assumes the cycle
+  cost) and fold the observed first-flying-lap deficit into the post-stop
+  projection; grade any fix by re-running this study — bucket-1 delta and
+  overall IMSA net MAE must BOTH improve.
 - **2026-07-17 — Product name confirmed: Overcut (owner sign-off).** Coined during
   the explainer-video session (USER_GUIDE + Overcut.app already used it); owner
   confirmed it as the official name. Propagated to README titles, browser-tab and
