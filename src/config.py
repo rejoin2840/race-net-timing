@@ -54,6 +54,13 @@ DEFAULTS = {
     "STOPS_LEFT_SLACK":       0.5,      # stint fraction a car can stretch to absorb a
                                         # fractional remaining-stop remainder (0 = plain ceil;
                                         # 0.5 ≈ round — swept 0/0.25/0.5 across 14 races 07-12)
+    "PENDING_STOP_WINDOW_LAPS": 2,      # stint-laps at/under which a just-taken stop may still
+                                        # be un-charged in the cumulative gap (post-stop handoff,
+                                        # BACKLOG 07-18/07-19)
+    "PENDING_STOP_CHARGE_FRACTION": 0.5,  # a lap carrying at least this fraction of the predicted
+                                          # stop cost over clean pace means the stop's time loss
+                                          # has reached the gap (additive, so it adapts to any
+                                          # lap-length/stop-cost ratio)
     "BUDGET_PER_CLASS":       1,        # max NET-overlay highlights allowed per class on the calm board (0 = monochrome)
     "TRACK_LAT":              42.337,   # circuit latitude  (Watkins Glen — first race)
     "TRACK_LON":             -76.927,   # circuit longitude (edit per round for weather)
