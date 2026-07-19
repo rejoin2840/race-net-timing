@@ -11,6 +11,31 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-19 — Post-stop handoff FIXED: pending stop charge in net
+  (src/calculator.py, closes the 07-18 scoped follow-up).**
+  Mechanism confirmed by tracing replay predictions: the feed's stint reset
+  decrements `est_stops_left` 1–2 laps BEFORE the stop's time loss reaches
+  the cumulative gap (the pit-cost lap lands at pit_lap+1/+2), so for that
+  window net removed a future-stop cost the gap hadn't charged yet — a
+  freshly-stopped car was over-credited by a full stop cost (the bucket-1
+  optimism; also a visible board flicker: cars leapt up NET the instant
+  they pitted). Fix: while no lap slower than clean pace + half the
+  predicted stop cost has appeared since the pit lap (2-stint-lap window),
+  the just-taken stop stays costed in `future_pit` at the same predicted
+  cost it carried pre-stop — net is continuous across the transition and
+  then moves only by actual-minus-predicted. Caution stops scale by
+  CAUTION_PENALTY_FACTOR (their real loss is bunching-cheap and often never
+  shows a slow lap — the window expiry drops those). A pending charge keeps
+  the class un-settled. Knobs: PENDING_STOP_WINDOW_LAPS=2,
+  PENDING_STOP_CHARGE_FRACTION=0.5 (additive threshold — a multiplicative
+  1.4×pace variant was graded and rejected: it misses the charge lap on
+  long-lap tracks and double-costs, bucket-2 bias +0.52 vs +0.37).
+  **Grading (study rerun, both required criteria met):** IMSA bucket-1
+  net−trk +0.37 → +0.27 (MAE 2.60 → 2.50, bias −0.49 → +0.27 ≈ track's own
+  +0.32); overall IMSA net MAE 2.677 → 2.669. WEC bucket-1 bias
+  −1.37 → −0.21 (MAE 3.32 → 3.29); WEC bucket-2 bias +0.35 → +0.14. No
+  bucket materially worse on either series; the broad WEC deficit remains
+  Epic 2 (core stop/energy modeling), as the 07-18 study predicted.
 - **2026-07-18 — Out-lap study: "tire warm-up coefficient" REJECTED for WEC;
   IMSA deficit localized to the post-stop transition (tools/studies/
   outlap_error_study.py — rerun it before touching any conclusion here).**
@@ -31,11 +56,8 @@ tune). top pain points, which shape acceptance criteria everywhere:
   detected pit_events during the out-lap (55% of IMSA / 78% of WEC bucket-0
   samples have stale `predictions.stops`) — anything reading feed stops
   within a lap of a stop sees stale state.
-  **Scoped follow-up (unscheduled):** audit the post-stop handoff
-  (stops/est_stops_left transition + what the projection assumes the cycle
-  cost) and fold the observed first-flying-lap deficit into the post-stop
-  projection; grade any fix by re-running this study — bucket-1 delta and
-  overall IMSA net MAE must BOTH improve.
+  **Scoped follow-up: DONE 07-19** — see the post-stop pending-charge entry
+  above (both grading criteria met).
 - **2026-07-17 — Product name confirmed: Overcut (owner sign-off).** Coined during
   the explainer-video session (USER_GUIDE + Overcut.app already used it); owner
   confirmed it as the official name. Propagated to README titles, browser-tab and

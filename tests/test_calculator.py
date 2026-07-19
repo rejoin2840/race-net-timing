@@ -359,6 +359,45 @@ def test_apply_config_routes_series_to_module_globals():
         calculator._apply_config()
 
 
+# ── _stop_charge_visible (post-stop handoff: is the pit cost in the gap yet?) ──
+def _charge_db(lap_times):
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(
+        """CREATE TABLE lap_history (
+               session_oid TEXT, car_number TEXT,
+               lap_number INTEGER, lap_time_ms INTEGER);""")
+    conn.executemany("INSERT INTO lap_history VALUES ('o','7',?,?)",
+                     list(lap_times.items()))
+    return conn
+
+
+def test_stop_charge_not_visible_before_slow_lap():
+    # pitted lap 10; laps 10-11 completed at clean pace (threshold = pace
+    # 100s + half a 35s stop = 117.5s) → cost not charged yet
+    conn = _charge_db({9: 100_000, 10: 101_000, 11: 100_500})
+    assert calculator._stop_charge_visible(conn, "o", "7", 10, 117_500) is False
+
+
+def test_stop_charge_visible_once_pit_lap_lands():
+    # the pit-cost lap arrived at lap 11 (135s ≫ 117.5s threshold)
+    conn = _charge_db({9: 100_000, 10: 101_000, 11: 135_000})
+    assert calculator._stop_charge_visible(conn, "o", "7", 10, 117_500) is True
+
+
+def test_stop_charge_ignores_slow_laps_before_the_stop():
+    # a slow lap from a PREVIOUS cycle (lap 5) must not count for the lap-10 stop
+    conn = _charge_db({5: 180_000, 10: 100_500, 11: 100_000})
+    assert calculator._stop_charge_visible(conn, "o", "7", 10, 117_500) is False
+
+
+def test_stop_charge_threshold_is_strict():
+    # exactly at the threshold is NOT charged (strict >), just over is
+    conn = _charge_db({10: 117_500})
+    assert calculator._stop_charge_visible(conn, "o", "7", 10, 117_500) is False
+    conn = _charge_db({10: 117_501})
+    assert calculator._stop_charge_visible(conn, "o", "7", 10, 117_500) is True
+
+
 if __name__ == "__main__":
     # Runnable without pytest: execute every test_* function in this module.
     import traceback

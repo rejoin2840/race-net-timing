@@ -196,6 +196,14 @@ class CarAnalysis:
     next_stop_ms:     Optional[float] = None     # predicted cost of this car's next stop
     next_stop_std_ms: Optional[float] = None     # 1σ spread on that prediction
     pit_scope:        str = "default"            # which model scope predicted the next stop
+    # post-stop handoff: the feed's stint reset decrements est_stops_left 1-2 laps
+    # BEFORE the stop's time loss reaches the cumulative gap, so net briefly
+    # over-credits a freshly-stopped car by a full stop cost (BACKLOG 07-18/07-19).
+    # While un-charged, the just-taken stop stays costed in the net math.
+    pending_stop_uncharged: bool = False          # stop taken, cost not yet in the gap
+    pending_stop_caution:   bool = False          # …that stop was under yellow (cheaper)
+    pending_stop_dc:        bool = False          # …that stop included a driver change
+    pending_stop_ms:        float = 0.0           # cost still owed to the gap (set per class)
     # sector analysis (best sector vs class best)
     best_s1_ms:       Optional[int] = None
     best_s2_ms:       Optional[int] = None
@@ -771,6 +779,23 @@ def _lap_history_elapsed(conn: sqlite3.Connection, oid: str,
     return out
 
 
+def _stop_charge_visible(conn: sqlite3.Connection, oid: str, car: str,
+                         pit_lap: int, threshold_ms: float) -> bool:
+    """Has a just-taken stop's time loss reached the cumulative gap yet?
+
+    The pit cost lands as one lap slower than clean pace at (or 1-2 laps after)
+    the pit lap — the same crossing that bumps the car's elapsed/lap counter, so
+    a lap over threshold_ms (clean pace + a meaningful share of the predicted
+    stop cost) in lap_history means the gap has charged. >= includes the
+    in-lap: if it already reads slow the charge straddles it, and treating that
+    as charged keeps the no-worse-than-today guarantee (never double-cost)."""
+    return conn.execute(
+        """SELECT 1 FROM lap_history
+             WHERE session_oid=? AND car_number=? AND lap_number >= ?
+               AND lap_time_ms > ? LIMIT 1""",
+        (oid, car, pit_lap, threshold_ms)).fetchone() is not None
+
+
 # ── core assembly ───────────────────────────────────────────────────────────
 def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAnalysis]]:
     config.CONFIG.reload_if_changed()   # pick up live config.json edits (~2s latency)
@@ -831,6 +856,43 @@ def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAn
         if pen:
             ca.penalty_s, ca.penalty_post_s, ca.penalty_note, ca.dq = pen
         cars.append(ca)
+
+    # post-stop handoff detection: a car whose stint just reset had its
+    # est_stops_left decremented, but the stop's time loss only reaches the
+    # cumulative gap at a later crossing (the pit-cost lap lands 1-2 laps after
+    # pit_lap). Until a lap carrying a meaningful share of the predicted stop
+    # cost shows up in lap_history, the stop is "un-charged" and must stay
+    # costed in net. Caution stops rarely produce a slow-enough lap — the
+    # window expiring (stint_laps > PENDING_STOP_WINDOW_LAPS) drops the charge
+    # instead.
+    if ctx.is_race:
+        pit_flag = {r["car_number"]: r["flag"] for r in conn.execute(
+            """SELECT car_number, flag, MAX(stop_number) AS sn FROM pit_events
+                 WHERE session_oid=? AND pit_lap IS NOT NULL
+                 GROUP BY car_number""", (oid,))}
+        dc_laps: dict[str, list[int]] = {}
+        for r in conn.execute(
+                """SELECT car_number, session_lap FROM driver_changes
+                     WHERE session_oid=? AND seq >= 2 AND session_lap IS NOT NULL""",
+                (oid,)):
+            dc_laps.setdefault(r["car_number"], []).append(r["session_lap"])
+        for ca in cars:
+            if not (ca.last_pit_lap and ca.stint_laps is not None
+                    and ca.stint_laps <= PENDING_STOP_WINDOW_LAPS
+                    and ca.avg_pace_ms):
+                continue
+            stint = (observed_stints.get(ca.car_class)
+                     or DEFAULT_STINT_LAPS.get(ca.car_class, DEFAULT_STINT_FALLBACK))
+            per, _, _ = ctx.pit_model.predict_stop(
+                ca.car_number, ca.car_class, stint, False)
+            threshold = ca.avg_pace_ms + PENDING_STOP_CHARGE_FRACTION * per
+            if not _stop_charge_visible(conn, oid, ca.car_number,
+                                        ca.last_pit_lap, threshold):
+                ca.pending_stop_uncharged = True
+                ca.pending_stop_caution = _is_caution(pit_flag.get(ca.car_number))
+                ca.pending_stop_dc = any(
+                    abs(ca.last_pit_lap - dl) <= DC_NEAR_LAPS
+                    for dl in dc_laps.get(ca.car_number, []))
 
     # group by class and derive everything within-class
     by_class: dict[str, list[CarAnalysis]] = {}
@@ -968,6 +1030,17 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
         # predicted cost of this car's NEXT stop (full-length stint, owed change if due)
         ca.next_stop_ms, ca.next_stop_std_ms, ca.pit_scope = model.predict_stop(
             ca.car_number, cls, avg_stint, ca.owes_driver_change)
+        # just-taken stop not yet charged into the gap → keep costing it in net,
+        # at the SAME predicted cost future_pit charged before the stop, so net
+        # stays continuous across the transition (then moves only by
+        # actual-minus-predicted once the gap charges). Caution stops scale like
+        # the pit-now projection: the field bunches, the real loss is a fraction.
+        if ca.pending_stop_uncharged and ctx.profile.pit_model != "track":
+            per, _, _ = model.predict_stop(ca.car_number, cls, avg_stint, False)
+            pend = per + (model.dc_delta_ms if ca.pending_stop_dc else 0.0)
+            if ca.pending_stop_caution:
+                pend *= CAUTION_PENALTY_FACTOR
+            ca.pending_stop_ms = pend
         # fuel / pit window: laps left in the tank, and the session lap it must pit by
         if ca.stint_laps is not None and avg_stint > 0:
             ca.fuel_laps_left = max(0, int(round(avg_stint - ca.stint_laps)))
@@ -1014,14 +1087,15 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
         if ctx.profile.pit_model == "track":
             return 0.0, 0.0
         n = ca.est_stops_left
-        if n <= 0:
+        if n <= 0 and not ca.pending_stop_ms:
             return 0.0, 0.0
         # only the soonest stop carries the owed driver-change increment
         per, std, _ = model.predict_stop(ca.car_number, cls, avg_stint, False)
-        total = n * per
-        if ca.owes_driver_change:
+        total = max(0, n) * per + ca.pending_stop_ms
+        if n > 0 and ca.owes_driver_change:
             total += model.dc_delta_ms
-        return total, math.sqrt(n) * std            # independent stops → variance adds
+        stops_counted = max(0, n) + (1 if ca.pending_stop_ms else 0)
+        return total, math.sqrt(stops_counted) * std  # independent stops → variance adds
     lead_future, _ = future_pit(leader)
     for ca in group_sorted:
         if ca.class_gap_ms is None:
@@ -1047,7 +1121,8 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
     #    has nothing left to say and net collapses to track order — displays dim it
     #    (decisions log 07-04). A pending penalty keeps that car's net live: the
     #    served/added time is still coming. ──
-    cls_settled = all(ca.est_stops_left <= 0 for ca in group_sorted if not ca.dq)
+    cls_settled = all(ca.est_stops_left <= 0 and not ca.pending_stop_ms
+                      for ca in group_sorted if not ca.dq)
     for ca in group_sorted:
         ca.net_settled = cls_settled and ca.penalty_s == 0 and not ca.dq
 
