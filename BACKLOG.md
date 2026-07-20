@@ -11,6 +11,36 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-19 — WEC net deficit ROOT-CAUSED and largely FIXED: it was the gap
+  DATA, not the stop/energy model (src/calculator.py `_coherent_class_gaps`).**
+  Follow-up to the 07-18 study, which read WEC's broad net−trk deficit as core
+  stop/energy modeling (Epic 2). A decomposition on the cached replay set
+  (`tools/studies/`, ad-hoc) says otherwise: WEC `est_stops_left` is already
+  good (mean |err| 0.63 stops vs IMSA's 2.0), and adding the pit-cost term
+  helps WEC pair-ordering the same +2.5pts it helps IMSA — the machinery works.
+  The deficit is UNDERNEATH: ordering same-class cars by our time gaps predicted
+  the finish at 66.8% vs the official running order's 77.5% (IMSA: the two
+  agree, 72–74%). ~6% of same-lap WEC pairs had our gap contradicting the
+  official order by >10s — data-quality, not racing. Cause: own-count
+  cumulative elapsed is coherent per car but NOT per pair — while A has crossed
+  S/F this lap and B hasn't, their difference compares different lap indices and
+  is a whole lap off (net's bets on lap-differing pairs won only 18% vs final).
+  **Fix:** measure every car against a reference lead-lap car's HISTORICAL time
+  at that car's own completed lap (same distance, same phase — the classic
+  timing-screen gap), re-based so the leader reads 0; cars whose prefix doesn't
+  reach their lap keep the own-count fallback (never worse). Griiip-only
+  (`trust_feed_laps_behind`-gated); IMSA predictions bit-identical.
+  **Grading (study rerun + pair-ordering metric):** WEC overall net MAE
+  3.850 → 3.021 (trk 2.877 unchanged) — net went from ~1.0 behind track to 0.14
+  behind. Net pair-ordering 69.0% → 75.7% (trk 77.4%); net now BEATS track in
+  the mid-stint buckets (bucket-2 net−trk +0.44 → −0.24, deep steady 13+
+  +1.26 → +0.20). No bucket worse. Full IMSA regression suite bit-identical.
+  **Caveat — provisional:** grading vs final classification structurally
+  flatters the official order (same data series as its own final value), so the
+  absolute gap is somewhat overstated; and only the SP-2026 capture carries the
+  full traces this leans on hardest — CONFIRM at the next live WEC event before
+  calling it closed. Remaining WEC net−trk now lives mostly in pre-first-stop
+  (+0.38) — a separate, smaller follow-up if it proves worth it.
 - **2026-07-19 — Post-stop handoff FIXED: pending stop charge in net
   (src/calculator.py, closes the 07-18 scoped follow-up).**
   Mechanism confirmed by tracing replay predictions: the feed's stint reset

@@ -185,6 +185,46 @@ def test_lap_history_elapsed_missing_counter_falls_back():
     assert calculator._lap_history_elapsed(conn, "o", {"7": 5}) == {}
 
 
+def test_lap_prefix_sums_stops_at_hole():
+    conn = _mkdb_laps([("7", 1, 90000), ("7", 2, 91000),
+                       ("9", 1, 90000), ("9", 3, 92000)])   # car 9 misses lap 2
+    pfx = calculator._lap_prefix_sums(conn, "o")
+    assert pfx["7"] == {1: 90000, 2: 181000}
+    assert pfx["9"] == {1: 90000}                # lap 3 dropped after the hole
+
+
+# ── _coherent_class_gaps (Griiip phase-coherent same-lap-index gaps) ───────────
+class _Car:
+    def __init__(self, car, laps, flb=0):
+        self.car_number, self.laps, self.feed_laps_behind = car, laps, flb
+
+
+def test_coherent_gaps_same_lap_index_not_own_count():
+    # Leader L on lap 10, chaser C on lap 9 (hasn't crossed yet). Own-count
+    # elapsed would compare L@10 vs C@9 — off by a full lap. Coherent gap
+    # measures both at lap 9 (C's completed lap) against the reference (L).
+    leader, chaser = _Car("L", 10), _Car("C", 9)
+    prefix = {"L": {i: i * 100_000 for i in range(1, 11)},          # 100s/lap
+              "C": {i: i * 100_000 + 5_000 for i in range(1, 10)}}  # +5s/lap behind
+    gaps = calculator._coherent_class_gaps([leader, chaser], leader, 0, prefix)
+    assert gaps["L"] == 0                       # leader re-based to zero
+    assert gaps["C"] == 5_000                   # true same-lap deficit, not ~105s
+
+
+def test_coherent_gaps_omits_cars_without_prefix_reach():
+    leader, boxed = _Car("L", 10), _Car("B", 8)
+    prefix = {"L": {i: i * 100_000 for i in range(1, 11)}}   # B has no prefix at all
+    gaps = calculator._coherent_class_gaps([leader, boxed], leader, 0, prefix)
+    assert "B" not in gaps                       # caller keeps own-count fallback
+    assert gaps["L"] == 0
+
+
+def test_coherent_gaps_empty_without_prefix():
+    leader = _Car("L", 10)
+    assert calculator._coherent_class_gaps([leader], leader, 0, None) == {}
+    assert calculator._coherent_class_gaps([leader], leader, 0, {}) == {}
+
+
 # ── _gap_closing (reads module-level _GAP_HIST) ───────────────────────────────
 def _hist(oid, car, samples):
     calculator._GAP_HIST[(oid, car)] = deque(samples, maxlen=6)
