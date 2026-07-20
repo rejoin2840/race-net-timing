@@ -200,6 +200,46 @@ def make_oid(sid, event_name: str = "") -> str:
     return f"wec_live_{slug or 'unknown'}"
 
 
+# The DB session `type` feeds calculator.is_race (`type not in RACE_EXCLUDE_TYPES`),
+# which decides race-logic vs official-classification ordering. An UNKNOWN type
+# there defaults to is_race=True — so a quali/practice session that reaches the DB
+# typed "SESSION" gets race ordering and the pit-parked official leader sinks off
+# the board (the FP1 P1-row-drop bug's live sibling, seen when the feed sends
+# session-info with an empty/odd sessionType). The feed's sessionName reliably
+# carries the discipline ("Qualifying - LMGT3", "Free Practice 3", "Hyperpole"),
+# so fall back to classifying from the NAME before giving up on "SESSION".
+_SESSION_TYPE_MAP = {
+    "race": "RACE",
+    "qualifying": "QUALIFYING", "qualify": "QUALIFYING", "hyperpole": "QUALIFYING",
+    "practice": "PRACTICE", "free practice": "PRACTICE", "warmup": "PRACTICE",
+    "warm up": "PRACTICE",
+}
+# name substrings → type, longest/most-specific first so "hyperpole" and
+# "free practice" win before a bare "practice"/"race" check.
+_SESSION_NAME_HINTS = (
+    ("hyperpole", "QUALIFYING"), ("qualif", "QUALIFYING"),
+    ("free practice", "PRACTICE"), ("practice", "PRACTICE"),
+    ("warm", "PRACTICE"), ("race", "RACE"),
+)
+
+
+def _classify_session(session_type: str, session_name: str = "") -> str:
+    """Map the Griiip feed's session type to our DB session type.
+
+    Direct type match first; then infer from the descriptive session name so an
+    empty/unmapped type can't default a quali/practice session to "SESSION"
+    (which calculator.is_race would then treat as a race). "SESSION" only for a
+    session neither the type nor the name can classify."""
+    direct = _SESSION_TYPE_MAP.get((session_type or "").strip().lower())
+    if direct:
+        return direct
+    name = (session_name or "").lower()
+    for hint, stype in _SESSION_NAME_HINTS:
+        if hint in name:
+            return stype
+    return "SESSION"
+
+
 def parse_participant(p: dict) -> dict:
     """Extract entry info from a Griiip participants message."""
     drivers = p.get("drivers") or []
@@ -527,12 +567,7 @@ class WecLiveClient:
         session_name = data.get("sessionName") or "Session"
         session_type = data.get("sessionType") or ""
 
-        type_map = {"Race": "RACE",
-                    "Qualifying": "QUALIFYING", "Qualify": "QUALIFYING",
-                    "Hyperpole": "QUALIFYING",
-                    "Practice": "PRACTICE", "Free Practice": "PRACTICE",
-                    "Warmup": "PRACTICE"}
-        stype = type_map.get(session_type, "SESSION")
+        stype = _classify_session(session_type, session_name)
 
         oid = make_oid(sid, event)
         if oid != self.state.session_oid:

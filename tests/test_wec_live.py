@@ -17,6 +17,7 @@ from wec_live import (  # noqa: E402
     make_oid,
     parse_participant,
     resolve_current_driver,
+    _classify_session,
     _int_or,
     WecLiveClient,
     WecLiveState,
@@ -1105,6 +1106,45 @@ class TestSessionTypeMapping(unittest.TestCase):
         self.assertIn(self._stype("Hyperpole"), calculator.RACE_EXCLUDE_TYPES)
         self.assertIn(self._stype("Practice"), calculator.RACE_EXCLUDE_TYPES)
         self.assertNotIn(self._stype("Race"), calculator.RACE_EXCLUDE_TYPES)
+
+
+class TestClassifySession(unittest.TestCase):
+    """Guards the WEC quali 'SESSION' ordering bug: an unmapped/empty session
+    type must not reach the DB as 'SESSION' when the name says otherwise, or
+    calculator.is_race treats the quali/practice session as a race and drops
+    the pit-parked official leader off the board."""
+
+    def test_direct_type_map(self):
+        self.assertEqual(_classify_session("Race", "Race"), "RACE")
+        self.assertEqual(_classify_session("Qualify", "Qualifying - LMGT3"),
+                         "QUALIFYING")
+        self.assertEqual(_classify_session("Hyperpole", "Hyperpole"), "QUALIFYING")
+        self.assertEqual(_classify_session("Practice", "Free Practice 3"),
+                         "PRACTICE")
+
+    def test_type_map_case_insensitive(self):
+        self.assertEqual(_classify_session("RACE", ""), "RACE")
+        self.assertEqual(_classify_session("qualifying", ""), "QUALIFYING")
+
+    def test_empty_type_falls_back_to_name(self):
+        # the actual bug: type missing, name carries the discipline
+        self.assertEqual(_classify_session("", "Qualifying - LMGT3"), "QUALIFYING")
+        self.assertEqual(_classify_session("", "Free Practice 3"), "PRACTICE")
+        self.assertEqual(_classify_session("", "Hyperpole"), "QUALIFYING")
+        self.assertEqual(_classify_session("", "Race"), "RACE")
+
+    def test_unmapped_type_falls_back_to_name(self):
+        self.assertEqual(_classify_session("QP", "Qualifying - Hypercar"),
+                         "QUALIFYING")
+
+    def test_name_hint_specificity(self):
+        # "free practice" and "hyperpole" win before a bare practice/race check
+        self.assertEqual(_classify_session("", "Hyperpole Shootout"), "QUALIFYING")
+        self.assertEqual(_classify_session("", "Free Practice 1"), "PRACTICE")
+
+    def test_truly_unknown_stays_session(self):
+        self.assertEqual(_classify_session("", ""), "SESSION")
+        self.assertEqual(_classify_session("Xyz", "Track Activity"), "SESSION")
 
 
 if __name__ == "__main__":
