@@ -11,6 +11,52 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-20 — Pre-first-stop net−trk deficit: NO CLEAN LEVER (both series) —
+  investigated, no code change. Closes the follow-up the 07-19 coherent-gap
+  entry flagged.** Targets: WEC pre-first-stop net−trk +0.38 (net MAE 4.61 / trk
+  4.23) and IMSA +0.21 (net 2.85 / trk 2.64), baseline reproduced on main
+  @28d0fb4 via `tools/studies/outlap_error_study.py`. Diagnosis (ad-hoc
+  decomposition on the cached replay set — same method as 07-19):
+  • **Mechanism.** Pre-first-stop `est_stops_left` is 100% uniform within
+    (ts,class) — 1604/1604 IMSA, 1141/1141 WEC multi-car groups — because in a
+    BY_TIME race laps-remaining is class-level, so future-stop cost is identical
+    across the class and cancels in the ordering. Net's ONLY pre-first-stop
+    signal is therefore the time gap (`class_gap_ms`) vs the feed's
+    `pos_in_class`; the whole deficit is time-gap-order vs track-order.
+  • **Not a local bug.** On adjacent same-lap pre-first-stop pairs net wins its
+    inversions 54.5% (IMSA) / 51.4% (WEC) — a coin-flip. The MAE lives in large
+    multi-position swaps (mean |swap| 3.8/5.3) driven by pitted-car placement:
+    net's pit-cycle *anticipation* is premature this early.
+  • **Bias-variance, not systematic.** Track order is optimistic (bias −0.41 /
+    −0.28); net removes that bias (bias +0.01 / −0.02) but pays in variance. Per
+    race the sign FLIPS (IMSA −0.18…+1.09; WEC −0.36…+1.83; net wins several).
+    Harm concentrates on cars that finish where they ran early (stable-car
+    net−trk +1.25 / +2.28); net only helps drifters/DNFs (−0.30 / −0.11) — and
+    which cars hold station is unknowable in advance.
+  • **Not the WEC capture.** On the SP-2026 Griiip capture net−trk is −0.10 (net
+    WINS); the WEC deficit is a zip-replay phenomenon, concentrated in the
+    lowest-caution archives (Qatar +1.83, São Paulo 2024 +1.33).
+  • **Caution regime explains the cross-series gap (hypothesis confirmed).** The
+    deficit anti-correlates with under-yellow pitting: pooled
+    corr(deficit, yellow-pit-fraction) = −0.25 (n=16); IMSA low-yellow-pitting
+    half +0.48 vs high +0.19, WEC +0.56 vs +0.27. IMSA runs many full-course
+    SCs that bunch the field and let all classes pit cheap under yellow, which
+    NEUTRALISES the pit-cost separations net models → net converges to track →
+    small deficit. WEC rarely deploys a bunching SC (FCY/VSC/slow-zones preserve
+    gaps; WEC yellow-stop fraction 0–9% vs IMSA 8–48%), so those separations
+    persist and net reshuffles more → larger deficit. This is race dynamics, not
+    a tunable knob — and since future-stop cost is uniform pre-first-stop, even a
+    perfect "expected caution discount" wouldn't change the ordering.
+  **Ceiling / why no fix.** The max possible OVERALL net-MAE gain from ANY
+  pre-first-stop-only change (perfect counterfactual net:=track) is +0.019 (IMSA)
+  / +0.054 (WEC) — and that perfect version desyncs net_position from net_gap on
+  the board (a car ranked ahead on position but behind on gap), directly harming
+  the at-a-glance North Star; any safe fix captures only a fraction. The shipped
+  `projected_finish` already blends net down to ≈track in this bucket (proj MAE
+  2.62 / 4.12 ≤ trk 2.64 / 4.23), so the finish forecast is unaffected. **Verdict:
+  structural, leave it.** Re-confirm the WEC figures at the next live WEC event
+  (same limited-archive caveat as the 07-19 entry). Diagnostic scripts kept in
+  the session scratchpad (not committed — reproducible from the method above).
 - **2026-07-20 — Both open PyQt6 display bugs CLOSED.** (1) P1/leader row
   dropped from the board in practice/quali — fixed 07-11 (a4d9a60, race-logic
   ordering sank the pit-parked official leader; regression test
