@@ -362,6 +362,53 @@ def test_build_learns_fuel_slope():
     assert scope == "car"
 
 
+# ── _car_max_stint (per-car fuel-range reference for the DUE roster) ───────────
+def _stint_db(entries, pit_rows):
+    """entries: [(car, cls)]; pit_rows: [(car, stop_no, pit_lap, flag)]."""
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """
+        CREATE TABLE pit_events (
+            session_oid TEXT, car_number TEXT, stop_number INTEGER,
+            pit_lap INTEGER, flag TEXT);
+        CREATE TABLE standings_current (
+            session_oid TEXT, car_number TEXT, car_class TEXT);
+        """
+    )
+    conn.executemany("INSERT INTO standings_current VALUES ('o',?,?)", entries)
+    conn.executemany(
+        "INSERT INTO pit_events VALUES ('o',?,?,?,?)",
+        [(c, n, lap, fl) for (c, n, lap, fl) in pit_rows])
+    return conn
+
+
+def test_car_max_stint_takes_longest_green_stint():
+    # stints between consecutive stops: 20, 35, 30 → max 35 (opening + final
+    # stints aren't bounded by two stops, so they don't count — matches
+    # _class_stint_laps semantics).
+    conn = _stint_db([("7", "GTD")],
+                     [("7", 1, 10, "GF"), ("7", 2, 30, "GF"),
+                      ("7", 3, 65, "GF"), ("7", 4, 95, "GF")])
+    assert calculator._car_max_stint(conn, "o") == {"7": 35}
+
+
+def test_car_max_stint_excludes_caution_and_short_stints():
+    # 20 (green, kept) · 45 (long but the stop ENDING it is under caution →
+    # excluded, so a yellow splash can't set the fuel range) · 15 (green but
+    # below the 16-lap floor for GTD → excluded). Only the 20 survives.
+    conn = _stint_db([("8", "GTD")],
+                     [("8", 1, 10, "GF"), ("8", 2, 30, "GF"),
+                      ("8", 3, 75, "YF"), ("8", 4, 90, "GF")])
+    assert calculator._car_max_stint(conn, "o") == {"8": 20}
+
+
+def test_car_max_stint_empty_without_a_completed_stint():
+    # one stop bounds no completed stint → car absent (caller falls back to mean)
+    conn = _stint_db([("9", "GTD")], [("9", 1, 40, "GF")])
+    assert calculator._car_max_stint(conn, "o") == {}
+
+
 def test_series_overrides_merge_only_for_matching_series():
     """as_dict(series) applies SERIES_OVERRIDES on top of base; as_dict() doesn't;
     unknown keys inside an override are ignored (a typo can't inject a global)."""

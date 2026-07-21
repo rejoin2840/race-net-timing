@@ -11,6 +11,60 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-21 — "DUE TO PIT" fires too early (pain point #2): ROOT-CAUSED; FIXED
+  for WEC, NO CLEAN LEVER for IMSA.** DUE is display-only (the stint-path
+  `fuel_due`; `calculator._derive_class`) — net/projected_finish never read it,
+  so every change here is bit-identical on the accuracy suite (verified:
+  `validate_races --all` net/proj/stop/catch tables byte-identical to main
+  @0ee3d08 across all 16 archives, IMSA+WEC+capture).
+  • **Audit** (new `tools/studies/due_timing_study.py` method: monkeypatch
+    `predictor.log_cycle`, which both replay paths call, to capture `fuel_due`
+    per car per cadence cycle into a `due_samples` side table; per real pit stop,
+    measure how many laps before it DUE first lit — the DUE episode leading into
+    the stop, bounded to the inter-stop window so the 07-18 out-lap counter-lag
+    blip is excluded). Baseline is systematically early on 2nd+ stops: mean lead
+    IMSA 3.5–4.6 / WEC 3.9–4.0, median 2–3, and ~50–66% of firings >2 laps early.
+    (First stops can't fire the stint path at all — pre-first-stop `stint_laps` is
+    None — so they're all misses, or WEC-VET-only; the VET path is well-calibrated,
+    mean lead 1.6, and is left untouched.)
+  • **Mechanism.** The stint-path gate lit at `fuel_laps_left<=1`, i.e.
+    `stint_laps >= avg_stint − 1.5`, where `avg_stint` is the class MEAN green
+    stint (`_class_stint_laps`). But the mean is dragged below the tank by
+    strategic/short stops, so realized FUEL stints ran +2.5..+3.6 laps longer than
+    the mean (study "prior bias" panel) — that excess plus the ~1.5 rounding margin
+    IS the earliness. Not the pre-first-stop `fuel_in_hand=0` quirk (that's the
+    stint path, which can't fire pre-first-stop), not the VET path, not the out-lap
+    confound (excluded by construction).
+  • **Fix (WEC only, profile-gated).** DUE now references the demonstrated fuel
+    RANGE, not the mean: `fuel_ref = max(car's own longest clean green stint
+    [capped at class_mean + DUE_REF_CAP_LAPS], class_mean + DUE_REF_SLACK_LAPS)`,
+    fire when `fuel_ref − stint_laps <= DUE_MARGIN_LAPS`. New pure helper
+    `_car_max_stint` (same green/floor/caution filter as `_class_stint_laps`; 3
+    unit tests). Knobs (WEC-scoped): `DUE_MARGIN_LAPS=1`, `DUE_REF_SLACK_LAPS=1`,
+    `DUE_REF_CAP_LAPS=6`. `pit_window_open`/`fuel_laps_left` untouched (they feed
+    net — leaving them fixed is what keeps net bit-identical).
+    **Grading (study rerun, WEC 8 zips + 1 capture):** HYPERCAR mean lead 4.0→1.9,
+    median 3→1, >2-laps-early 66%→14%, lead on genuine fuel stops 4.8→2.0;
+    LMGT3 3.9→1.9 / med 3→1 / 62%→18% / 4.7→2.3. Roster shrinks (flag rate ~65%→
+    ~42%) — the dropped firings are the over-early false alarms + short strategic
+    stops (correctly no longer "due"). Advances the Epic 2 acceptance criterion
+    ("DUE within ~2 laps") for the WEC stint path.
+  • **IMSA — NO CLEAN LEVER (dead-end).** Swept the same reference over IMSA
+    (margin/slack/cap grid): every setting leaves the genuine-fuel-stop lead stuck
+    at ~4.0–4.6 (realized 42–44 laps vs any capped reference ~38–40 → bias still
+    +3.7..+4.6) while halving recall (86%→49–58%). IMSA stint length is
+    strategy-variable (a car runs 34 then 45 laps) and IMSA has no reliable fuel
+    telemetry (the VFT is the documented-unreliable one), so no stint-length
+    reference calibrates the tail without gutting recall. An additive-only variant
+    (no per-car term) barely moved the cry-wolf rate — per-car is what helps, and
+    it only helps where stints are uniform. IMSA `fuel_due` therefore keeps the
+    mean gate, bit-identical. A real IMSA fix needs Epic 2 fuel telemetry, not a
+    stint-length heuristic.
+  **Caveat — provisional (WEC):** graded on 8 real WEC zip archives (stronger than
+  the capture-only coherent-gap fix), but the WEC VET-path first-stop numbers and
+  the single Griiip capture still want a live-event re-confirm at the next WEC
+  round. Study script kept in the session scratchpad (reproducible; not committed —
+  same convention as 07-20).
 - **2026-07-20 — Pre-first-stop net−trk deficit: NO CLEAN LEVER (both series) —
   investigated, no code change. Closes the follow-up the 07-19 coherent-gap
   entry flagged.** Targets: WEC pre-first-stop net−trk +0.38 (net MAE 4.61 / trk
@@ -520,6 +574,13 @@ than hypothesized — **unblocked, ready to build**:
   field-wide false-DUE (worst-cycle clustering is pre-existing stint-estimate
   behaviour, unchanged). Remaining: confirm live at next WEC event. `t` field
   decoded same day — sub-percent timer, not actionable (see above).
+- **Stint-path DUE timing also calibrated (2026-07-21, WEC-only) — see decisions
+  log.** The non-VET (stint-estimate) DUE path, which VET rides alongside, was
+  firing ~4 laps early; now references the demonstrated fuel range (per-car
+  longest clean green stint) instead of the class mean → WEC mean DUE lead
+  4.0→1.9. This addresses the Epic 2 "DUE within ~2 laps" acceptance criterion for
+  WEC without waiting on the energy-cap follow-on. IMSA stint-path DUE stays as-is
+  (no clean lever — needs the fuel telemetry above).
 
 **Validation scope for both:** practice/qualifying sessions exist ONLY to prove we can
 consume + display these new streams — see the 2026-07-04 decisions-log entry
