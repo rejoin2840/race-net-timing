@@ -747,19 +747,14 @@ def _driver_obligation(conn: sqlite3.Connection, oid: str) -> dict[str, bool]:
     return owes
 
 
-def _lap_history_elapsed(conn: sqlite3.Connection, oid: str,
-                         car_laps: dict) -> dict:
-    """Per-car cumulative race time at each car's CURRENT laps-counter count,
-    rebuilt from lap_history — the laps-channel-coherent alternative to the
-    standings elapsed_ms snapshot (see the Griiip coherence note in analyse).
-    Only returns cars whose lap history actually covers their counter value;
-    others fall back to the standings snapshot."""
+def _lap_prefix_sums(conn: sqlite3.Connection, oid: str) -> dict:
+    """Per-car cumulative race time at every completed lap, {car: {lap: cum_ms}},
+    rebuilt from lap_history. Valid only while laps run consecutively from 1 —
+    a hole makes every later cumulative value a drifting lie, so stop there."""
     rows = conn.execute(
         """SELECT car_number, lap_number, lap_time_ms FROM lap_history
              WHERE session_oid=? AND lap_time_ms IS NOT NULL
              ORDER BY car_number, lap_number""", (oid,)).fetchall()
-    # per-car prefix sums, valid only while laps run consecutively from 1 —
-    # a hole makes every later cumulative value a drifting lie, so stop there
     prefix: dict[str, dict] = {}
     broken: set = set()
     last: dict[str, int] = {}
@@ -772,11 +767,56 @@ def _lap_history_elapsed(conn: sqlite3.Connection, oid: str,
         p = prefix.setdefault(car, {})
         p[lap] = p.get(lap - 1, 0) + ms
         last[car] = lap
+    return prefix
+
+
+def _lap_history_elapsed(conn: sqlite3.Connection, oid: str,
+                         car_laps: dict) -> dict:
+    """Per-car cumulative race time at each car's CURRENT laps-counter count,
+    rebuilt from lap_history — the laps-channel-coherent alternative to the
+    standings elapsed_ms snapshot (see the Griiip coherence note in analyse).
+    Only returns cars whose lap history actually covers their counter value;
+    others fall back to the standings snapshot."""
+    prefix = _lap_prefix_sums(conn, oid)
     out = {}
     for car, want in car_laps.items():
         if want and car in prefix and want in prefix[car]:
             out[car] = prefix[car][want]
     return out
+
+
+def _coherent_class_gaps(group_sorted: list, leader, leader_flb: int,
+                         lap_prefix: Optional[dict]) -> dict:
+    """Phase-coherent SAME-lap-index gaps to the class leader (Griiip only).
+
+    Own-count cumulative times are coherent per car but NOT per pair: while A
+    has crossed the S/F line this lap and B hasn't, their elapsed difference
+    compares different lap indices and is off by a whole lap time — net's
+    ordering bets on those pairs won only 18% vs final (07-19 diagnosis). Here
+    every car is measured against a REFERENCE car's historical time at that
+    car's own completed lap: same distance, same phase, coherent by
+    construction (the classic timing-screen gap). Reference = the lead-lap car
+    with the most completed laps, so its prefix table covers every other car's
+    lap index. Gaps are re-based to the leader so the leader reads 0. Cars whose
+    prefix data doesn't reach their lap index are omitted — the caller keeps the
+    own-count fallback for them (status quo, never worse).
+    """
+    if not lap_prefix:
+        return {}
+    ref = max((c for c in group_sorted if (c.feed_laps_behind or 0) == leader_flb),
+              key=lambda c: c.laps or 0, default=None)
+    rp = lap_prefix.get(ref.car_number) if ref else None
+    if not rp:
+        return {}
+    raw = {}
+    for ca in group_sorted:
+        cp = lap_prefix.get(ca.car_number)
+        if ca.laps and cp and ca.laps in cp and ca.laps in rp:
+            raw[ca.car_number] = cp[ca.laps] - rp[ca.laps]
+    base = raw.get(leader.car_number)
+    if base is None:
+        return {}
+    return {car: v - base for car, v in raw.items()}
 
 
 def _stop_charge_visible(conn: sqlite3.Connection, oid: str, car: str,
@@ -919,13 +959,21 @@ def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAn
         # cumulative lap times AT ITS OWN laps-counter count: both come from
         # the laps channel, so the pair is coherent by construction. Cars
         # with incomplete lap history keep the standings value.
-        cum_gap = _lap_history_elapsed(conn, oid,
-                                       {r["car_number"]: r["laps"] for r in rows})
-        for car, v in cum_gap.items():
-            feed_gap[car] = v
+        # own-count rebuild still feeds leader selection + the fallback path;
+        # the phase-coherent SAME-lap-index gaps are computed per class in
+        # _derive_class from the full prefix table (see note there).
+        lap_prefix = _lap_prefix_sums(conn, oid)
+        for r in rows:
+            car, want = r["car_number"], r["laps"]
+            p = lap_prefix.get(car)
+            if want and p and want in p:
+                feed_gap[car] = p[want]
+    else:
+        lap_prefix = None
 
     for cls, group in by_class.items():
-        _derive_class(ctx, cls, group, feed_gap, observed_stints.get(cls))
+        _derive_class(ctx, cls, group, feed_gap, observed_stints.get(cls),
+                      lap_prefix)
 
     cars.sort(key=lambda c: (c.track_position if c.track_position else 9999))
     return ctx, cars
@@ -967,7 +1015,8 @@ def _assign_effective_positions(group: list[CarAnalysis]) -> None:
 
 
 def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
-                  feed_gap: dict, observed_stint: Optional[float]) -> None:
+                  feed_gap: dict, observed_stint: Optional[float],
+                  lap_prefix: Optional[dict] = None) -> None:
     # Authoritative laps-behind path (WEC/Griiip): the feed states each car's
     # laps behind the overall leader outright, so lap deficits come from the
     # feed and the time-based un-lapping heuristic below is skipped — it
@@ -991,10 +1040,17 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
     # representative class lap, for a TIME-based "is it really lapped?" test
     lap_ref_ms = _median_pace(group) or leader.best_lap_ms or 0
 
+    # Phase-coherent SAME-lap-index gaps (Griiip only, computed in the helper).
+    coherent_gap = (_coherent_class_gaps(group_sorted, leader, leader_flb, lap_prefix)
+                    if trust_flb else {})
+
     # class gap (same-lap) + laps down
     for ca in group_sorted:
-        g = feed_gap.get(ca.car_number)
-        ca.class_gap_ms = (g - leader_gap) if (g is not None) else None
+        if ca.car_number in coherent_gap:
+            ca.class_gap_ms = coherent_gap[ca.car_number]
+        else:
+            g = feed_gap.get(ca.car_number)
+            ca.class_gap_ms = (g - leader_gap) if (g is not None) else None
         if trust_flb:
             raw_down = max(0, (ca.feed_laps_behind or 0) - leader_flb)
         else:
