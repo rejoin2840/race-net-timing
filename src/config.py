@@ -44,6 +44,18 @@ DEFAULTS = {
         "HYPERCAR": 33, "LMGT3": 30},
     "PIT_WINDOW_LAPS":        5,        # fuel-laps-left at/under which the pit window is "open"
     "VET_DUE_PCT":            5.0,      # WEC energy-tank % at/under which fuel_due lights (≈1.5 laps at a 33-lap stint; VET is WEC-only, IMSA ignores this)
+    # ── WEC "DUE TO PIT" roster timing (fuel_due stint path; DISPLAY-ONLY —
+    #    net/projected_finish never read fuel_due). WEC-ONLY: the stint-path DUE
+    #    used to gate on the class MEAN stint, dragged below the tank by
+    #    strategic/short stops, so the roster lit ~4 laps early even on genuine
+    #    fuel stops (07-21 study: realized WEC fuel stints ran +2.6..+2.7 laps
+    #    longer than the mean). DUE now references the demonstrated fuel RANGE
+    #    (per-car longest clean green stint). IMSA keeps the mean gate — its
+    #    stint length is strategy-variable with no reliable fuel telemetry, so no
+    #    reference calibrates its tail (07-21 dead-end). See calculator._derive_class. ──
+    "DUE_MARGIN_LAPS":        1,        # fire DUE when (fuel_ref − stint_laps) <= this
+    "DUE_REF_SLACK_LAPS":     1,        # additive lift on the class-mean fallback (cars w/o a completed clean stint yet)
+    "DUE_REF_CAP_LAPS":       6,        # cap the per-car range at class_mean + this (one freak long stint can't mute DUE)
     "FINISH_BLEND_MAX_W":     0.3,      # projected-finish blend: cap on net's weight
     "FINISH_BLEND_W_PER_STOP": 0.08,    # …net weight gained per estimated remaining stop
                                         # (halved 07-13: on honest post-official-rank data

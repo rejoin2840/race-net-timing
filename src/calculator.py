@@ -704,6 +704,36 @@ def _class_stint_laps(conn: sqlite3.Connection, oid: str) -> dict[str, float]:
             for cls, v in stints.items() if len(v) >= MIN_SAMPLE}
 
 
+def _car_max_stint(conn: sqlite3.Connection, oid: str) -> dict[str, int]:
+    """Each car's longest COMPLETED clean green stint so far (laps between stops).
+
+    The fuel-DUE reference wants each car's demonstrated fuel RANGE, not the
+    class mean pit cadence. Same green-flag + plausible-length filter as
+    _class_stint_laps (caution splashes / implausibly short stints excluded) so a
+    strategy or yellow stop can't understate the tank. Empty for a car with no
+    clean completed stint yet — the caller falls back to the class mean.
+    """
+    rows = conn.execute(
+        """SELECT s.car_class AS cls, p.car_number AS car, p.pit_lap AS lap, p.flag AS flag
+             FROM pit_events p
+             JOIN standings_current s
+               ON s.session_oid=p.session_oid AND s.car_number=p.car_number
+            WHERE p.session_oid=? AND p.pit_lap IS NOT NULL
+            ORDER BY p.car_number, p.stop_number""", (oid,)).fetchall()
+    out: dict[str, int] = {}
+    last_lap: dict[str, int] = {}
+    for r in rows:
+        car, lap, cls = r["car"], r["lap"], (r["cls"] or "?")
+        if car in last_lap and lap > last_lap[car]:
+            length = lap - last_lap[car]
+            floor = 0.5 * DEFAULT_STINT_LAPS.get(cls, DEFAULT_STINT_FALLBACK)
+            if (r["flag"] or "") not in CAUTION_FLAGS and length >= floor:
+                if length > out.get(car, 0):
+                    out[car] = length
+        last_lap[car] = lap
+    return out
+
+
 def _driver_obligation(conn: sqlite3.Connection, oid: str) -> dict[str, bool]:
     """
     Per car, does it still owe a mandatory driver change? Heuristic: every listed
@@ -844,6 +874,7 @@ def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAn
     ctx = _load_context(conn, oid)
     ctx.profile = series_profiles.get_profile(series)
     observed_stints = _class_stint_laps(conn, oid)
+    car_max_stints = _car_max_stint(conn, oid)   # per-car fuel range for DUE roster
     owes_dc = _driver_obligation(conn, oid)
     best_sectors = _best_sectors(conn, oid)
     penalties = _load_penalties(conn, oid)
@@ -973,7 +1004,7 @@ def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAn
 
     for cls, group in by_class.items():
         _derive_class(ctx, cls, group, feed_gap, observed_stints.get(cls),
-                      lap_prefix)
+                      lap_prefix, car_max_stints)
 
     cars.sort(key=lambda c: (c.track_position if c.track_position else 9999))
     return ctx, cars
@@ -1016,7 +1047,8 @@ def _assign_effective_positions(group: list[CarAnalysis]) -> None:
 
 def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
                   feed_gap: dict, observed_stint: Optional[float],
-                  lap_prefix: Optional[dict] = None) -> None:
+                  lap_prefix: Optional[dict] = None,
+                  car_max_stint: Optional[dict] = None) -> None:
     # Authoritative laps-behind path (WEC/Griiip): the feed states each car's
     # laps behind the overall leader outright, so lap deficits come from the
     # feed and the time-based un-lapping heuristic below is skipped — it
@@ -1106,7 +1138,26 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
                                   ca.fuel_laps_left <= PIT_WINDOW_LAPS)
             # pit-due from the trustworthy stint estimate (NOT VFT): basically out of
             # fuel. Drives the rail's "DUE TO PIT" roster, never an on-row highlight.
-            if ca.pit_window_open and ca.fuel_laps_left <= 1:
+            # fuel_due is display-only — net/projected_finish never read it, so any
+            # change here leaves the accuracy suite bit-identical.
+            if ctx.profile.key == "wec":
+                # WEC: reference the demonstrated fuel RANGE, not the class mean.
+                # avg_stint is dragged below the tank by strategic/short stops, so
+                # gating DUE on it lit the roster ~4 laps early even on genuine fuel
+                # stops (07-21 study). WEC stints are energy-regulated and near
+                # uniform, so the car's own longest clean green stint (capped, else
+                # class mean + slack) calibrates cleanly: mean DUE lead 4.0→1.9,
+                # >2-laps-early 66%→14%. IMSA stint length is strategy-variable with
+                # no reliable fuel telemetry — no reference calibrates its tail
+                # without gutting recall (07-21 dead-end) — so IMSA keeps the mean
+                # gate below, bit-identical to before.
+                fuel_ref = avg_stint + DUE_REF_SLACK_LAPS
+                cm = car_max_stint.get(ca.car_number) if car_max_stint else None
+                if cm is not None:
+                    fuel_ref = max(fuel_ref, min(cm, avg_stint + DUE_REF_CAP_LAPS))
+                if ca.pit_window_open and (fuel_ref - ca.stint_laps) <= DUE_MARGIN_LAPS:
+                    ca.fuel_due = "due"
+            elif ca.pit_window_open and ca.fuel_laps_left <= 1:
                 ca.fuel_due = "due"
 
         # WEC VET override: the real tank % (cars-energy-tanks) beats the stint
