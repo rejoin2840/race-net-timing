@@ -11,6 +11,17 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-07-20 — Both open PyQt6 display bugs CLOSED.** (1) P1/leader row
+  dropped from the board in practice/quali — fixed 07-11 (a4d9a60, race-logic
+  ordering sank the pit-parked official leader; regression test
+  `tests/test_p1_row_visible.py`); the BACKLOG had gone stale still listing it
+  open. (2) WEC quali `SESSION` ordering (PR #42): the same drop reached via
+  the WEC adapter — `type_map.get(sessionType, "SESSION")` fell to "SESSION"
+  when the feed sent an empty/unmapped `sessionType`, and `calculator.is_race`
+  treats "SESSION" as a race. Fix: `wec_live._classify_session` now falls back
+  to the descriptive `sessionName` ("Qualifying - LMGT3", "Hyperpole", "Free
+  Practice 3") before "SESSION"; verified against all three SP-2026 captures +
+  the empty-type path. No open PyQt6 display bugs remain.
 - **2026-07-19 — WEC net deficit ROOT-CAUSED and largely FIXED: it was the gap
   DATA, not the stop/energy model (src/calculator.py `_coherent_class_gaps`).**
   Follow-up to the 07-18 study, which read WEC's broad net−trk deficit as core
@@ -327,8 +338,11 @@ Raw capture = must-have; live board = nice-to-have for race day.
   from the real FP1 capture — run it through `--replay` + the harness; work the
   `FABLE_REVIEW.md` §2 verify-at-FP1 checklist (class names, VET shape, pit
   timing, stint-prior sanity); regenerate the test fixture from the real capture.
-- ⬜ **Open bug (found at FP1, display-only):** dashboard timing table drops the
-  P1 row. Does NOT affect capture/eval; fix before the race if time allows.
+- ✅ **FIXED 07-11 (a4d9a60):** dashboard dropped the P1/leader row in
+  practice/quali (race-logic ordering sank the pit-parked official leader off
+  the calm board). Regression test: `tests/test_p1_row_visible.py`. The
+  WEC-adapter sibling (unmapped `sessionType`→"SESSION"→race ordering) fixed
+  07-20 (PR #42). See the 07-20 decisions-log entry.
 
 **Race-week fill queue (07-04→07-12, between Epic 8 checklist items — all
 freeze-compatible, reviewed 2026-07-04):**
@@ -610,10 +624,11 @@ consume + display these new streams — see the 2026-07-04 decisions-log entry
 
 ### Epic 9 — Product definition + UI direction spike *(✅ CLOSED — spike 07-14, execution shipped+merged 07-15; see decisions log. Web UI v1 lives in `ui/`, run recipe in `ui/README.md`)*
 
-**Open display bugs (PyQt6 side, still open):**
-dashboard timing table drops the P1 row (found at FP1); WEC quali
-`session_type="SESSION"` ordering; screen-lock freeze fix shipped (PR #9) but watch
-next event's log for "table rebuild:" lines.
+**Open display bugs (PyQt6 side):**
+P1-row drop and WEC quali `SESSION` ordering both FIXED (07-11 a4d9a60 / 07-20
+PR #42 — see 07-20 decisions-log entry). Screen-lock freeze fix shipped (PR #9)
+but watch next event's log for "table rebuild:" lines. No open PyQt6 display
+bugs at present.
 
 **Web UI v1 known-nexts:** promoted into **Epic 10** (scoped 07-15) along with the
 full mockup-vs-shipped gap list — see that section.
