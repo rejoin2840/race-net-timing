@@ -164,6 +164,7 @@ class RaceContext:
     # series profile — routes class/strategy behaviour. Defaults to IMSA so any
     # legacy single-series call path is unchanged; analyse() sets the real one.
     profile: "series_profiles.SeriesProfile" = series_profiles.IMSA
+    final_laps: Optional[int] = None
 
 
 @dataclass
@@ -263,7 +264,7 @@ def _is_caution(flag: Optional[str]) -> bool:
 
 
 # ── loaders ─────────────────────────────────────────────────────────────────
-def _load_context(conn: sqlite3.Connection, oid: str) -> RaceContext:
+def _load_context(conn: sqlite3.Connection, oid: str, now_s: Optional[float] = None) -> RaceContext:
     sess = conn.execute(
         "SELECT event_name, session_name, session_type FROM sessions WHERE session_oid=?",
         (oid,)).fetchone()
@@ -277,10 +278,18 @@ def _load_context(conn: sqlite3.Connection, oid: str) -> RaceContext:
     current_lap = (st["current_lap"] if st and st["current_lap"] else 0)
     final_type = (st["final_type"] if st else "") or ""
 
+    if now_s is None:
+        try:
+            clock = conn.execute("SELECT now_s FROM session_clock WHERE session_oid=?", (oid,)).fetchone()
+            if clock:
+                now_s = clock[0]
+        except sqlite3.Error:
+            pass
+
     # clock: elapsed/remaining for a BY_TIME race
     elapsed_s = remaining_s = 0.0
     if st and st["start_time_s"]:
-        elapsed_s = max(0.0, time.time() - st["start_time_s"] - (st["stopped_s"] or 0))
+        elapsed_s = max(0.0, (time.time() if now_s is None else now_s) - st["start_time_s"] - (st["stopped_s"] or 0))
         if final_type == "BY_TIME" and st["final_time_s"]:
             total = st["final_time_s"] + (st["extra_time_s"] or 0 if st["has_extra_time"] else 0)
             elapsed_s = min(elapsed_s, total)
@@ -330,6 +339,7 @@ def _load_context(conn: sqlite3.Connection, oid: str) -> RaceContext:
         caution_count=len(cautions),
         last_caution_lap=(cautions[-1][0] if cautions else None),
         cautions=cautions,
+        final_laps=final_laps,
     )
 
 
@@ -867,11 +877,11 @@ def _stop_charge_visible(conn: sqlite3.Connection, oid: str, car: str,
 
 
 # ── core assembly ───────────────────────────────────────────────────────────
-def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAnalysis]]:
+def analyse(conn: sqlite3.Connection, oid: str, now_s: Optional[float] = None) -> tuple[RaceContext, list[CarAnalysis]]:
     config.CONFIG.reload_if_changed()   # pick up live config.json edits (~2s latency)
     series = session_series(conn, oid)
     _apply_config(series)               # base knobs + this series' SERIES_OVERRIDES
-    ctx = _load_context(conn, oid)
+    ctx = _load_context(conn, oid, now_s=now_s)
     ctx.profile = series_profiles.get_profile(series)
     observed_stints = _class_stint_laps(conn, oid)
     car_max_stints = _car_max_stint(conn, oid)   # per-car fuel range for DUE roster
@@ -923,7 +933,8 @@ def analyse(conn: sqlite3.Connection, oid: str) -> tuple[RaceContext, list[CarAn
         ca.best_s1_ms, ca.best_s2_ms, ca.best_s3_ms = bs
         ca.deg_ms_per_lap = _tire_deg(conn, oid, r["car_number"],
                                       r["best_lap_ms"], r["last_pit_lap"])
-        pen = penalties.get(r["car_number"])
+        pen = penalties.get(r["car_number"]) or next(
+            (v for k, v in penalties.items() if (k.lstrip("0") or "0") == (str(r["car_number"]).lstrip("0") or "0")), None)
         if pen:
             ca.penalty_s, ca.penalty_post_s, ca.penalty_note, ca.dq = pen
         cars.append(ca)
@@ -1343,7 +1354,7 @@ def _stops_left(ctx: RaceContext, ca: CarAnalysis,
     if ctx.final_type == "BY_TIME":
         laps_remaining = ctx.remaining_s * 1000 / avg_lap_ms
     else:
-        laps_remaining = max(0, ctx.leader_laps - (ca.laps or 0))
+        laps_remaining = max(0, (ctx.final_laps or ctx.leader_laps) - ctx.leader_laps)
     fuel_in_hand = avg_stint_laps - (ca.stint_laps if ca.stint_laps is not None else avg_stint_laps)
     needed = laps_remaining - max(0.0, fuel_in_hand)
     if needed <= 0:

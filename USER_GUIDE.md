@@ -1,5 +1,7 @@
 # User Guide — Overcut Race Strategy Dashboard
 
+> Living reference — current status: [BACKLOG.md](BACKLOG.md).
+
 A field guide for race fans. You don't need to read the code — just this.
 
 ---
@@ -26,7 +28,7 @@ Run `./setup.sh` from the project folder. It creates the Python environment and 
 ```bash
 ./venv/bin/python src/dashboard_calm.py
 ```
-Or double-click **Overcut.app** in the project folder (Mac only; only works at the original path).
+Or double-click **Overcut.app** in the project folder (Mac only; keep the bundle inside the project folder).
 
 ### The web board (preview)
 There's also a browser-style version of the board, denser than the PyQt6 one —
@@ -41,8 +43,8 @@ stops cost, any penalty it's carrying, a leader-remaining comparison, and
 its full pit-stop history. Click anywhere else to close it.
 
 It needs a one-time extra setup step — see [ui/README.md](ui/README.md) for the
-recipe. For race day, stick with the PyQt6 dashboard above: it has survived full
-live races; the web board hasn't yet.
+recipe. The active race-day display and live acceptance criteria are tracked in
+[BACKLOG.md](BACKLOG.md).
 
 ---
 
@@ -54,7 +56,7 @@ When the dashboard opens, click the **Session** button in the top-left header to
 
 **IMSA Replay** — loads a Timing71 `.zip` archive and streams it at 60× speed so you can watch a past race as if it were live. Use this to explore the dashboard between race weekends.
 
-**WEC Live** — connects to the Griiip/FIA WEC feed. Proven in the São Paulo 6-hour race (2026-07-12); net-ordering bugs found in that race were fixed 2026-07-13.
+**WEC Live** — connects to the Griiip/FIA WEC feed. Capture milestones and outstanding live validation are tracked in [BACKLOG.md](BACKLOG.md).
 
 **Sample archives** (included in `sample-archives/`): Long Beach 2026 and Detroit 2026 are bundled so you can try the replay without downloading anything. The session picker's "replay" path will find them automatically when pointed at that folder.
 
@@ -157,7 +159,7 @@ Press **?** (or click the **?** button in the header) to open an on-screen key e
 
 **What to trust:**
 - NET position is most reliable **early to mid-race** when there are stops left to cycle. Late in the race it converges to track order by design.
-- DUE TO PIT windows are approximate (±5 laps for IMSA; stop duration model learns from actual observed stops).
+- DUE TO PIT windows are estimates. Trust and live-verification limits are recorded in [BACKLOG.md](BACKLOG.md).
 - **Catch** calls are deliberately conservative — the app requires a consistent closing trend over multiple laps before saying anything. If you don't see a catch call, it's probably not happening.
 
 **What to treat as a rough guide:**
@@ -178,3 +180,10 @@ The README has full numbers. The app is honest about uncertainty — it would ra
 git pull
 ./venv/bin/python src/dashboard_calm.py
 ```
+
+## Data health
+
+A stale-data banner means the timing source has stopped updating. Strategy calls
+are suppressed until fresh timing returns. Computation and receipt timestamps do
+not make old timing current. A CONFIG ERROR banner means an invalid config edit
+was rejected; the last valid settings continue to run.

@@ -19,6 +19,11 @@ import contextlib
 import os
 import sys
 import tempfile
+import json
+import hashlib
+import math
+import subprocess
+from pathlib import Path
 
 import config
 import evaluator
@@ -86,6 +91,8 @@ def _short(name: str) -> str:
 def _build_from_zip(zip_path: str, db: str):
     """Timing71 archive → replay.build. Returns (oid, race_hours)."""
     r = timing71.load(zip_path)
+    if not r.complete:
+        raise ValueError("archive has no terminal chequered flag")
     with open(os.devnull, "w") as null, contextlib.redirect_stdout(null):
         replay.build(r, db, oid="replay", cadence_s=60)
     return "replay", (r.full_frames[-1][0] - r.full_frames[0][0]) / 3600
@@ -101,6 +108,8 @@ def _build_from_capture(path: str, db: str):
         res = wec_live.replay_predict(client, path, cadence_s=60)
     finally:
         client.db.close()
+    if res["dispatch_errors"] or not res["complete"]:
+        raise ValueError(f"capture incomplete or dispatch errors: {res}")
     first = last = None
     for _, _, ts in wec_live.iter_capture(path):
         if ts is not None:
@@ -126,7 +135,70 @@ def run_one(path: str, keep: bool):
     conn.close()
     if not keep:
         os.remove(db)
-    return {"label": _short(path), "hrs": hrs, "stop": stop, "net": net, "catch": catch}
+    if not net or net.get("proj_mae") is None or not stop:
+        raise ValueError("required finish/stop metrics are absent")
+    row = {"input": os.path.basename(path), "sha256": file_hash(path),
+           "label": _short(path), "hrs": hrs, "complete": True,
+           "stop": stop, "net": net, "catch": catch}
+    validate_numbers(row)
+    return row
+
+
+BASELINE = os.path.join(_REPO_ROOT, "data", "validation_baseline.json")
+TOLERANCES = {"net.proj_mae": 0.10, "net.net_mae": 0.10,
+              "stop.mae_ms": 1000.0, "catch.hit_rate": 0.05}
+
+
+def file_hash(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def validate_numbers(value):
+    if isinstance(value, dict):
+        for v in value.values():
+            validate_numbers(v)
+    elif isinstance(value, list):
+        for v in value:
+            validate_numbers(v)
+    elif isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("non-finite evaluation metric")
+
+
+def compare_baseline(rows, baseline):
+    errors = []
+    reference = {r["input"]: r for r in baseline["races"]}
+    for row in rows:
+        old = reference.get(row["input"])
+        if old is None or old["sha256"] != row["sha256"]:
+            errors.append(f"{row['input']}: missing baseline or input identity changed")
+            continue
+        for key, tolerance in baseline["tolerances"].items():
+            group, metric = key.split(".")
+            before = (old.get(group) or {}).get(metric)
+            after = (row.get(group) or {}).get(metric)
+            if before is None:
+                continue
+            if after is None or (before - after if metric == "hit_rate" else after - before) > tolerance:
+                errors.append(f"{row['input']}: {key} {before} -> {after}, tolerance {tolerance}")
+        if old.get("catch") and (row.get("catch") or {}).get("n", 0) < old["catch"]["n"] * 0.5:
+            errors.append(f"{row['input']}: catch sample coverage fell below half the baseline")
+    return errors
+
+
+def provenance():
+    cfg = config.CONFIG.as_dict()
+    digest = hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()
+    sources = {p.name: file_hash(p) for p in Path(__file__).parent.glob("*.py")}
+    try:
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=_REPO_ROOT, text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        commit = None
+    return {"config": cfg, "config_sha256": digest, "commit": commit,
+            "source_sha256": sources}
 
 
 def main():
@@ -135,7 +207,15 @@ def main():
     ap.add_argument("--keep-dbs", action="store_true", help="leave temp DBs in place")
     ap.add_argument("--wec", action="store_true", help="run WEC regression set instead of IMSA")
     ap.add_argument("--all", action="store_true", help="run both IMSA and WEC sets")
+    ap.add_argument("--json", dest="json_path", help="write reproducible results JSON")
+    ap.add_argument("--baseline", default=BASELINE, help="approved baseline JSON")
+    ap.add_argument("--write-baseline", metavar="NEW_FILE", help="explicitly establish a new baseline (must not exist)")
     args = ap.parse_args()
+    if args.write_baseline and os.path.exists(args.write_baseline):
+        ap.error("baseline exists; choose a new file and review it before replacing the approved baseline")
+    if config.CONFIG.error:
+        ap.error(f"invalid configuration: {config.CONFIG.error}")
+    identity = provenance()
     if args.zips:
         zips = args.zips
     elif args.all:
@@ -146,15 +226,18 @@ def main():
         zips = RACES
 
     rows = []
+    errors = []
     for z in zips:
         if not os.path.exists(z):
             print(f"  ⚠ missing, skipped: {os.path.basename(z)}", file=sys.stderr)
+            errors.append(f"missing required input: {os.path.basename(z)}")
             continue
         print(f"  running {_short(z)} …", file=sys.stderr)
         try:
             rows.append(run_one(z, args.keep_dbs))
         except Exception as e:
             print(f"  ⚠ failed {_short(z)}: {e}", file=sys.stderr)
+            errors.append(f"{os.path.basename(z)}: {e}")
 
     cfg = __import__("config").CONFIG.as_dict()
     print(f"\n  config: STOP_OUTLIER_MAD={cfg.get('STOP_OUTLIER_MAD')}  "
@@ -184,7 +267,29 @@ def main():
         print(f"  {r['label']:26} {r['hrs']:4.1f} | {sm} {sb} | "
               f"{pm} {tm} {ed}{win} {nm} | {cr} {cl}")
     print()
+    config.CONFIG.reload_if_changed()
+    if provenance()["config_sha256"] != identity["config_sha256"]:
+        errors.append("configuration changed during evaluation")
+    if not args.write_baseline:
+        try:
+            baseline = json.loads(Path(args.baseline).read_text())
+            if baseline["provenance"]["config_sha256"] != identity["config_sha256"]:
+                errors.append("configuration differs from baseline; evaluate and explicitly review a new baseline")
+            errors.extend(compare_baseline(rows, baseline))
+        except (OSError, KeyError, ValueError) as exc:
+            errors.append(f"cannot load baseline: {exc}")
+    result = {"format": 1, "method": "causal replay; terminal classification", "provenance": identity,
+              "tolerances": TOLERANCES, "races": rows, "errors": errors}
+    if args.json_path:
+        Path(args.json_path).write_text(json.dumps(result, indent=2, allow_nan=False) + "\n")
+    if args.write_baseline and not errors:
+        with open(args.write_baseline, "x") as f:
+            json.dump(result, f, indent=2, allow_nan=False)
+            f.write("\n")
+    for error in errors:
+        print(f"FAIL: {error}", file=sys.stderr)
+    return 1 if errors or not rows else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

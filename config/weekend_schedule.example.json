@@ -1,0 +1,6 @@
+{
+  "timezone": "America/Indianapolis",
+  "sessions": [
+    {"series": "wec", "label": "Race", "kind": "race", "start": "2026-07-12T10:30:00-04:00", "duration_minutes": 480}
+  ]
+}

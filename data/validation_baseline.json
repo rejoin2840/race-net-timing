@@ -1,0 +1,995 @@
+{
+  "format": 1,
+  "method": "causal replay; terminal classification",
+  "provenance": {
+    "config": {
+      "PACE_WINDOW": 5,
+      "PACE_OUTLIER_FACTOR": 1.07,
+      "CAUTION_PENALTY_FACTOR": 0.35,
+      "DEFAULT_GREEN_PIT_MS": 35000,
+      "DEFAULT_STOP_STD_MS": 6000,
+      "DRIVER_CHANGE_DELTA_MS": 12000,
+      "UNDERCUT_WINDOW_MS": 25000,
+      "CATCH_MAX_LAPS": 200,
+      "CATCH_CLOSING_EFFICIENCY": 0.75,
+      "CATCH_GAP_S": 2.0,
+      "CATCH_TREND_LAPS": 5,
+      "BATTLE_GAP_S": 2.0,
+      "BATTLE_TREND_LAPS": 3,
+      "BATTLE_MIN_DROP_MS": 80,
+      "BATTLE_NOISE_TOL_MS": 120,
+      "MIN_FIT_POINTS": 3,
+      "STOP_OUTLIER_MAD": 6.0,
+      "DC_NEAR_LAPS": 2,
+      "DEFAULT_STINT_FALLBACK": 30,
+      "DEFAULT_STINT_LAPS": {
+        "GTP": 28,
+        "LMP2": 30,
+        "GTD": 32,
+        "GTDPRO": 32,
+        "HYPERCAR": 33,
+        "LMGT3": 30
+      },
+      "PIT_WINDOW_LAPS": 5,
+      "VET_DUE_PCT": 5.0,
+      "DUE_MARGIN_LAPS": 1,
+      "DUE_REF_SLACK_LAPS": 1,
+      "DUE_REF_CAP_LAPS": 6,
+      "FINISH_BLEND_MAX_W": 0.3,
+      "FINISH_BLEND_W_PER_STOP": 0.08,
+      "STOPS_LEFT_SLACK": 0.5,
+      "PENDING_STOP_WINDOW_LAPS": 2,
+      "PENDING_STOP_CHARGE_FRACTION": 0.5,
+      "BUDGET_PER_CLASS": 3,
+      "TRACK_LAT": -23.7036,
+      "TRACK_LON": -46.6997,
+      "DEV_SHOW_ALL_SESSIONS": false,
+      "ARCHIVE_DIR": "IMSA Archives",
+      "SERIES_OVERRIDES": {
+        "wec": {
+          "CATCH_TREND_LAPS": 5,
+          "PACE_WINDOW": 8
+        }
+      }
+    },
+    "config_sha256": "6747e8f22f0d1bfde94354655e6e25e8905c661ea2e675af6541b2e2b3218ed4",
+    "commit": "c5c4126a2c6a9b98f6807d104d505009e521e13f",
+    "source_sha256": {
+      "predictor.py": "6fd1ecbbee5ecc16a9e8f1443a14cba03c91953a1d639eabc6afbd267f9ff2f2",
+      "validate_races.py": "fcf6181ed4c26cfe88ee3b16d4db1cc3f9ecee0ff5fd2dd3c5a6c4a0c93a15c1",
+      "penalties.py": "7ee9f3c6dc117c37bb377f8eae638a7f216a192cda57899d36b3ae8a977c24bc",
+      "dashboard_calm.py": "3839a2caf73fe70c90110f51b8c39e803604ba4c2216ea3c9d933833837f33df",
+      "db.py": "f674fd8cf31a103725d7a91b1b9e4a4fedf729bc8661733fa63a0e7a9c7665e5",
+      "timing_table.py": "17cb8dc125ea20175bdb158a1124500a5f4adff5aa32eaa2076958c3f974068b",
+      "scraper.py": "5c23f32de29d998491f690a9d46f404fe30bea9ed8ca43d27a7720ca0d2248e5",
+      "catchup.py": "99dc1083d38d6b32748cf91ccd3cec745b25f1bdc78b1bb96e5531a1afd9d16f",
+      "session_healthcheck.py": "d12cdd2b9b6c1a0347ff6cf99d77c33cef47b56c311032de05863e1afed0b5d1",
+      "timeline.py": "9c0582cf7de35917e3035b62962d3b58c0ff54ea5c97f7fd0eadda022fee777d",
+      "config.py": "7e6e1d42dc1720e0241fd3ac0fb6132e701af1007e1dad3be00604cdf446e4b4",
+      "session_picker.py": "d647a052ced31985c9aa969cc8b93c368501f6a21378bf5b4a75898b8da97dce",
+      "weekend_conductor.py": "bbc21bb992ca88bc2cedcb32655c594d7a2cfd3e7926102418a4ab6c8b4d6b92",
+      "alkameldp.py": "bb69c2b1f492380d3f52ebe170435bfaa27d709ab19ca66f24effe464384e402",
+      "intercept_ws.py": "4c415ba0862e15fac51f28df6007da403933f952c09301522e7766513d208d3d",
+      "headless_predictor.py": "ef2c4892dd3d13ed0a214628370d0c4de967445286b55e91f141fc81ba136ed3",
+      "inspect_page.py": "ba3f522e28811b27a8bed67a979a3ec577e91a2974613e449c45be17926bde9d",
+      "weather.py": "c9d2f3f790e81e426803989e95b82b2ac5b4a908176c9950f2f2e50ccc637022",
+      "race_control.py": "ccde14ebeb872b595d478a731a088db518c3f270c3308e86b9a67fe1fe7b5cfb",
+      "runtime.py": "a0b4993a7c1aaf50859012ec5d8796b873ced7b4a997c3b8ac7e5187a9207773",
+      "telemetry_capture.py": "b79c6d8147e0e495c4ad55a85c47bc7a7fb6a19cd06b299e44ebe22058550640",
+      "macos_appnap.py": "c019c83ef9cd20a24177c9d12feeae9d3f2e504960cb5dd10ed464aecc906e5a",
+      "dashboard.py": "49fb6f526d27dedefde63bcaffbb888d2d4b7b1f71620a038a40d7e600c35677",
+      "replay.py": "1b2222647e17b0acfa3f3c128af2e89cce809754bff79a477b1c0dd94cc54323",
+      "poller_daemon.py": "6122f8792d05e7b85a8441e1a2261a915e5cf2a39a7d864ac05ebcba0b4d26fb",
+      "poller.py": "97613251094ce002e55e560c8d3df8ab73e0a013cc080ff2f5cbc0fbfc426ca3",
+      "event_schedule.py": "759a64b25bd2b75eab902dfc733399c6c1cff78aafb3c47bacd162331dc615e9",
+      "calculator.py": "f4a6cad9b971e795c8b5ca3ced9ae8173a0f19f46da9f23bca26f0133999717f",
+      "wec_live.py": "52bb53d378d60ae8449e8c3d23588985b33b6ed1d2fd2b96200027e230a69617",
+      "series_profiles.py": "1aae529e24b698a9777c1c538161a9ce6c379b51dbd2c8accdda0cdeeea75b24",
+      "evaluator.py": "000ad4595b808b3e14aee7a9ae7cd2fc383484e4a76247b42cdeeeb94284e917",
+      "timing71.py": "b76bce238f09d0cdbe12985c84fbd90f9a94f36c0a28f18f43c039de176ea649"
+    }
+  },
+  "tolerances": {
+    "net.proj_mae": 0.1,
+    "net.net_mae": 0.1,
+    "stop.mae_ms": 1000.0,
+    "catch.hit_rate": 0.05
+  },
+  "races": [
+    {
+      "input": "2026-01-24 18-37 IMSA WeatherTech SportsCar Championship - Rolex 24 at Daytona - Race.zip",
+      "sha256": "2589d3f8cf1dc13c8aa2c40e4872d408dd4b47c67e214c4f80f7f4c2ffc40085",
+      "label": "24 at Daytona",
+      "hrs": 24.919166666666666,
+      "complete": true,
+      "stop": {
+        "n": 1524,
+        "mae_ms": 32603.45422563251,
+        "bias_ms": -13389.817050085021,
+        "med_bias_ms": 1212.1212121212156,
+        "caution": {
+          "n": 619,
+          "mae_ms": 29858.55394733205,
+          "bias_ms": -5578.829719596641,
+          "med_bias_ms": 6034.166666666686
+        },
+        "green": {
+          "n": 905,
+          "mae_ms": 34480.905355210394,
+          "bias_ms": -18732.35976563454,
+          "med_bias_ms": 89.182014269114
+        },
+        "predictable": {
+          "n": 1045,
+          "mae_ms": 13230.95061833864,
+          "bias_ms": -1864.3188638363504,
+          "med_bias_ms": 0.0
+        },
+        "short": {
+          "n": 479,
+          "mae_ms": 74867.05812881001,
+          "bias_ms": -38534.17113073192,
+          "med_bias_ms": 14562.137230514098
+        }
+      },
+      "net": {
+        "proj_mae": 3.0567242281527998,
+        "proj_n": 76440,
+        "proj_improvement_pct": -0.1654734856603971,
+        "n": 76440,
+        "net_mae": 3.2550235478806906,
+        "track_mae": 3.0516745159602303,
+        "improvement_pct": -6.66352295623097,
+        "h_n": 76320,
+        "h_net_mae": 2.2178459119496856,
+        "h_track_mae": 1.4837526205450733,
+        "h_improvement_pct": -49.47545037089369
+      },
+      "catch": {
+        "n": 24,
+        "hits": 15,
+        "hit_rate": 0.625,
+        "eventual_rate": 0.9583333333333334,
+        "median_late_laps": 1.476911749237388
+      }
+    },
+    {
+      "input": "2025-10-11 16-07 IMSA WeatherTech SportsCar Championship - 28th Annual Motul Petit Le Mans - Race.zip",
+      "sha256": "fa9a82ac33d64350d5b446fbb45d0d2d3ff1b6fc0dd9a3e1c0e287a626972686",
+      "label": "Petit Le Mans",
+      "hrs": 10.224166666666667,
+      "complete": true,
+      "stop": {
+        "n": 558,
+        "mae_ms": 34826.36554041527,
+        "bias_ms": -14030.255002249973,
+        "med_bias_ms": -769.2307692307804,
+        "caution": {
+          "n": 180,
+          "mae_ms": 42626.82985045856,
+          "bias_ms": -17543.971774746038,
+          "med_bias_ms": -1269.2712709944171
+        },
+        "green": {
+          "n": 378,
+          "mae_ms": 31111.858726108974,
+          "bias_ms": -12357.056539156605,
+          "med_bias_ms": -598.5015467904159
+        },
+        "predictable": {
+          "n": 409,
+          "mae_ms": 14513.367991429212,
+          "bias_ms": -263.48166798479843,
+          "med_bias_ms": -1000.0
+        },
+        "short": {
+          "n": 149,
+          "mae_ms": 90584.8621681691,
+          "bias_ms": -51819.585832548306,
+          "med_bias_ms": 14109.253164277354
+        }
+      },
+      "net": {
+        "proj_mae": 2.092442847159828,
+        "proj_n": 30051,
+        "proj_improvement_pct": -2.2006956408672766,
+        "n": 30051,
+        "net_mae": 2.504941599281222,
+        "track_mae": 2.047386110279192,
+        "improvement_pct": -22.348275525793987,
+        "h_n": 28726,
+        "h_net_mae": 2.096289076098308,
+        "h_track_mae": 1.2123511801155746,
+        "h_improvement_pct": -72.91104347326711
+      },
+      "catch": {
+        "n": 10,
+        "hits": 5,
+        "hit_rate": 0.5,
+        "eventual_rate": 0.8,
+        "median_late_laps": 1.0807291666667922
+      }
+    },
+    {
+      "input": "2025-09-21 15-37 IMSA WeatherTech SportsCar Championship - Tire Rack.com Battle On The Bricks - Race.zip",
+      "sha256": "cbf0559fa24588c687b47d9e736d821a0dc026145304e7d0f1ef09d0660970f4",
+      "label": "Battle On The Bricks",
+      "hrs": 6.186388888888889,
+      "complete": true,
+      "stop": {
+        "n": 377,
+        "mae_ms": 39245.98711834346,
+        "bias_ms": 3546.8231080745577,
+        "med_bias_ms": 1000.0,
+        "caution": {
+          "n": 185,
+          "mae_ms": 20311.678846665396,
+          "bias_ms": 5353.862040463847,
+          "med_bias_ms": 4038.149401940871
+        },
+        "green": {
+          "n": 192,
+          "mae_ms": 57489.9820676166,
+          "bias_ms": 1805.6658034286274,
+          "med_bias_ms": -1000.0
+        },
+        "predictable": {
+          "n": 208,
+          "mae_ms": 24013.048781131627,
+          "bias_ms": 6089.237350652852,
+          "med_bias_ms": 500.0
+        },
+        "short": {
+          "n": 169,
+          "mae_ms": 57994.218917988816,
+          "bias_ms": 417.69788643973675,
+          "med_bias_ms": 5000.0
+        }
+      },
+      "net": {
+        "proj_mae": 2.5359584358764016,
+        "proj_n": 18285,
+        "proj_improvement_pct": -0.7912011476764038,
+        "n": 18285,
+        "net_mae": 2.659010117582718,
+        "track_mae": 2.516051408258135,
+        "improvement_pct": -5.681867582489249,
+        "h_n": 16854,
+        "h_net_mae": 2.2675922629642815,
+        "h_track_mae": 1.689806574107037,
+        "h_improvement_pct": -34.192415730337075
+      },
+      "catch": {
+        "n": 19,
+        "hits": 10,
+        "hit_rate": 0.5263157894736842,
+        "eventual_rate": 0.7894736842105263,
+        "median_late_laps": 0.4347826086956559
+      }
+    },
+    {
+      "input": "2026-05-03 19-57 IMSA WeatherTech SportsCar Championship - StubHub Monterey SportsCar Championship - Race.zip",
+      "sha256": "969b3513954baad14652cd613523e40c13703f499ef79fb1d100a07c1697e1a3",
+      "label": "Monterey SportsCar Champio",
+      "hrs": 2.914722222222222,
+      "complete": true,
+      "stop": {
+        "n": 103,
+        "mae_ms": 21419.005613323432,
+        "bias_ms": -1810.3402755556015,
+        "med_bias_ms": 2000.0,
+        "caution": {
+          "n": 32,
+          "mae_ms": 12433.09294871795,
+          "bias_ms": 6339.342948717948,
+          "med_bias_ms": 8000.0
+        },
+        "green": {
+          "n": 71,
+          "mae_ms": 25468.994419906187,
+          "bias_ms": -5483.43694001692,
+          "med_bias_ms": 0.0
+        },
+        "predictable": {
+          "n": 59,
+          "mae_ms": 13784.722098531178,
+          "bias_ms": 638.575885742351,
+          "med_bias_ms": -543.103448275855
+        },
+        "short": {
+          "n": 44,
+          "mae_ms": 31655.885780885783,
+          "bias_ms": -5094.114219114219,
+          "med_bias_ms": 11000.0
+        }
+      },
+      "net": {
+        "proj_mae": 2.4286868686868686,
+        "proj_n": 4950,
+        "proj_improvement_pct": -1.263477088948786,
+        "n": 4950,
+        "net_mae": 2.5555555555555554,
+        "track_mae": 2.3983838383838383,
+        "improvement_pct": -6.5532345013477045,
+        "h_n": 4026,
+        "h_net_mae": 2.3944361649279684,
+        "h_track_mae": 1.9533035270740189,
+        "h_improvement_pct": -22.583926754832156
+      },
+      "catch": {
+        "n": 8,
+        "hits": 4,
+        "hit_rate": 0.5,
+        "eventual_rate": 0.875,
+        "median_late_laps": 2.5641025640997768
+      }
+    },
+    {
+      "input": "2026-04-18 20-02 IMSA WeatherTech SportsCar Championship - Acura Grand Prix of Long Beach - Race.zip",
+      "sha256": "ec8932d6fcff39f3d0dfe14c0d51bd71e05617195dd5b544b8db48e553d49c6e",
+      "label": "Long Beach",
+      "hrs": 1.9658333333333333,
+      "complete": true,
+      "stop": {
+        "n": 39,
+        "mae_ms": 17109.12394083207,
+        "bias_ms": -11198.568366860241,
+        "med_bias_ms": -7000.0,
+        "caution": {
+          "n": 7,
+          "mae_ms": 48428.57142857143,
+          "bias_ms": -43000.0,
+          "med_bias_ms": -13000.0
+        },
+        "green": {
+          "n": 32,
+          "mae_ms": 10257.994802889081,
+          "bias_ms": -4242.005197110919,
+          "med_bias_ms": -6000.0
+        },
+        "predictable": {
+          "n": 26,
+          "mae_ms": 11625.22437278656,
+          "bias_ms": -7528.621781059593,
+          "med_bias_ms": -7000.0
+        },
+        "short": {
+          "n": 13,
+          "mae_ms": 28076.923076923078,
+          "bias_ms": -18538.46153846154,
+          "med_bias_ms": -4000.0
+        }
+      },
+      "net": {
+        "proj_mae": 2.7234794908062234,
+        "proj_n": 2828,
+        "proj_improvement_pct": 0.025960539979238577,
+        "n": 2828,
+        "net_mae": 3.3125884016973126,
+        "track_mae": 2.7241867043847243,
+        "improvement_pct": -21.59916926272066,
+        "h_n": 2184,
+        "h_net_mae": 3.0705128205128207,
+        "h_track_mae": 2.326007326007326,
+        "h_improvement_pct": -32.00787401574803
+      },
+      "catch": {
+        "n": 8,
+        "hits": 5,
+        "hit_rate": 0.625,
+        "eventual_rate": 0.625,
+        "median_late_laps": 0.23751274209995898
+      }
+    },
+    {
+      "input": "2026-05-30 19-57 IMSA WeatherTech SportsCar Championship - Chevrolet Detroit Sports Car Classic - Race.zip",
+      "sha256": "17f4b1631c38dc27bbbee97072f5d395e883591b060509a5812e6b20b09f96d6",
+      "label": "Detroit Sports Car Classic",
+      "hrs": 1.9869444444444444,
+      "complete": true,
+      "stop": {
+        "n": 39,
+        "mae_ms": 18471.950720837078,
+        "bias_ms": -249.35930693327026,
+        "med_bias_ms": -2000.0,
+        "caution": {
+          "n": 3,
+          "mae_ms": 12891.710408095712,
+          "bias_ms": -12891.710408095712,
+          "med_bias_ms": -10000.0
+        },
+        "green": {
+          "n": 36,
+          "mae_ms": 18936.97074689886,
+          "bias_ms": 804.1699514969332,
+          "med_bias_ms": 0.0
+        },
+        "predictable": {
+          "n": 25,
+          "mae_ms": 21843.248373477327,
+          "bias_ms": 558.0047301555838,
+          "med_bias_ms": -11890.414317234616
+        },
+        "short": {
+          "n": 14,
+          "mae_ms": 12451.776341122346,
+          "bias_ms": -1691.0808017347954,
+          "med_bias_ms": 2000.0
+        }
+      },
+      "net": {
+        "proj_mae": 1.968922305764411,
+        "proj_n": 1995,
+        "proj_improvement_pct": -0.6663249615581741,
+        "n": 1995,
+        "net_mae": 2.342857142857143,
+        "track_mae": 1.955889724310777,
+        "improvement_pct": -19.784725781650444,
+        "h_n": 1449,
+        "h_net_mae": 2.205659075224293,
+        "h_track_mae": 1.5389924085576259,
+        "h_improvement_pct": -43.318385650224236
+      },
+      "catch": {
+        "n": 9,
+        "hits": 3,
+        "hit_rate": 0.3333333333333333,
+        "eventual_rate": 0.6666666666666666,
+        "median_late_laps": 4.65917602996258
+      }
+    },
+    {
+      "input": "2026-07-12 18-02 IMSA WeatherTech SportsCar Championship - Chevrolet Grand Prix - Race.zip",
+      "sha256": "067719e7fff3d33a097d8a7dd1f70f4e5fcdefedeb8a65b8407f268a9f24c8a0",
+      "label": "Grand Prix",
+      "hrs": 2.906388888888889,
+      "complete": true,
+      "stop": {
+        "n": 91,
+        "mae_ms": 28321.28026323145,
+        "bias_ms": -14859.618380861992,
+        "med_bias_ms": -2000.0,
+        "caution": {
+          "n": 31,
+          "mae_ms": 37627.550588434504,
+          "bias_ms": -29910.08382016764,
+          "med_bias_ms": -4000.0
+        },
+        "green": {
+          "n": 60,
+          "mae_ms": 23513.040595209855,
+          "bias_ms": -7083.544570554075,
+          "med_bias_ms": 860.5341246290773
+        },
+        "predictable": {
+          "n": 67,
+          "mae_ms": 12221.251618191496,
+          "bias_ms": -596.5858436866497,
+          "med_bias_ms": -2473.3565474306233
+        },
+        "short": {
+          "n": 24,
+          "mae_ms": 73267.19356396796,
+          "bias_ms": -54677.25088047649,
+          "med_bias_ms": 2692.722371967655
+        }
+      },
+      "net": {
+        "proj_mae": 1.3704769736842106,
+        "proj_n": 4864,
+        "proj_improvement_pct": -1.0612492419648412,
+        "n": 4864,
+        "net_mae": 2.0189144736842106,
+        "track_mae": 1.3560855263157894,
+        "improvement_pct": -48.87810794420863,
+        "h_n": 4064,
+        "h_net_mae": 2.3213582677165356,
+        "h_track_mae": 1.376476377952756,
+        "h_improvement_pct": -68.64497676081515
+      },
+      "catch": {
+        "n": 4,
+        "hits": 1,
+        "hit_rate": 0.25,
+        "eventual_rate": 0.5,
+        "median_late_laps": 11.637835440230717
+      }
+    },
+    {
+      "input": "2024-07-14 14-27 FIA WEC - Rolex 6 Hours of S\u00c3O PAULO - Race.zip",
+      "sha256": "5c583549cac41565b28df0b3560faa019bf4494331928b0de3f77764e96a2858",
+      "label": "6 Hours of S\u00c3O PAULO",
+      "hrs": 6.146388888888889,
+      "complete": true,
+      "stop": {
+        "n": 217,
+        "mae_ms": 32940.44504635219,
+        "bias_ms": -18171.371174617005,
+        "med_bias_ms": -5096.0,
+        "green": {
+          "n": 217,
+          "mae_ms": 32940.44504635219,
+          "bias_ms": -18171.371174617005,
+          "med_bias_ms": -5096.0
+        },
+        "predictable": {
+          "n": 181,
+          "mae_ms": 20215.24748396728,
+          "bias_ms": -12829.208240055732,
+          "med_bias_ms": -5666.393939393951
+        },
+        "short": {
+          "n": 36,
+          "mae_ms": 96919.91056834305,
+          "bias_ms": -45030.57926227227,
+          "med_bias_ms": 19403.525252525287
+        }
+      },
+      "net": {
+        "proj_mae": 2.4523076923076923,
+        "proj_n": 11700,
+        "proj_improvement_pct": 0.9048836084824279,
+        "n": 11700,
+        "net_mae": 2.638632478632479,
+        "track_mae": 2.474700854700855,
+        "improvement_pct": -6.624300614768254,
+        "h_n": 10800,
+        "h_net_mae": 2.508888888888889,
+        "h_track_mae": 2.102222222222222,
+        "h_improvement_pct": -19.344608879492604
+      },
+      "catch": {
+        "n": 54,
+        "hits": 42,
+        "hit_rate": 0.7777777777777778,
+        "eventual_rate": 0.9814814814814815,
+        "median_late_laps": 0.48152899531989135
+      }
+    },
+    {
+      "input": "2025-07-13 14-27 FIA WEC - Race.zip",
+      "sha256": "375e9e3bea2b1f841c899572d27ba45b856817f0a7448c631b3d38d5b0178ffa",
+      "label": "2025-07-13 14-27 FIA WEC",
+      "hrs": 6.2075,
+      "complete": true,
+      "stop": {
+        "n": 207,
+        "mae_ms": 58456.51381149466,
+        "bias_ms": 9524.580070186043,
+        "med_bias_ms": -1500.0,
+        "green": {
+          "n": 207,
+          "mae_ms": 58456.51381149466,
+          "bias_ms": 9524.580070186043,
+          "med_bias_ms": -1500.0
+        },
+        "predictable": {
+          "n": 189,
+          "mae_ms": 52534.72953559903,
+          "bias_ms": 17106.63456608659,
+          "med_bias_ms": -2000.0
+        },
+        "short": {
+          "n": 18,
+          "mae_ms": 120635.2487083987,
+          "bias_ms": -70086.99213676978,
+          "med_bias_ms": 13198.412698412692
+        }
+      },
+      "net": {
+        "proj_mae": 2.031327160493827,
+        "proj_n": 12960,
+        "proj_improvement_pct": -1.249951924925963,
+        "n": 12960,
+        "net_mae": 2.267283950617284,
+        "track_mae": 2.00625,
+        "improvement_pct": -13.01103803699857,
+        "h_n": 11880,
+        "h_net_mae": 2.115824915824916,
+        "h_track_mae": 1.8335858585858587,
+        "h_improvement_pct": -15.392737455814162
+      },
+      "catch": {
+        "n": 35,
+        "hits": 22,
+        "hit_rate": 0.6285714285714286,
+        "eventual_rate": 0.8285714285714286,
+        "median_late_laps": 0.5170023254793534
+      }
+    },
+    {
+      "input": "2025-09-07 17-57 FIA WEC - Lone Star Le Mans - Race.zip",
+      "sha256": "6d9a76f629058ee9b667e9cfe496599fef0dad0140b4357d7306cbbebd61a231",
+      "label": "Lone Star Le Mans",
+      "hrs": 6.213333333333333,
+      "complete": true,
+      "stop": {
+        "n": 180,
+        "mae_ms": 45921.387876954694,
+        "bias_ms": -31031.453245414417,
+        "med_bias_ms": -11000.0,
+        "caution": {
+          "n": 80,
+          "mae_ms": 32087.621588364535,
+          "bias_ms": -25018.123236883024,
+          "med_bias_ms": -30000.0
+        },
+        "green": {
+          "n": 100,
+          "mae_ms": 56988.4009078268,
+          "bias_ms": -35842.117252239506,
+          "med_bias_ms": -2000.0
+        },
+        "predictable": {
+          "n": 85,
+          "mae_ms": 39466.68216220786,
+          "bias_ms": -25147.3828836646,
+          "med_bias_ms": -30000.0
+        },
+        "short": {
+          "n": 95,
+          "mae_ms": 51696.65088488607,
+          "bias_ms": -36296.147779611594,
+          "med_bias_ms": 1000.0
+        }
+      },
+      "net": {
+        "proj_mae": 4.059431524547803,
+        "proj_n": 10836,
+        "proj_improvement_pct": -0.6037873936510788,
+        "n": 10836,
+        "net_mae": 4.27593207825766,
+        "track_mae": 4.035068290882244,
+        "improvement_pct": -5.969261732686861,
+        "h_n": 10008,
+        "h_net_mae": 3.2184252597921663,
+        "h_track_mae": 2.2210231814548362,
+        "h_improvement_pct": -44.9073240957351
+      },
+      "catch": {
+        "n": 10,
+        "hits": 8,
+        "hit_rate": 0.8,
+        "eventual_rate": 1.0,
+        "median_late_laps": 0.41764008803114905
+      }
+    },
+    {
+      "input": "2025-09-28 01-57 FIA WEC - 6 Hours of Fuji - Race.zip",
+      "sha256": "5091a29a38d1fd4f7a4f9dcd698e8d1bd663bd7c4992e8e639f7f4e7660ec36a",
+      "label": "6 Hours of Fuji",
+      "hrs": 6.109166666666667,
+      "complete": true,
+      "stop": {
+        "n": 220,
+        "mae_ms": 31151.681209604198,
+        "bias_ms": -13808.310753778023,
+        "med_bias_ms": -13000.0,
+        "caution": {
+          "n": 72,
+          "mae_ms": 39424.3233231289,
+          "bias_ms": -19759.610847736247,
+          "med_bias_ms": -33000.0
+        },
+        "green": {
+          "n": 148,
+          "mae_ms": 27127.15261383542,
+          "bias_ms": -10913.083681041602,
+          "med_bias_ms": -7077.436271906539
+        },
+        "predictable": {
+          "n": 150,
+          "mae_ms": 31878.822079421014,
+          "bias_ms": -21660.283745056073,
+          "med_bias_ms": -21634.14634146342
+        },
+        "short": {
+          "n": 70,
+          "mae_ms": 29593.52220285389,
+          "bias_ms": 3017.345656103512,
+          "med_bias_ms": 0.0
+        }
+      },
+      "net": {
+        "proj_mae": 4.173819028609448,
+        "proj_n": 12024,
+        "proj_improvement_pct": 0.8221018932058026,
+        "n": 12024,
+        "net_mae": 4.181969394544245,
+        "track_mae": 4.208416500332668,
+        "improvement_pct": 0.6284336587486733,
+        "h_n": 11016,
+        "h_net_mae": 3.374546114742193,
+        "h_track_mae": 2.675925925925926,
+        "h_improvement_pct": -26.10760567202659
+      },
+      "catch": {
+        "n": 41,
+        "hits": 23,
+        "hit_rate": 0.5609756097560976,
+        "eventual_rate": 0.8780487804878049,
+        "median_late_laps": 0.9880922847928559
+      }
+    },
+    {
+      "input": "2025-11-08 10-57 FIA WEC - Bapco Energies 8 Hours of Bahrain - Race.zip",
+      "sha256": "0f8049bc34591ea96eef07e76f6792fff0445542908d4c85aac30b1db562590c",
+      "label": "8 Hours of Bahrain",
+      "hrs": 8.171666666666667,
+      "complete": true,
+      "stop": {
+        "n": 287,
+        "mae_ms": 20082.88049864705,
+        "bias_ms": -8481.754576645522,
+        "med_bias_ms": -2000.0,
+        "caution": {
+          "n": 55,
+          "mae_ms": 17689.975371274613,
+          "bias_ms": 14834.116978844619,
+          "med_bias_ms": 10800.000000000015
+        },
+        "green": {
+          "n": 232,
+          "mae_ms": 20650.164041774136,
+          "bias_ms": -14009.224126438447,
+          "med_bias_ms": -3333.3333333333285
+        },
+        "predictable": {
+          "n": 220,
+          "mae_ms": 7416.44437340574,
+          "bias_ms": -3897.7143289040737,
+          "med_bias_ms": -3500.0
+        },
+        "short": {
+          "n": 67,
+          "mae_ms": 61674.16329794686,
+          "bias_ms": -23533.82703191599,
+          "med_bias_ms": 17114.28571428571
+        }
+      },
+      "net": {
+        "proj_mae": 2.488863287250384,
+        "proj_n": 15624,
+        "proj_improvement_pct": 1.4196623231759746,
+        "n": 15624,
+        "net_mae": 2.8155401945724527,
+        "track_mae": 2.524705581157194,
+        "improvement_pct": -11.519545708056596,
+        "h_n": 14688,
+        "h_net_mae": 2.806781045751634,
+        "h_track_mae": 2.4357298474945535,
+        "h_improvement_pct": -15.233676207513414
+      },
+      "catch": {
+        "n": 59,
+        "hits": 42,
+        "hit_rate": 0.711864406779661,
+        "eventual_rate": 0.9661016949152542,
+        "median_late_laps": -0.004500703234867842
+      }
+    },
+    {
+      "input": "2026-04-19 10-57 FIA World Endurance Championship - FIA WEC - 6 Hours of Imola - Race.zip",
+      "sha256": "265e0d86defb0e0da5162fa76004580ccb7f2967d578542e7370d2e0a2c3a5ad",
+      "label": "6 Hours of Imola",
+      "hrs": 6.177222222222222,
+      "complete": true,
+      "stop": {
+        "n": 220,
+        "mae_ms": 145199.52923424492,
+        "bias_ms": 66503.6284472091,
+        "med_bias_ms": 1000.0,
+        "caution": {
+          "n": 33,
+          "mae_ms": 33074.69502850874,
+          "bias_ms": 33074.69502850874,
+          "med_bias_ms": 32000.0
+        },
+        "green": {
+          "n": 187,
+          "mae_ms": 164986.26468231602,
+          "bias_ms": 72402.85199168566,
+          "med_bias_ms": -1000.0
+        },
+        "predictable": {
+          "n": 168,
+          "mae_ms": 133411.45162637797,
+          "bias_ms": 96826.4366505987,
+          "med_bias_ms": -1000.0
+        },
+        "short": {
+          "n": 52,
+          "mae_ms": 183284.08765966137,
+          "bias_ms": -31462.367286818768,
+          "med_bias_ms": 32000.0
+        }
+      },
+      "net": {
+        "proj_mae": 3.095501183898974,
+        "proj_n": 12670,
+        "proj_improvement_pct": 2.257887653890254,
+        "n": 12670,
+        "net_mae": 3.112865035516969,
+        "track_mae": 3.167008681925809,
+        "improvement_pct": 1.7096147136520052,
+        "h_n": 11620,
+        "h_net_mae": 2.6523235800344236,
+        "h_track_mae": 2.028055077452668,
+        "h_improvement_pct": -30.7816345582619
+      },
+      "catch": {
+        "n": 35,
+        "hits": 17,
+        "hit_rate": 0.4857142857142857,
+        "eventual_rate": 0.8285714285714286,
+        "median_late_laps": 0.8624466307778107
+      }
+    },
+    {
+      "input": "2025-02-28 10-57 FIA WEC - Qatar 1812km - Race.zip",
+      "sha256": "5c93d72420f44e335575c79bbb04ca1231cd6b2a188ce75a15e83218edecbca7",
+      "label": "Qatar 1812km",
+      "hrs": 10.097222222222221,
+      "complete": true,
+      "stop": {
+        "n": 369,
+        "mae_ms": 131498.48419183982,
+        "bias_ms": -1096.790066008938,
+        "med_bias_ms": -1638.618436655117,
+        "caution": {
+          "n": 53,
+          "mae_ms": 34095.47369908318,
+          "bias_ms": 2725.041121983569,
+          "med_bias_ms": 3458.396428571432
+        },
+        "green": {
+          "n": 316,
+          "mae_ms": 147835.06506562498,
+          "bias_ms": -1737.7933981722365,
+          "med_bias_ms": -2037.0
+        },
+        "predictable": {
+          "n": 265,
+          "mae_ms": 89981.31574018033,
+          "bias_ms": -12108.373744204237,
+          "med_bias_ms": -3671.5
+        },
+        "short": {
+          "n": 104,
+          "mae_ms": 237287.4230350108,
+          "bias_ms": 26961.572190931034,
+          "med_bias_ms": 18926.275877149717
+        }
+      },
+      "net": {
+        "proj_mae": 2.021995043370508,
+        "proj_n": 19368,
+        "proj_improvement_pct": 4.589972226282697,
+        "n": 19368,
+        "net_mae": 2.2232548533663774,
+        "track_mae": 2.119268897149938,
+        "improvement_pct": -4.9066900550601815,
+        "h_n": 18432,
+        "h_net_mae": 1.9538845486111112,
+        "h_track_mae": 1.4723307291666667,
+        "h_improvement_pct": -32.70690544623774
+      },
+      "catch": {
+        "n": 36,
+        "hits": 14,
+        "hit_rate": 0.3888888888888889,
+        "eventual_rate": 0.8333333333333334,
+        "median_late_laps": 10.648499862372688
+      }
+    },
+    {
+      "input": "2026-07-12 14-27 FIA World Endurance Championship - ROLEX 6 Hours of S\u00e3o Paulo - Race.zip",
+      "sha256": "784b427fa836c68c0bd60abd34489ff1b619a8bcc5fc2b79b4e184fd7a59ca3b",
+      "label": "ROLEX 6 Hours of S\u00e3o Paulo",
+      "hrs": 6.1369444444444445,
+      "complete": true,
+      "stop": {
+        "n": 188,
+        "mae_ms": 19111.362111849987,
+        "bias_ms": -8393.778822616816,
+        "med_bias_ms": -5250.0,
+        "green": {
+          "n": 188,
+          "mae_ms": 19111.362111849987,
+          "bias_ms": -8393.778822616816,
+          "med_bias_ms": -5250.0
+        },
+        "predictable": {
+          "n": 173,
+          "mae_ms": 12999.783793833005,
+          "bias_ms": -5127.190169633815,
+          "med_bias_ms": -6000.0
+        },
+        "short": {
+          "n": 15,
+          "mae_ms": 89598.2320463126,
+          "bias_ms": -46068.43462035408,
+          "med_bias_ms": 19118.83771140698
+        }
+      },
+      "net": {
+        "proj_mae": 3.0993506493506495,
+        "proj_n": 12320,
+        "proj_improvement_pct": -3.451639122189112,
+        "n": 12320,
+        "net_mae": 3.604707792207792,
+        "track_mae": 2.9959415584415585,
+        "improvement_pct": -20.319696559198043,
+        "h_n": 11305,
+        "h_net_mae": 3.422202565236621,
+        "h_track_mae": 3.0434321096859795,
+        "h_improvement_pct": -12.445503691216654
+      },
+      "catch": {
+        "n": 41,
+        "hits": 20,
+        "hit_rate": 0.4878048780487805,
+        "eventual_rate": 0.926829268292683,
+        "median_late_laps": 4.676429030186256
+      }
+    },
+    {
+      "input": "wec_saopaulo_wec_race_20260712.jsonl.gz",
+      "sha256": "29902e85c136d87acccacb7b5f5e9da314875ce3bea74177aa9fb117d917b99e",
+      "label": "wec_saopaulo_wec_race_2026",
+      "hrs": 6.351124444444444,
+      "complete": true,
+      "stop": {
+        "n": 188,
+        "mae_ms": 18476.606599641054,
+        "bias_ms": -589.8274249425848,
+        "med_bias_ms": 1911.2422574625234,
+        "caution": {
+          "n": 1,
+          "mae_ms": 693.375,
+          "bias_ms": 693.375,
+          "med_bias_ms": 693.375
+        },
+        "green": {
+          "n": 187,
+          "mae_ms": 18571.704094826302,
+          "bias_ms": -596.6894699957537,
+          "med_bias_ms": 1911.2422574625234
+        },
+        "predictable": {
+          "n": 173,
+          "mae_ms": 12332.009827224667,
+          "bias_ms": 2723.5427392051965,
+          "med_bias_ms": 1644.377978193559
+        },
+        "short": {
+          "n": 15,
+          "mae_ms": 89344.28937484333,
+          "bias_ms": -38804.02998478034,
+          "med_bias_ms": 25086.251955074345
+        }
+      },
+      "net": {
+        "proj_mae": 3.167498110355253,
+        "proj_n": 13230,
+        "proj_improvement_pct": -2.9429104844256564,
+        "n": 13230,
+        "net_mae": 3.658654572940287,
+        "track_mae": 3.0769463340891914,
+        "improvement_pct": -18.90537486489141,
+        "h_n": 12180,
+        "h_net_mae": 3.3432676518883415,
+        "h_track_mae": 2.993431855500821,
+        "h_improvement_pct": -11.68678003291278
+      },
+      "catch": {
+        "n": 39,
+        "hits": 22,
+        "hit_rate": 0.5641025641025641,
+        "eventual_rate": 0.9487179487179487,
+        "median_late_laps": 2.1679018766523654
+      }
+    }
+  ],
+  "errors": []
+}

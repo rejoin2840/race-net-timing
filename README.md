@@ -1,5 +1,7 @@
 # Overcut
 
+> Living reference — current status: [BACKLOG.md](BACKLOG.md).
+
 An **endurance race strategy companion** for watching IMSA and WEC at home.
 It answers the question TV timing can't: **who is really winning once everyone's
 remaining pit stops are accounted for?** — with honest confidence signaling, plus a
@@ -20,45 +22,34 @@ For every car, from live timing alone (no GPS/ECU access):
   catch & pass ETAs, undercut/overcut notes, penalty carry, caution tracking, tire deg,
   sector deltas, weather.
 
-## Honest accuracy expectations
+## Confidence and validation
 
-Validated on 6 complete IMSA replay archives (`src/validate_races.py`), post the 2026-07-13
-honest recalibration (PR #13):
+NET is a pit-cycle situational gauge; projected finish is a conservative,
+track-anchored estimate. The product's goal is comprehension with honest
+confidence signals. Unavailable or stale data suppresses actionable strategy.
 
-- Finish-prediction MAE (in-class positions): **track order ≈2.45 · pure net ≈2.75 ·
-  shipped blend ≈2.45**. A 14-race sweep across IMSA + WEC found the previous blend
-  weights were the *worst* option tested — they leaned on net hardest early-race, exactly
-  when net is least reliable. Weights were halved (`FINISH_BLEND_MAX_W`/`W_PER_STOP`
-  0.6/0.15 → 0.3/0.08); the blend is now track-level on average and only pulls ahead on
-  deep-pit-cycle races (Daytona 24h, Lone Star, Imola).
-- Net position is not a crystal ball — it adds signal while stops remain to cycle, and
-  converges to track order late by design. Its real job is **situational awareness**
-  ("effective position now"), where it is not graded against the finish at all.
-- Three net-ordering bugs on the WEC/Griiip feed (un-lapping heuristic misfiring,
-  laps/elapsed channel desync, lapped-car tie-breaking) were fixed in the same pass —
-  WEC net MAE 5.20 → 4.15 on the São Paulo capture, and the error now decays through the
-  race the way track order's does, instead of staying flat.
-- Stop-duration MAE ≈ tens of seconds; catch calls are conservatively gated (trustworthy
-  silence over noisy alerts).
-- Biggest known accuracy levers, in order: **fuel telemetry integration → penalty parsing
-  → series-specific tuning** (see `BACKLOG.md`).
+Replay ingests stops and drivers chronologically. Stop duration is unavailable
+until pit exit; final classification is used only for scoring. The regression
+runner checks required inputs, terminal race evidence, and a reviewed numerical
+baseline. Current evidence, limitations, and live acceptance checks live in
+[BACKLOG.md](BACKLOG.md#epic-11--validation-integrity-and-race-state-reliability).
 
 ## Series support
 
-| Series | Live | Replay | Strategy model | Status |
-|--------|------|--------|----------------|--------|
-| IMSA   | ✅ `alkameldp.py` (Al Kamel DDP) | ✅ Timing71 zips | full (refuel + DC + penalties) | primary; 1 live race validated |
-| WEC    | ✅ `wec_live.py` (SignalR + MessagePack, Griiip feed) | Timing71 zips (TBD) | net position live, refuel path planned | Epic 8 — proven in the São Paulo 6h race (07-12); net-ordering bugs fixed 07-13 |
+| Series | Live timing | Replay | Strategy |
+|--------|-------------|--------|----------|
+| IMSA | Al Kamel DDP | Timing71 ZIP | Pit-cycle order, penalties, inferred stint windows |
+| WEC | Griiip SignalR | Timing71 ZIP and raw captures | Pit-cycle order, penalties, virtual energy tank |
 
 ## Quick start
 
 ### Prerequisites
-- Python 3.11+ (3.12 recommended)
+- Python 3.12
 - macOS or Linux (Windows untested)
 - For live IMSA races: nothing extra — feed is public
 - For offline replay: a Timing71 `.zip` archive (two sample races are included, see below)
 
-First-time setup: run `./setup.sh`. This creates the Python environment and launches the dashboard. Ignore `Overcut.app` on machines other than the original dev machine (hardcoded path inside).
+First-time setup: run `./setup.sh`. This creates the Python environment and launches the dashboard. The macOS launcher resolves the project folder relative to its bundle.
 
 ```bash
 ./setup.sh
@@ -112,7 +103,7 @@ New here? Read [USER_GUIDE.md](USER_GUIDE.md) for a screen-by-screen walkthrough
 ./venv/bin/python src/validate_races.py
 
 # unattended race-weekend supervisor (own Terminal tab, AC power, lid open)
-caffeinate -s venv/bin/python src/weekend_conductor.py
+caffeinate -s venv/bin/python src/weekend_conductor.py --schedule config/weekend_schedule.json
 
 # test gate — run before committing (add --full for the regression suite)
 ./check.sh
@@ -145,3 +136,19 @@ adapters (alkameldp / wec_live / replay)  →  SQLite data/race.db
 
 See `BACKLOG.md` — epics, acceptance criteria, decisions log, and the parked north-star
 ideas live there, not in scattered code comments.
+
+## Evaluation gate
+
+`./check.sh --full` validates the IMSA set against `data/validation_baseline.json`.
+WEC changes additionally require `src/validate_races.py --wec`; finish changes
+require `--all`. Missing inputs and failed/invalid evaluations fail the command.
+`--json /tmp/results.json` writes metrics and code/config/input identities.
+
+A deliberate baseline refresh uses `--all --write-baseline /tmp/new-baseline.json`.
+The output path must not exist. Review the complete result before replacing the
+tracked baseline; a regression failure never refreshes it automatically.
+
+For scheduled capture, copy `config/weekend_schedule.example.json` to the ignored
+`config/weekend_schedule.json`. Set timezone, starts, and capture-window durations.
+Overlapping same-series windows are rejected. Child exits are monitored with a
+three-restart limit; stale acquisition is reported and can force a restart.

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { RcMessage, RowsPayload } from '../types';
+import type { RowsPayload } from '../types';
+import { onTrackLeader } from '../health';
 
 // Minimum away time before showing the card (2 minutes)
 const MIN_AWAY_S = 120;
@@ -25,7 +26,8 @@ export function buildWywaSummary(
   awayFrom: number,
 ): WywaSummary | null {
   const awaySecs = (Date.now() - awayFrom) / 1000;
-  if (awaySecs < MIN_AWAY_S) return null;
+  if (awaySecs < MIN_AWAY_S || snapshot.session.oid !== current.session.oid
+    || current.session.health === 'stale') return null;
 
   // RC alerts that arrived while away (current.rcMessages is already ts DESC,
   // so this preserves most-recent-first without a re-sort). "Arrived" is
@@ -51,20 +53,20 @@ export function buildWywaSummary(
     }
   }
 
-  // Class leader changes (net P1) — ranked above RC alerts: the identity of
+  // Class leader changes (actual on-track P1) — ranked above RC alerts: the identity of
   // the race changing is the single most important catch-up fact
   const prevLeaders = new Map<string, string>();
   for (const cls of snapshot.classes) {
-    const p1 = cls.rows.find((r) => r.netPos === 1) ?? cls.rows[0];
-    if (p1) prevLeaders.set(cls.code, p1.car);
+    const leader = onTrackLeader(cls.rows);
+    if (leader) prevLeaders.set(cls.code, leader);
   }
   const leadEvents: WywaEvent[] = [];
   for (const cls of current.classes) {
-    const p1 = cls.rows.find((r) => r.netPos === 1) ?? cls.rows[0];
-    if (!p1) continue;
+    const leader = onTrackLeader(cls.rows);
+    if (!leader) continue;
     const prev = prevLeaders.get(cls.code);
-    if (prev && prev !== p1.car) {
-      leadEvents.push({ key: `lead-${cls.code}`, tone: 'lead', classCode: cls.code, prev, curr: p1.car });
+    if (prev && prev !== leader) {
+      leadEvents.push({ key: `lead-${cls.code}`, tone: 'lead', classCode: cls.code, prev, curr: leader });
     }
   }
 

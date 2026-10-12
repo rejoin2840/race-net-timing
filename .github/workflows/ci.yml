@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.9"
+          python-version: "3.12"
           cache: pip
       # PyQt6 needs these system libs even under QT_QPA_PLATFORM=offscreen
       - name: Install Qt system libraries
@@ -49,3 +49,7 @@ jobs:
         run: npm ci --prefix ui
       - name: Typecheck
         run: npx --prefix ui tsc --noEmit -p ui
+      - name: Web behavior tests
+        run: npm --prefix ui test
+      - name: Production build
+        run: npm --prefix ui run build

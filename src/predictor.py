@@ -32,7 +32,7 @@ def ensure(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def log_cycle(conn: sqlite3.Connection, oid: str, ctx, cars, ts_ms: int) -> int:
+def log_cycle(conn: sqlite3.Connection, oid: str, ctx, cars, ts_ms: int, commit: bool = True) -> int:
     """Write one prediction row per car for this cycle. Returns rows written."""
     rows = [
         (oid, ts_ms, ctx.current_lap, c.car_number, c.car_class,
@@ -51,5 +51,23 @@ def log_cycle(conn: sqlite3.Connection, oid: str, ctx, cars, ts_ms: int) -> int:
               next_stop_ms, next_stop_std_ms, owes_dc, catching,
               catch_in_laps, projected_finish)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
-    conn.commit()
+    if commit:
+        conn.commit()
     return len(rows)
+
+
+def log_live(conn, oid, ctx, cars, now_s, age_s):
+    """One shared cadence across displays; caller holds the write transaction."""
+    if not ctx.is_race or ctx.is_finished or not cars or age_s is None or age_s > 12:
+        return 0
+    # A stream already records predictions against race time. Do not mix clocks.
+    try:
+        if conn.execute("SELECT 1 FROM session_clock WHERE session_oid=? AND mode='replay'", (oid,)).fetchone():
+            return 0
+    except sqlite3.Error:
+        pass
+    conn.execute(_CREATE)
+    latest = conn.execute("SELECT MAX(ts) FROM predictions WHERE session_oid=?", (oid,)).fetchone()[0]
+    if latest is not None and now_s * 1000 - latest < PREDICT_EVERY_S * 1000:
+        return 0
+    return log_cycle(conn, oid, ctx, cars, int(now_s * 1000), commit=False)

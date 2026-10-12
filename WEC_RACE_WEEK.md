@@ -1,5 +1,7 @@
 # WEC Race Week Runbook — Rolex 6 Hours of São Paulo (2026-07-12)
 
+> Snapshot as of 2026-07-12 — current status: [BACKLOG.md](BACKLOG.md).
+
 Reconstructs the 4-phase Epic 8 plan (original plan doc lost; this file is now the
 durable copy — see `BACKLOG.md` Epic 8 for the decisions log and `git log` for the
 commit-by-commit history).

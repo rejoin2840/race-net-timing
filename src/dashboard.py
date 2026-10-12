@@ -510,32 +510,8 @@ class Dashboard(QMainWindow):
         self._select_car_in(self.table, self.model.rows, car)
 
     def _maybe_log(self):
-        """Throttled prediction logging from the freshest analysis (race only)."""
-        p = self.poller
-        ctx = p.last_ctx
-        if not (ctx and p.last_cars and p.last_oid) or not ctx.is_race:
-            return
-        age = p.real_age()
-        if age is None or age > STALE_AFTER_S:     # don't log stale repeats
-            return
-        now = datetime.now().timestamp()
-        if now - self.last_log_ts < predictor.PREDICT_EVERY_S:
-            return
-        try:
-            if self.write_conn is None:
-                self.write_conn = sqlite3.connect(str(DB_PATH))
-                self.write_conn.execute("PRAGMA busy_timeout=5000")  # wait, don't drop, on lock
-                predictor.ensure(self.write_conn)
-            predictor.log_cycle(self.write_conn, p.last_oid, ctx, p.last_cars,
-                                int(now * 1000))
-            self.last_log_ts = now
-        except sqlite3.Error:
-            try:
-                if self.write_conn:
-                    self.write_conn.close()
-            except sqlite3.Error:
-                pass
-            self.write_conn = None
+        """Poller owns fresh race logging for every display path."""
+        return
 
     def _focus_next_penalty(self):
         """Cycle through penalty rows in the main table on each click."""

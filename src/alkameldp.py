@@ -43,21 +43,8 @@ WS_HOST        = "livetiming.alkamelsystems.com"
 FEED_NAME      = "imsa"
 SNAPSHOT_EVERY = 10   # seconds between printed snapshots during live polling
 
-LOG_DIR = pathlib.Path("logs")
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_DIR = pathlib.Path(__file__).resolve().parent.parent / "logs"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-7s  %(message)s",
-    datefmt="%H:%M:%S",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(
-            LOG_DIR / f"ddp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
-            encoding="utf-8",
-        ),
-    ],
-)
 log = logging.getLogger("ddp")
 
 # Subscriptions needed for full timing picture
@@ -615,10 +602,13 @@ async def discover_mode() -> None:
 
 # ── main ──────────────────────────────────────────────────────────────────────
 async def main() -> None:
+    from runtime import configure_logging, IngestionLock
+    configure_logging("ddp")
     if "--discover" in sys.argv:
         await discover_mode()
         return
 
+    lease = None if "--no-db" in sys.argv else IngestionLock(DEFAULT_DB_PATH, "imsa")
     db = None if "--no-db" in sys.argv else RaceDB(DEFAULT_DB_PATH)
     if db:
         log.info("Persisting to %s", db.path)
@@ -656,6 +646,8 @@ async def main() -> None:
     finally:
         if db:
             db.close()
+        if lease:
+            lease.close()
             log.info("Database closed.")
 
 

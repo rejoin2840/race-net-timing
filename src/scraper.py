@@ -28,20 +28,8 @@ PAGE_LOAD_TIMEOUT = 30_000    # ms — initial navigation timeout
 RENDER_WAIT     = 8_000       # ms — SPA settle on first load
 SELECTOR_WAIT   = 5_000       # ms — wait for timing table on each poll
 
-LOG_DIR = Path("logs")
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
 
-# ── logging setup ─────────────────────────────────────────────────────────────
-log_file = LOG_DIR / f"scraper_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-7s  %(message)s",
-    datefmt="%H:%M:%S",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_file, encoding="utf-8"),
-    ],
-)
 log = logging.getLogger("scraper")
 
 
@@ -254,7 +242,7 @@ async def load_page(browser: Browser, url: str) -> Optional[Page]:
 # ── main poll loop ────────────────────────────────────────────────────────────
 async def run(url: str, interval: int = POLL_INTERVAL) -> None:
     log.info("Starting scraper  url=%s  interval=%ds", url, interval)
-    log.info("Log file: %s", log_file)
+    log.info("Diagnostic log directory: %s", LOG_DIR)
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=True)
@@ -325,6 +313,8 @@ async def run(url: str, interval: int = POLL_INTERVAL) -> None:
 
 
 if __name__ == "__main__":
+    from runtime import configure_logging
+    configure_logging("scraper")
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)

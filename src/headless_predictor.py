@@ -33,37 +33,18 @@ def _handle_signal(signum, frame):
 
 
 def run(db_path: str, series: str, poll_s: float = 5.0):
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row   # calculator.analyse() expects Row-like access
-    conn.execute("PRAGMA busy_timeout=5000")
-    predictor.ensure(conn)
+    from poller import Poller
+    poller = Poller(series=series, db_path=Path(db_path))
+    try:
+        while not _stop:
+            poller.poll()
+            deadline = time.monotonic() + poll_s
+            while not _stop and time.monotonic() < deadline:
+                time.sleep(0.1)
+    finally:
+        if poller.conn:
+            poller.conn.close()
 
-    last_log_ts = 0.0
-    last_oid = None
-    print(f"  headless predictor logging for series={series!r}, db={db_path}")
-    while not _stop:
-        try:
-            oid = calculator.latest_session(conn, series=series)
-            if oid != last_oid:
-                print(f"  session: {oid}")
-                last_oid = oid
-            if oid:
-                ctx, cars = calculator.analyse(conn, oid)
-                now = time.time()
-                if ctx.is_race and cars and (now - last_log_ts) >= predictor.PREDICT_EVERY_S:
-                    n = predictor.log_cycle(conn, oid, ctx, cars, int(now * 1000))
-                    last_log_ts = now
-                    print(f"  [{time.strftime('%H:%M:%S')}] logged {n} rows for {oid}")
-        except sqlite3.Error as e:
-            print(f"  ⚠ db error (will retry): {e}", file=sys.stderr)
-        except Exception as e:
-            print(f"  ⚠ analyse error (will retry): {e}", file=sys.stderr)
-        for _ in range(int(poll_s * 10)):
-            if _stop:
-                break
-            time.sleep(0.1)
-    conn.close()
-    print("  stopped.")
 
 
 def main():

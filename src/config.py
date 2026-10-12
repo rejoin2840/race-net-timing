@@ -12,6 +12,9 @@ reconnect).
 """
 
 import json
+import copy
+import logging
+import math
 from pathlib import Path
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
@@ -92,35 +95,83 @@ DEFAULTS = {
 }
 
 
+def validate(data, nested=False):
+    if not isinstance(data, dict):
+        raise ValueError("configuration must be an object")
+    for key, value in data.items():
+        if key not in DEFAULTS:
+            raise ValueError(f"unknown configuration key: {key}")
+        default = DEFAULTS[key]
+        if key == "SERIES_OVERRIDES":
+            if nested or not isinstance(value, dict):
+                raise ValueError("SERIES_OVERRIDES must map series to objects")
+            for series, overrides in value.items():
+                if series not in ("imsa", "wec"):
+                    raise ValueError(f"unknown series: {series}")
+                validate(overrides, nested=True)
+        elif key == "DEFAULT_STINT_LAPS":
+            if not isinstance(value, dict) or not value or any(
+                    not isinstance(k, str) or type(v) not in (int, float)
+                    or not math.isfinite(v) or v <= 0 for k, v in value.items()):
+                raise ValueError("DEFAULT_STINT_LAPS needs positive finite lap counts")
+        elif isinstance(default, bool):
+            if type(value) is not bool:
+                raise ValueError(f"{key} must be boolean")
+        elif isinstance(default, str):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{key} must be a nonempty string")
+        else:
+            if type(value) not in (int, float) or not math.isfinite(value):
+                raise ValueError(f"{key} must be finite numeric")
+            if isinstance(default, int) and type(value) is not int:
+                raise ValueError(f"{key} must be an integer")
+            if key == "TRACK_LAT":
+                lo, hi = -90, 90
+            elif key == "TRACK_LON":
+                lo, hi = -180, 180
+            elif key in ("CAUTION_PENALTY_FACTOR", "CATCH_CLOSING_EFFICIENCY",
+                         "FINISH_BLEND_MAX_W", "FINISH_BLEND_W_PER_STOP", "STOPS_LEFT_SLACK",
+                         "PENDING_STOP_CHARGE_FRACTION"):
+                lo, hi = 0, 1
+            elif key == "VET_DUE_PCT":
+                lo, hi = 0, 100
+            else:
+                lo, hi = 0, float("inf")
+            if not lo <= value <= hi:
+                raise ValueError(f"{key} out of range [{lo}, {hi}]")
+            if key in ("PACE_WINDOW", "CATCH_TREND_LAPS", "BATTLE_TREND_LAPS",
+                       "MIN_FIT_POINTS", "DEFAULT_STINT_FALLBACK", "DEFAULT_GREEN_PIT_MS",
+                       "DEFAULT_STOP_STD_MS", "STOP_OUTLIER_MAD") and value <= 0:
+                raise ValueError(f"{key} must be positive")
+            if key in ("CATCH_TREND_LAPS", "BATTLE_TREND_LAPS") and value > 6:
+                raise ValueError(f"{key} exceeds the six-lap history")
+            if key == "PACE_OUTLIER_FACTOR" and value < 1:
+                raise ValueError("PACE_OUTLIER_FACTOR must be at least 1")
+
+
 class _Config:
     def __init__(self):
-        self._vals = dict(DEFAULTS)
+        self._vals = copy.deepcopy(DEFAULTS)
         self._mtime = None
+        self.error = None
         self._load()
 
     def _load(self):
         try:
-            if CONFIG_PATH.exists():
-                data = json.loads(CONFIG_PATH.read_text())
-                merged = dict(DEFAULTS)
-                merged.update({k: v for k, v in data.items() if k in DEFAULTS})
-                self._vals = merged
-                # record the mtime we just loaded — without this the FIRST
-                # reload_if_changed() always saw a "change" and re-loaded,
-                # silently discarding any values set programmatically after
-                # import (bit the D3 offline sweep harness)
-                self._mtime = CONFIG_PATH.stat().st_mtime
-            else:
-                self._vals = dict(DEFAULTS)
-                self._mtime = None
-        except Exception:
-            # malformed JSON mid-edit → keep whatever we had (last good / defaults)
-            pass
+            data = json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.exists() else {}
+            validate(data)
+            merged = copy.deepcopy(DEFAULTS)
+            merged.update(data)
+            self._vals = merged
+            self.error = None
+            self._mtime = CONFIG_PATH.stat().st_mtime_ns if CONFIG_PATH.exists() else None
+        except (OSError, ValueError, TypeError) as exc:
+            self.error = str(exc)
+            logging.getLogger(__name__).warning("Config rejected; retaining last good values: %s", exc)
 
     def reload_if_changed(self):
-        """Cheap mtime check; reloads only when config.json actually changes."""
         try:
-            m = CONFIG_PATH.stat().st_mtime if CONFIG_PATH.exists() else None
+            m = CONFIG_PATH.stat().st_mtime_ns if CONFIG_PATH.exists() else None
         except OSError:
             m = None
         if m != self._mtime:
@@ -128,17 +179,12 @@ class _Config:
             self._load()
 
     def as_dict(self, series: str = None) -> dict:
-        """Base knob values, optionally with the given series' overrides applied
-        (only keys that exist in DEFAULTS are honoured — a typo in an override
-        can't inject a new global)."""
-        out = dict(self._vals)
+        out = copy.deepcopy(self._vals)
         if series:
-            ov = (self._vals.get("SERIES_OVERRIDES") or {}).get(series) or {}
-            out.update({k: v for k, v in ov.items() if k in DEFAULTS})
+            out.update({k: copy.deepcopy(v) for k, v in ((self._vals.get("SERIES_OVERRIDES") or {}).get(series) or {}).items() if k in DEFAULTS})
         return out
 
     def __getattr__(self, key):
-        # only reached for names not found normally; _vals is a real instance attr
         try:
             return self._vals[key]
         except KeyError as e:

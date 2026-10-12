@@ -1,5 +1,7 @@
 # Overcut — web UI
 
+> Living reference — current status: [BACKLOG.md](../BACKLOG.md).
+
 Electron + React + Vite + Tailwind display layer. Reads the same
 `data/race.db` SQLite file the Python engine writes; no Python required
 in-process.
@@ -46,3 +48,13 @@ and gap breakdown just stay empty.
 - `electron/preload.cjs` — exposes `window.racenet.{onRows,offRows}`
 - `src/` — React renderer; falls back to `mock.ts` data when
   `window.racenet` is absent (i.e. plain browser)
+
+## Verification and session scope
+
+Run `npm run typecheck`, `npm test`, and `npm run build` after UI changes.
+`RACENET_SESSION=<oid>` pins the Electron reader; `RACENET_SERIES=imsa|wec`
+scopes automatic session selection. All board/rail/pit queries share one database
+snapshot and session identity. The renderer ages data independently of IPC updates.
+
+Browser mode is labeled MOCK DATA. Recorded demo scenes are development-only.
+Current live-promotion criteria are in [BACKLOG.md](../BACKLOG.md).

@@ -146,6 +146,7 @@ function buildPayload(rawRows, pitRows, rcRows, battleRows, sessionComp) {
   let session = { flag: null, lap: null, isRunning: false, ageS: null,
                   finalType: null, remainingS: null, finalLaps: null, isFinished: false };
   let sessionRead = false;
+  const ages = rawRows.filter(r => r.is_running).map(r => ageSeconds(r.source_updated_at));
 
   for (const r of rawRows) {
     if (!sessionRead && r.session_updated_at) {
@@ -153,7 +154,9 @@ function buildPayload(rawRows, pitRows, rcRows, battleRows, sessionComp) {
         flag:       r.current_flag  || null,
         lap:        r.current_lap   ?? null,
         isRunning:  Boolean(r.session_running),
-        ageS:       ageSeconds(r.session_updated_at),
+        oid: r.session_oid, series: r.series, sessionType: r.session_type, mode: r.mode,
+        configError: sessionComp?.config_error ?? null,
+        ageS: ages.length && ages.every(a => a !== null) ? Math.max(...ages) : null,
         finalType:  r.final_type    || null,
         remainingS: pythonRemainingS(sessionComp) ?? calcRemainingS(r),
         finalLaps:  r.final_laps    ?? null,
@@ -164,7 +167,7 @@ function buildPayload(rawRows, pitRows, rcRows, battleRows, sessionComp) {
     if (!classMap.has(r.class_code)) classMap.set(r.class_code, []);
     classMap.get(r.class_code).push({
       car:          r.car_number,
-      pos:          r.pos,
+      pos:          r.session_type === 'RACE' ? (r.effective_pos_in_class ?? r.pos) : r.pos,
       driver:       r.driver,
       team:         r.team,
       gapMs:        r.gap_ms        ?? null,
@@ -174,7 +177,7 @@ function buildPayload(rawRows, pitRows, rcRows, battleRows, sessionComp) {
       isRunning:    Boolean(r.is_running),
       lastLapMs:    r.last_lap_ms   ?? null,
       bestLapMs:    r.best_lap_ms   ?? null,
-      fuelPct:      r.fuel_pct      ?? null,
+      fuelPct: ageSeconds(r.telemetry_updated_at) !== null && ageSeconds(r.telemetry_updated_at) <= 12 ? (r.fuel_pct ?? null) : null,
       // laps into the current stint — same "laps minus last pit lap" the
       // Python calculator uses (calculator.py analyse(), ~L817)
       stintLaps:    (r.last_pit_lap != null && r.laps != null)
@@ -198,14 +201,15 @@ function buildPayload(rawRows, pitRows, rcRows, battleRows, sessionComp) {
       mustPitLap:       r.must_pit_lap      ?? null,
       nextStopMs:       r.next_stop_ms      ?? null,
       nextStopStdMs:    r.next_stop_std_ms  ?? null,
+      sourceUpdatedAt:  r.source_updated_at || null,
       netUpdatedAt:     r.net_updated_at    || null,
       pitEvents:        pitsBycar.get(r.car_number) ?? [],
     });
   }
 
-  // add classLeaderStopsLeft per car (net P1 in that car's class)
+  // Use the on-track leader: netGap is anchored to that car.
   for (const rows of classMap.values()) {
-    const leader = rows.find((r) => r.netPos === 1) ?? rows[0];
+    const leader = rows.find((r) => r.pos === 1) ?? rows[0];
     const leaderStops = leader?.stopsLeft ?? null;
     for (const r of rows) r.classLeaderStopsLeft = leaderStops;
   }
@@ -230,13 +234,22 @@ function queryAndSend() {
   const d = openDb();
   if (!d || !stmt) return;
   try {
-    const rows = stmt.all();
-    if (rows.length > 0) {
-      const pits       = stmtPits       ? stmtPits.all()       : [];
-      const rc         = stmtRc         ? stmtRc.all()         : [];
-      const battles    = stmtBattles    ? stmtBattles.all()    : [];
-      let sessComp = null;
-      try { sessComp = stmtSessionComp ? stmtSessionComp.get() : null; } catch (_) {}
+    const snapshot = d.transaction(() => {
+      // Resolve once; every query uses the same session and SQLite snapshot.
+      const selected = d.prepare(`SELECT s.session_oid FROM sessions s
+        LEFT JOIN session_status ss ON ss.session_oid=s.session_oid
+        WHERE (? IS NULL OR s.session_oid=?) AND (? IS NULL OR s.series=?)
+        ORDER BY COALESCE(ss.updated_at, s.last_seen) DESC LIMIT 1`).get(
+          process.env.RACENET_SESSION || null, process.env.RACENET_SESSION || null,
+          process.env.RACENET_SERIES || null, process.env.RACENET_SERIES || null);
+      if (!selected) return null;
+      const oid = selected.session_oid;
+      return { rows: stmt.all(oid), pits: stmtPits?.all(oid) ?? [],
+        rc: stmtRc?.all(oid) ?? [], battles: stmtBattles?.all(oid) ?? [],
+        sessComp: stmtSessionComp?.get(oid) ?? null };
+    })();
+    if (snapshot && snapshot.rows.length > 0) {
+      const { rows, pits, rc, battles, sessComp } = snapshot;
       const payload = buildPayload(rows, pits, rc, battles, sessComp);
       if (!queryAndSend.logged) {
         queryAndSend.logged = true;
