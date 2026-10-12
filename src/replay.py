@@ -422,7 +422,8 @@ def _finish(db, archive, oid):
 # ── batch mode ───────────────────────────────────────────────────────────────
 
 def build(replay: timing71.Replay, db_path: str, oid: str = "replay",
-          cadence_s: int = 60) -> None:
+          cadence_s: int = 60, on_sample=None) -> None:
+    # on_sample(conn, oid, ts_ms, ctx, cars) observes logged samples; read-only.
     db, col, _lap_at, flag_at, pit_in = _init_db(replay, db_path, oid)
     predictor.ensure(db.conn)
     rc_feed  = _rc_feed(replay)
@@ -437,6 +438,8 @@ def build(replay: timing71.Replay, db_path: str, oid: str = "replay",
             ctx, cars = calculator.analyse(db.conn, oid, now_s=ts)
             n_logged += predictor.log_cycle(db.conn, oid, ctx, cars, int(ts * 1000))
             db.conn.commit()
+            if on_sample is not None:
+                on_sample(db.conn, oid, int(ts * 1000), ctx, cars)
             last_log = elapsed_s
 
     _finish(db, replay, oid)

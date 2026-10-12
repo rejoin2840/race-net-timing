@@ -1204,7 +1204,8 @@ def _reanchor_clock(conn, oid: str, frame_ts_ms: int,
         (time.time() - elapsed_s, oid))
 
 
-def replay_predict(client: "WecLiveClient", path, cadence_s: int = 60) -> dict:
+def replay_predict(client: "WecLiveClient", path, cadence_s: int = 60,
+                   on_sample=None, on_event=None) -> dict:
     """Replay a --record capture AND regenerate predictions offline.
 
     Same dispatch path as replay_capture, plus the live prediction loop:
@@ -1214,6 +1215,8 @@ def replay_predict(client: "WecLiveClient", path, cadence_s: int = 60) -> dict:
     CURRENT config.json. This is the calibration loop: edit config, rebuild
     into a scratch DB, re-score with evaluator.py, repeat.
     """
+    # Optional read-only observers: on_event(client, channel, data, ts_ms),
+    # on_sample(conn, oid, ts_ms, ctx, cars). Observer failures propagate.
     import calculator
     import predictor
 
@@ -1238,6 +1241,9 @@ def replay_predict(client: "WecLiveClient", path, cadence_s: int = 60) -> dict:
                 errs += 1
                 log.exception("Replay dispatch error on channel %s", channel)
 
+        if on_event is not None:
+            on_event(client, channel, data, ts)
+
         oid = client.state.session_oid
         if ts is None or oid is None:
             continue
@@ -1258,6 +1264,8 @@ def replay_predict(client: "WecLiveClient", path, cadence_s: int = 60) -> dict:
         ctx, cars = calculator.analyse(client.db.conn, oid, now_s=ts / 1000.0)
         n_logged += predictor.log_cycle(client.db.conn, oid, ctx, cars, ts)
         client.db.conn.commit()
+        if on_sample is not None:
+            on_sample(client.db.conn, oid, ts, ctx, cars)
         last_log_ts = ts
 
     if client.db:
