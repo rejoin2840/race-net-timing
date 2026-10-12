@@ -65,21 +65,8 @@ RECONNECT_PAUSE_S = 10
 # down for a full rebuild (which re-bootstraps + re-joins and does resume data).
 DISCONNECT_TIMEOUT_S = 30
 
-LOG_DIR = Path("logs")
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-7s  %(message)s",
-    datefmt="%H:%M:%S",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(
-            LOG_DIR / f"weclive_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
-            encoding="utf-8",
-        ),
-    ],
-)
 log = logging.getLogger("weclive")
 
 # Griiip channel names (from JS bundle enum extraction)
@@ -677,7 +664,7 @@ class WecLiveClient:
             "pos": _int_or(data.get("overallPosition"), None),
             "pos_class": _int_or(data.get("position"), None),
         }
-        self._flush_car(car)
+        self._flush_car(car, timing_observed=True)
 
     def _handle_official_rank(self, data):
         """RACE-session position + gap stream. During the SP 2026 race the
@@ -729,7 +716,7 @@ class WecLiveClient:
         elapsed = _int_or(data.get("elapsedTimeMillis"), -1)
         if elapsed > 0:
             gaps["elapsed_ms"] = elapsed
-        self._flush_car(car)
+        self._flush_car(car, timing_observed=True)
 
     def _handle_gaps(self, data):
         if not isinstance(data, dict):
@@ -754,7 +741,7 @@ class WecLiveClient:
             "gap_ms": gap_ms,
             "laps_behind": laps_behind,
         }
-        self._flush_car(car)
+        self._flush_car(car, timing_observed=True)
 
     def _handle_laps(self, data):
         if not isinstance(data, dict):
@@ -785,7 +772,7 @@ class WecLiveClient:
                     "currentLap": self.state.current_lap,
                     "isSessionRunning": True,
                 })
-        self._flush_car(car)
+        self._flush_car(car, timing_observed=True)
 
     def _handle_participants(self, data):
         if not isinstance(data, dict):
@@ -887,9 +874,9 @@ class WecLiveClient:
             if pid is None or e is None:
                 continue
             car = self.state.pid_to_car.get(int(pid))
-            if car:
+            if car and isinstance(e, (int, float)) and 0 <= e <= 100:
                 self.state.car_vet[car] = float(e)
-                self._flush_car(car)
+                self._flush_car(car, telemetry_observed=True)
 
     def _handle_race_log(self, data):
         if not isinstance(data, dict) or not self.db:
@@ -910,7 +897,7 @@ class WecLiveClient:
 
     # ── flush accumulated car state to DB ────────────────────────────────
 
-    def _flush_car(self, car: str):
+    def _flush_car(self, car: str, timing_observed: bool = False, telemetry_observed: bool = False):
         if not self.db or not self.state.session_oid:
             return
 
@@ -952,7 +939,8 @@ class WecLiveClient:
         }
 
         self.db.ingest_car(car, d, standing, self.state.current_lap,
-                           self.state.current_flag)
+                           self.state.current_flag, timing_observed=timing_observed,
+                           telemetry_observed=telemetry_observed)
         self.db.commit()
 
     # ── bootstrap hydration ──────────────────────────────────────────────
@@ -1057,6 +1045,8 @@ class WecLiveClient:
         self.state.sid = sid
 
         if not self.no_db:
+            from runtime import IngestionLock
+            self._ingestion_lock = IngestionLock(self.db_path, "wec")
             self.db = dbmod.RaceDB(self.db_path)
 
         if self.record_path:
@@ -1128,6 +1118,9 @@ class WecLiveClient:
         if self.db:
             self.db.close()
             self.db = None
+        lease = getattr(self, "_ingestion_lock", None)
+        if lease:
+            lease.close()
 
     def stop(self):
         self._stopping = True
@@ -1258,15 +1251,24 @@ def replay_predict(client: "WecLiveClient", path, cadence_s: int = 60) -> dict:
             # in-process replays otherwise feed the catching gate old gaps)
             calculator.reset_gap_history(oid)
         real_start = client.state.status_acc.get("startTime") or fallback_start_s
-        _reanchor_clock(client.db.conn, oid, ts, real_start)
-        ctx, cars = calculator.analyse(client.db.conn, oid)
+        # Recorded time is an analysis input; never rewrite the feed's start.
+        if not client.state.status_acc.get("startTime") and real_start is not None:
+            client.db.conn.execute("UPDATE session_status SET start_time_s=? WHERE session_oid=?",
+                                   (real_start, oid))
+        ctx, cars = calculator.analyse(client.db.conn, oid, now_s=ts / 1000.0)
         n_logged += predictor.log_cycle(client.db.conn, oid, ctx, cars, ts)
         client.db.conn.commit()
         last_log_ts = ts
 
     if client.db:
+        client.db.conn.execute("CREATE TABLE IF NOT EXISTS session_clock (session_oid TEXT PRIMARY KEY, now_s REAL, mode TEXT)")
+        client.db.conn.execute("INSERT OR REPLACE INTO session_clock VALUES (?,?,?)",
+                               (client.state.session_oid, ts / 1000.0 if ts else None, "replay"))
+        if client.state.is_finished:
+            client.db.conn.execute("CREATE TABLE IF NOT EXISTS final_classification (session_oid TEXT, car_number TEXT, pos_in_class INTEGER, PRIMARY KEY(session_oid, car_number))")
+            client.db.conn.execute("INSERT OR REPLACE INTO final_classification SELECT session_oid, car_number, pos_in_class FROM standings_current WHERE session_oid=? AND pos_in_class > 0", (client.state.session_oid,))
         client.db.commit()
-    return {"frames": n, "dispatch_errors": errs, "predictions": n_logged,
+    return {"complete": client.state.is_finished, "frames": n, "dispatch_errors": errs, "predictions": n_logged,
             "session_oid": client.state.session_oid}
 
 
@@ -1359,6 +1361,8 @@ def discover_mode(sid: Optional[int] = None):
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    from runtime import configure_logging
+    configure_logging("weclive")
     ap = argparse.ArgumentParser(
         description="WEC live timing adapter (Griiip SignalR+msgpack)")
     root = Path(__file__).resolve().parent.parent

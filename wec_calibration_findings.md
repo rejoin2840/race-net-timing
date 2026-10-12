@@ -1,5 +1,7 @@
 # WEC Calibration — Phase C Findings (checkpoint for review)
 
+> Snapshot as of 2026-07-12 — current status: [BACKLOG.md](BACKLOG.md).
+
 Date: 2026-07-12 · Branch `feature/wec-calibration` · Data: SP 2026 race capture
 replayed via `--replay-predict` (155,613 frames, 0 dispatch errors; reproduces the
 live scorecard: stop MAE 19.2s identical, net 5.24 vs live 5.23) + all 13

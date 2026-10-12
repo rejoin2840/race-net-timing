@@ -40,6 +40,7 @@ export interface CarRow {
   nextStopMs: number | null;         // predicted next pit cost (ms) — panel-only since 07-16
   nextStopStdMs: number | null;      // 1σ spread on next pit cost (ms)
   classLeaderStopsLeft: number | null; // net P1's est_stops_left in this class
+  sourceUpdatedAt?: string | null;
   netUpdatedAt: string | null;   // ISO timestamp — for stale-data guard
   pitEvents: PitEvent[];
 }
@@ -71,6 +72,12 @@ export interface Battle {
 
 export interface RowsPayload {
   session: {
+    oid?: string;
+    series?: string;
+    sessionType?: string;
+    mode?: 'live' | 'replay' | 'mock';
+    health?: 'live' | 'stale' | 'finished';
+    configError?: string | null;
     flag: string | null;
     lap: number | null;
     isRunning: boolean;

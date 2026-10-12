@@ -149,7 +149,7 @@ def _served(car: str, penalty_ts, pit_entries) -> bool:
     # non-epoch-ms ts as "unknown" and keep the safe carry-forever behaviour.
     if penalty_ts is None or penalty_ts < 1e11 or not pit_entries:
         return False
-    for key in (car, car.lstrip("0") or car):     # '007' in RC text vs '7' in pit rows
+    for key in (k for k in pit_entries if (k.lstrip("0") or "0") == (car.lstrip("0") or "0")):     # '007' in RC text vs '7' in pit rows
         if any(e > penalty_ts for e in pit_entries.get(key, ())):
             return True
     return False
@@ -169,31 +169,70 @@ def aggregate(messages, pit_entries=None) -> dict:
     served drive-through double-counts forever: the ~22s it cost is already in
     the car's real gap AND net keeps adding it. Untimed calls keep the old
     carry-forever behaviour (safe fallback when no pit data exists)."""
+    events = []
     seen = set()
-    acc: dict = {}
-    for item in messages:
+    active = []
+    uncertain = set()
+    for i, item in enumerate(messages):
         ts, msg = item if isinstance(item, tuple) else (None, item)
-        for p in parse(msg):
-            for car in p.cars:
-                key = (car, p.kind, round(p.seconds, 1), p.timing)
-                if key in seen:
+        if not msg:
+            continue
+        normalized = " ".join(msg.lower().split())
+        identity = (ts, normalized)
+        if identity not in seen:
+            seen.add(identity)
+            events.append((ts, i, msg))
+    events.sort(key=lambda e: (e[0] if isinstance(e[0], (int, float)) else 0, e[1]))
+    for ts, _, msg in events:
+        reversal = "rescinded" in msg.lower()
+        amended = "amended" in msg.lower()
+        clean = re.sub(r"\*?\b(?:rescinded|amended)\b", "", msg, flags=re.I).strip(" -:*")
+        parsed = parse(clean)
+        cars = _extract_cars(clean)
+        for car in cars:
+            canon = car.lstrip("0") or "0"
+            pens = [p for p in parsed if car in p.cars]
+            matching = [e for e in active if e[0] == canon
+                        and (not pens or e[2].kind == pens[0].kind)]
+            if amended and not matching:
+                matching = [e for e in active if e[0] == canon]
+            exact = [e for e in matching if " ".join(e[2].raw.lower().split()) == " ".join(clean.lower().split())]
+            candidates = exact or matching
+            if reversal or amended:
+                if amended and not pens:
+                    if candidates:
+                        uncertain.add(canon)
                     continue
-                seen.add(key)
-                pend, post, note, dq = acc.get(car, (0.0, 0.0, "", False))
-                if p.timing == "dq":
-                    dq = True
-                    note = "DQ"
-                elif p.timing == "post_race":
-                    post += p.seconds
-                    note = (note + " · " if note else "") + f"+{p.seconds:.0f}s post"
-                elif p.timing == "pending":
-                    if _served(car, ts, pit_entries):
-                        acc[car] = (pend, post, note, dq)   # paid on track — real gap has it
-                        continue
-                    pend += p.seconds
-                    label = {"DRIVE_THROUGH": "drive-thru", "STOP_GO": "stop/go",
-                             "STOP_HOLD": "stop+hold"}.get(
-                        p.kind, f"+{p.seconds:.0f}s")
-                    note = (note + " · " if note else "") + label
-                acc[car] = (pend, post, note, dq)
+                if len(candidates) == 1:
+                    active.remove(candidates[0])
+                    # An amendment changes terms, not the original announcement
+                    # time used to infer service. A rescind removes the event.
+                    original_ts = candidates[0][1]
+                    if amended:
+                        active.extend((canon, original_ts, p, candidates[0][3]) for p in pens)
+                elif candidates:
+                    uncertain.add(canon)
+                elif amended:
+                    active.extend((canon, ts, p, car) for p in pens)
+                continue
+            active.extend((canon, ts, p, car) for p in pens)
+
+    acc = {}
+    labels = {}
+    for canon, ts, p, car in active:
+        car = labels.setdefault(canon, car)
+        pend, post, note, dq = acc.get(car, (0.0, 0.0, "", False))
+        if p.timing == "dq":
+            dq, note = True, "DQ"
+        elif p.timing == "post_race":
+            post += p.seconds
+            note = (note + " · " if note else "") + f"+{p.seconds:.0f}s post"
+        elif p.timing == "pending" and not _served(canon, ts, pit_entries):
+            pend += p.seconds
+            label = {"DRIVE_THROUGH": "drive-thru", "STOP_GO": "stop/go",
+                     "STOP_HOLD": "stop+hold"}.get(p.kind, f"+{p.seconds:.0f}s")
+            note = (note + " · " if note else "") + label
+        if canon in uncertain:
+            note += " · reversal/amendment unconfirmed" if "unconfirmed" not in note else ""
+        acc[car] = (pend, post, note, dq)
     return acc

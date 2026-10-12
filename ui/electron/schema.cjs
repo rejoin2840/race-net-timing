@@ -9,9 +9,7 @@
 // every optional column/table degrades to NULL / an absent statement instead.
 // Only uses prepare().get()/.all(), so it runs under node:sqlite in tests.
 
-const SESSION_SUBQ = `(
-        SELECT session_oid FROM session_status ORDER BY updated_at DESC LIMIT 1
-      )`;
+const SESSION_SUBQ = "?";
 
 // net_analysis columns the UI wants, with NULL fallbacks when the DB predates them
 const NA_COLS = [
@@ -19,7 +17,7 @@ const NA_COLS = [
   'est_stops_left', 'penalty_s', 'penalty_note', 'owes_driver_change',
   'net_settled', 'projected_finish', 'fuel_due', 'catching', 'catch_in_laps',
   'strategy_note', 'fuel_laps_left', 'must_pit_lap',
-  'next_stop_ms', 'next_stop_std_ms',
+  'next_stop_ms', 'next_stop_std_ms', 'effective_pos_in_class',
 ];
 
 function tableExists(d, name) {
@@ -45,6 +43,9 @@ function probeSchema(d) {
     // archives/scraper DBs predate it, same degrade-to-NULL treatment as
     // everything else here. last_lap_ms/best_lap_ms/last_pit_lap are in the
     // original CREATE TABLE, so no probe needed for those.
+    hasTimingUpdated: scCols.has('timing_updated_at'),
+    hasTelemetryUpdated: scCols.has('telemetry_updated_at'),
+    hasReplayClock: tableExists(d, 'session_clock'),
     hasFuelPct:     scCols.has('fuel_pct'),
   };
 }
@@ -53,13 +54,13 @@ function probeSchema(d) {
 function schemaSig(p) {
   return [
     [...p.naCols].sort().join(','),
-    p.rcHasTier, p.hasBattles, p.hasSessionComp, p.hasFuelPct,
+    p.rcHasTier, p.hasBattles, p.hasSessionComp, p.hasFuelPct, p.hasTimingUpdated, p.hasTelemetryUpdated, p.hasReplayClock,
   ].join('|');
 }
 
 // true when every optional feature is present — nothing left to re-probe for
 function schemaComplete(p) {
-  return p.rcHasTier && p.hasBattles && p.hasSessionComp && p.hasFuelPct
+  return p.hasTimingUpdated && p.hasTelemetryUpdated && p.rcHasTier && p.hasBattles && p.hasSessionComp && p.hasFuelPct
     && NA_COLS.every(c => p.naCols.has(c));
 }
 
@@ -79,9 +80,15 @@ function buildMainSql(p) {
   const fuelPctSel = p.hasFuelPct ? 's.fuel_pct' : 'NULL AS fuel_pct';
   return `
       SELECT
+        s.session_oid,
+        meta.series,
+        meta.session_type,
+        ${p.hasReplayClock ? "COALESCE(clock.mode, 'live')" : "'live'"} AS mode,
+        ${p.hasTimingUpdated ? 's.timing_updated_at' : 'NULL'} AS source_updated_at,
+        ${p.hasTelemetryUpdated ? 's.telemetry_updated_at' : 'NULL'} AS telemetry_updated_at,
         s.car_number,
         CAST(s.pos_in_class AS INTEGER) AS pos,
-        s.car_class                     AS class_code,
+        CASE s.car_class WHEN 'GTDPRO' THEN 'GTD PRO' ELSE s.car_class END AS class_code,
         s.gap_ms,
         CAST(s.laps AS INTEGER)         AS laps,
         s.track_status,
@@ -109,6 +116,8 @@ function buildMainSql(p) {
         ${naSel},
         ${netUpdated}
       FROM standings_current s
+      LEFT JOIN sessions meta ON meta.session_oid=s.session_oid
+      ${p.hasReplayClock ? 'LEFT JOIN session_clock clock ON clock.session_oid=s.session_oid' : ''}
       LEFT JOIN session_entry e
         ON e.session_oid = s.session_oid
        AND e.car_number  = s.car_number
@@ -149,7 +158,7 @@ function buildBattlesSql() {
 
 function buildSessionCompSql() {
   return `
-      SELECT remaining_s, elapsed_s, updated_at FROM session_computed
+      SELECT * FROM session_computed
       WHERE session_oid = ${SESSION_SUBQ}
     `;
 }

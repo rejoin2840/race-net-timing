@@ -1,5 +1,7 @@
 # Architecture
 
+> Living reference — current status: [BACKLOG.md](BACKLOG.md).
+
 A technical map of the codebase for developers reading the code.
 
 ---
@@ -40,9 +42,9 @@ Live feeds                         Replay
 
 **`alkameldp.py`** — IMSA live feed client. Polls the Al Kamel DDP (Data Distribution Protocol) websocket, normalises the payload, and writes rows into `race_positions`, `pit_events`, `race_control_messages`, and `flag_state`. Runs as a managed `QProcess` from the dashboard's session picker (or standalone with `./venv/bin/python src/alkameldp.py`).
 
-**`wec_live.py`** — WEC live feed client (Epic 8, in progress as of 2026-07-05). Connects to Griiip SignalR Core + MessagePack v2, hub at `insights.griiip.com/live-session-stream`, `seriesId=10`. Supports `--record` (gzip-compressed JSONL capture), `--replay` (offline replay of a capture for parser iteration), and `--discover` (list available sessions). The `--record` path flushes after every frame so a hard kill only loses the frame in flight, not a whole compressed buffer.
+**`wec_live.py`** — WEC live feed client . Connects to Griiip SignalR Core + MessagePack v2, hub at `insights.griiip.com/live-session-stream`, `seriesId=10`. Supports `--record` (gzip-compressed JSONL capture), `--replay` (offline replay of a capture for parser iteration), and `--discover` (list available sessions). The `--record` path flushes after every frame so a hard kill only loses the frame in flight, not a whole compressed buffer.
 
-**`replay.py`** — offline replay from a Timing71 `.zip` archive. Streams rows into the DB at configurable speed (`--speed N`, default 1×; dashboard uses 60×). The same path used for the 6-race regression suite.
+**`replay.py`** — offline replay from a Timing71 `.zip` archive. Streams rows into the DB at configurable speed (`--speed N`, default 1×; dashboard uses 60×). The same path used for the multi-race regression suite.
 
 **`timing71.py`** — parses the Timing71 ZIP format (manifest + per-car CSV rows) into the normalised schema the DB and calculator expect.
 
@@ -66,7 +68,7 @@ Live feeds                         Replay
 
 **`evaluator.py`** — scores logged predictions against what actually happened. Three metrics: stop-duration accuracy, net-position predictiveness (does net at T predict actual position at T+30min better than track position does?), and catch-call accuracy (±3 laps). Prints a report with tuning suggestions. Runs on demand or from the optional AUTO-TUNE toggle in the dashboard (bounded, audited knob nudges only). Never runs in the first hour of a race.
 
-**`validate_races.py`** — 6-race regression suite. Replays each archived race, runs the full prediction pipeline, and computes aggregate MAE for track order, pure net, and the shipped blend. Any change to `calculator.py` or `replay.py` must pass this before committing.
+**`validate_races.py`** — multi-race regression suite. Replays each archived race, runs the full prediction pipeline, and computes aggregate MAE for track order, pure net, and the shipped blend. Any change to `calculator.py` or `replay.py` must pass this before committing.
 
 **`check.sh`** — the test gate. Runs the unit tests + a quick smoke-replay. Run before every commit; `--full` adds the full regression suite.
 
@@ -92,7 +94,7 @@ either one keeps `net_analysis` fresh.
 
 **`session_picker.py`** — dialog launched from the header button. Manages a `QProcess` for the selected adapter (live or replay) and hands the series identity back to the dashboard so `Poller` can scope to the right session.
 
-### UI — web (Epic 9, shipped 2026-07-15, not yet race-proven)
+### UI — web
 
 **`ui/`** — Electron + React + Vite + Tailwind. The Electron main process
 (`ui/electron/main.cjs`) opens `race.db` readonly via `better-sqlite3`, joins
@@ -122,7 +124,7 @@ variable palette, 44 px rows with class-color spines.
 For each car in a class, NET answers: "if every car pits once more from here, what order do they finish in?"
 
 The algorithm:
-1. Determine how many stops each car still owes (from its class's mandatory-stop count minus stops completed, capped at the fuel window).
+1. Determine how many stops each car still owes (from remaining race time/distance and observed fuel range).
 2. Project each car forward by `stops_remaining × pit_cost` seconds (pit-cost model below).
 3. Add any outstanding time penalties.
 4. Re-rank by projected time to the virtual finish line.
@@ -135,7 +137,7 @@ NET is further suppressed when the gap reading is unreliable (feed sentinel valu
 
 `projected = w · net_position + (1 − w) · track_position`
 
-`w` scales with stops remaining: when many stops are left, net dominates; as the race nears its end and everyone has cycled, w→0 and the blend converges to track order. The weight schedule is linear over the expected number of remaining stops.
+`w` scales with stops remaining: NET weight is capped by FINISH_BLEND_MAX_W; as the race nears its end and everyone has cycled, w→0 and the blend converges to track order. The weight schedule is linear over the expected number of remaining stops.
 
 ### Pit-cost model (learned in-race)
 
@@ -170,13 +172,29 @@ The app flags an undercut opportunity when a car's projected position after pitt
 
 ---
 
-## WEC-specific notes (Epic 8 — race-proven in the São Paulo 6h, 2026-07-12)
+## WEC-specific notes
 
 The WEC live path (`wec_live.py`) survived a full 6-hour race live; net-ordering bugs
-found in that race were fixed 2026-07-13 (see BACKLOG decisions log). Key differences
+and outstanding validation are recorded in BACKLOG.md. Key differences
 from IMSA:
 
 - **Protocol:** Griiip SignalR Core + MessagePack v2. Bootstrap hydration delivers full field state on connect; incremental `ReceiveBatch` pushes thereafter.
 - **`--record` is mandatory.** Raw-capture every session, always. The capture is crash-safe (frame-level flush). Replay a capture offline with `--replay` to iterate parser corrections without waiting for the next live session.
 - **Field names are provisional.** The 2026 WEC field shapes (energy, override state) are inferred from the 07-03 Griiip rehearsal. Still open: regenerate `tests/fixtures/wec_capture_sample.jsonl.gz` from a real São Paulo capture (FP1 or race, both on disk) and tighten the test assertions.
 - **Timing71 fallback is data-only, post-session.** Unlike IMSA where Timing71 has a live feed, the WEC archive only becomes available after the session ends. If `wec_live.py` fails mid-race, the raw capture is the only real-time record.
+
+## Time, provenance, and publication
+
+`analyse(conn, oid, now_s=None)` accepts recorded time for batch replay. Streaming
+replay persists its current source clock separately from the session's original
+start time. Final classification lives in a scoring-only table and is never read
+by the calculator. Replay stop duration becomes available at observed exit.
+
+Standings carry separate timing and telemetry observation timestamps. Energy
+updates do not refresh rankings. Poller publishes derived tables in one transaction
+and logs fresh race predictions through a shared database cadence, including when
+started by the calm dashboard. Each display resolves one session per snapshot.
+
+Config edits are validated atomically; invalid types, ranges, or series overrides
+retain last-good settings with an observable error. Current readiness evidence and
+remaining live trials are recorded only in [BACKLOG.md](BACKLOG.md).

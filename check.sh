@@ -4,10 +4,10 @@
 #
 #   ./check.sh          fast: run every tests/test_*.py (standalone runners, no pytest)
 #   ./check.sh --full   also run the IMSA regression suite (validate_races.py —
-#                       rebuilds 6 replay archives, takes minutes; run it before
+#                       rebuilds 7 replay archives, takes minutes; run it before
 #                       committing any calculator/replay/evaluator change)
 #
-# Archives for --full live in ARCHIVE_DIR (config.json, default ~/Downloads).
+# Archives for --full live in ARCHIVE_DIR (config.json, default IMSA Archives).
 cd "$(dirname "$0")" || exit 1
 PY=./venv/bin/python
 fail=0

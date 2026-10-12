@@ -1,5 +1,7 @@
 # WEC Spike Findings
 
+> Snapshot as of 2026-07-03 — current status: [BACKLOG.md](BACKLOG.md).
+
 ## 1. Provider
 
 **Verdict:** WEC timing data is provided by Al Kamel Systems, but the public live timing frontend is **not** the same public Al Kamel Meteor/DDP site used by IMSA.

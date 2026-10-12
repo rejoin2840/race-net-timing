@@ -1088,6 +1088,11 @@ class CalmDashboard(QMainWindow):
 
         config.CONFIG.reload_if_changed()    # one reload per cycle, before any config read
         ctx, cars, rc, _age, trend = res
+        if getattr(self, "_display_oid", None) != getattr(ctx, "session_oid", None):
+            self._mark = None
+            self._pending_show = False
+            self._badge_events = {}
+            self._display_oid = getattr(ctx, "session_oid", None)
         self._profile = ctx.profile          # active series' palette/single-class-ness
         self.colheader.set_profile(self._profile)
         # freeze the diff-relevant slice every tick so a mark (manual or on blur) and the
@@ -1137,7 +1142,7 @@ class CalmDashboard(QMainWindow):
         # field-wide signal can never paint the whole board (the "christmas tree")
         self._budget_net = self._highlight_budget(rows, camap)
         self._last = (rows, camap)
-        self._render_header(ctx, feed_status(self.poller.real_age(), ctx.is_finished))
+        self._render_header(ctx, "CONFIG ERROR · last good settings" if config.CONFIG.error else feed_status(self.poller.real_age(), ctx.is_finished))
         self._render_list(rows, camap)
         self._render_rail(rows, rc, camap)
 
@@ -1599,7 +1604,7 @@ class CalmDashboard(QMainWindow):
             if r.is_header:
                 continue
             ca = camap.get(r.car)
-            if ca is None or ca.class_gap_ms is None or (ca.laps_down or 0) > 0:
+            if ca is None or ca.class_gap_ms is None or (ca.laps_down or 0) > 0 or getattr(ca, "strategy_stale", False):
                 continue
             by_cls.setdefault(r.cls, []).append(ca)
         battles = []

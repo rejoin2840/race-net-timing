@@ -10,7 +10,9 @@
     "browser": "vite",
     "electron:dev": "cross-env ELECTRON_DEV=1 electron .",
     "build": "vite build",
-    "rebuild": "electron-rebuild -f -w better-sqlite3"
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "test": "node tests/behavior.cjs",
+    "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0"

@@ -7,6 +7,9 @@ without pulling in any Qt dependencies.
 """
 
 import sqlite3
+import logging
+import time
+import predictor
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,9 +40,10 @@ LAPPED_RELEASE_S = 60    # latched +1L releases after this long of continuous on
 
 
 class Poller:
-    def __init__(self, force_oid: Optional[str] = None, series: Optional[str] = None):
+    def __init__(self, force_oid: Optional[str] = None, series: Optional[str] = None, db_path: Optional[Path] = None):
         # when set, always read this session instead of latest_session() — pins the
         # view to e.g. a replay 'stream' so a concurrent live scraper can't steal it
+        self.db_path = Path(db_path) if db_path is not None else DB_PATH
         self.force_oid = force_oid
         # when set (and force_oid isn't), scopes latest_session() to one series so a
         # live session for one series can't be pre-empted by a newer session in the same DB
@@ -64,10 +68,25 @@ class Poller:
         self.lapped_latch:  set[str]         = set() # cars latched at +1L to suppress S/F flicker
         self.lap0_since:    dict[str, float] = {}  # latched car → ts it started reading on-lead-lap
 
+    def _reset_session(self, oid):
+        for value in (self.hist, self.buffer, self.box_since, self.prev_stops,
+                      self.prev_net, self.just_pitted_ts, self.pit_before_net,
+                      self.pit_delta_ts, self.window_locked, self.lapped_latch, self.lap0_since):
+            value.clear()
+        self.latest_ts = self.latest_age = None
+        calculator.reset_gap_history(oid)
+
     def _connect(self):
-        if self.conn is None and DB_PATH.exists():
-            self.conn = sqlite3.connect(str(DB_PATH))
+        if self.conn is None and self.db_path.exists():
+            self.conn = sqlite3.connect(str(self.db_path))
             self.conn.row_factory = sqlite3.Row
+            columns = {r[1] for r in self.conn.execute("PRAGMA table_info(standings_current)")}
+            for col in ("timing_updated_at", "telemetry_updated_at"):
+                if columns and col not in columns:
+                    self.conn.execute(f"ALTER TABLE standings_current ADD COLUMN {col} TEXT")
+                    if col == "timing_updated_at":
+                        self.conn.execute("UPDATE standings_current SET timing_updated_at=updated_at")
+            self.conn.commit()
             self.conn.execute("PRAGMA busy_timeout=5000")   # ride out scraper write locks
         return self.conn
 
@@ -154,6 +173,8 @@ class Poller:
             ("must_pit_lap",    "INTEGER"),
             ("next_stop_ms",    "REAL"),
             ("next_stop_std_ms","REAL"),
+            ("source_updated_at","TEXT"),
+            ("effective_pos_in_class","INTEGER"),
         ]:
             if col not in cols:
                 conn.execute(f"ALTER TABLE net_analysis ADD COLUMN {col} {ddl}")
@@ -184,7 +205,7 @@ class Poller:
 
         by_cls: dict = {}
         for ca in cars:
-            if ca.laps_down or ca.class_gap_ms is None:
+            if ca.laps_down or ca.class_gap_ms is None or getattr(ca, "strategy_stale", False):
                 continue
             by_cls.setdefault(ca.car_class, []).append(ca)
 
@@ -217,7 +238,6 @@ class Poller:
                VALUES (?,?,?,?,?,?,?,?,?)""",
             [(oid, i, b[1], b[2], b[3], b[0], 1 if b[4] else 0, b[5], now)
              for i, b in enumerate(battles[:6])])
-        conn.commit()
 
     def _ensure_rc_classification(self, conn, oid: str) -> None:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(race_control)")}
@@ -235,7 +255,6 @@ class Poller:
                 classified.append((tier, kind, rowid))
             conn.executemany(
                 "UPDATE race_control SET tier=?, kind=? WHERE rowid=?", classified)
-            conn.commit()
 
     def _write_session_computed(self, conn, oid: str, ctx) -> None:
         conn.execute("""
@@ -245,6 +264,9 @@ class Poller:
                 elapsed_s    REAL,
                 updated_at   TEXT
             )""")
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(session_computed)")}
+        if "config_error" not in cols:
+            conn.execute("ALTER TABLE session_computed ADD COLUMN config_error TEXT")
         now = datetime.now(timezone.utc).isoformat()
         # the calculator leaves both at 0.0 when the clock hasn't started (or
         # for BY_LAPS sessions) — write NULL so readers can't mistake a
@@ -252,14 +274,13 @@ class Poller:
         remaining = getattr(ctx, 'remaining_s', None) or None
         elapsed   = getattr(ctx, 'elapsed_s', None) or None
         conn.execute("""
-            INSERT INTO session_computed (session_oid, remaining_s, elapsed_s, updated_at)
-            VALUES (?,?,?,?)
+            INSERT INTO session_computed (session_oid, remaining_s, elapsed_s, updated_at, config_error)
+            VALUES (?,?,?,?,?)
             ON CONFLICT(session_oid) DO UPDATE SET
               remaining_s=excluded.remaining_s,
               elapsed_s=excluded.elapsed_s,
-              updated_at=excluded.updated_at""",
-            (oid, remaining, elapsed, now))
-        conn.commit()
+              updated_at=excluded.updated_at, config_error=excluded.config_error""",
+            (oid, remaining, elapsed, now, config.CONFIG.error))
 
     def _write_net_analysis(self, conn, oid: str, cars) -> None:
         now = datetime.now(timezone.utc).isoformat()
@@ -279,7 +300,9 @@ class Poller:
              getattr(c, 'fuel_laps_left', None),
              getattr(c, 'must_pit_lap', None),
              getattr(c, 'next_stop_ms', None),
-             getattr(c, 'next_stop_std_ms', None))
+             getattr(c, 'next_stop_std_ms', None),
+             getattr(c, 'source_updated_at', None),
+             getattr(c, 'effective_pos_in_class', None))
             for c in cars
         ]
         conn.executemany("""
@@ -290,8 +313,8 @@ class Poller:
                net_settled, updated_at,
                projected_finish, fuel_due, catching, catch_in_laps, strategy_note,
                fuel_laps_left, must_pit_lap,
-               next_stop_ms, next_stop_std_ms)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               next_stop_ms, next_stop_std_ms, source_updated_at, effective_pos_in_class)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(session_oid, car_number) DO UPDATE SET
               net_position=excluded.net_position,
               net_gap_ms=excluded.net_gap_ms,
@@ -312,9 +335,10 @@ class Poller:
               fuel_laps_left=excluded.fuel_laps_left,
               must_pit_lap=excluded.must_pit_lap,
               next_stop_ms=excluded.next_stop_ms,
-              next_stop_std_ms=excluded.next_stop_std_ms""",
+              next_stop_std_ms=excluded.next_stop_std_ms,
+              source_updated_at=excluded.source_updated_at,
+              effective_pos_in_class=excluded.effective_pos_in_class""",
             rows)
-        conn.commit()
 
     def _fetch(self):
         """Return (ctx, rows, rc_messages, age_s) or None if no data yet.
@@ -329,29 +353,52 @@ class Poller:
             oid = self.force_oid or calculator.latest_session(conn, series=self.series)
             if not oid:
                 return None
+            if self.last_oid != oid:
+                self._reset_session(oid)
+            conn.execute("BEGIN")
             ctx, cars = calculator.analyse(conn, oid)
             self.last_ctx, self.last_cars, self.last_oid = ctx, cars, oid
             now = datetime.now().timestamp()
-            self._update_tracking(cars, now)
-            # compute trend on the real timeline now; rows are built at display time
-            trend_map = {c.car_number: self.trend_for(c.car_number, c.net_position)
-                         for c in cars}
             rc = conn.execute(
                 """SELECT ts, message FROM race_control WHERE session_oid=?
                      ORDER BY ts DESC, rowid DESC LIMIT 50""", (oid,)).fetchall()
             age = self._data_age(conn, oid)
+            sources = {r["car_number"]: r for r in conn.execute(
+                "SELECT car_number, timing_updated_at, telemetry_updated_at, is_running FROM standings_current WHERE session_oid=?", (oid,))}
+            for car in cars:
+                source = sources.get(car.car_number)
+                car.source_updated_at = source["timing_updated_at"] if source else None
+                source_age = timestamp_age(car.source_updated_at)
+                if not ctx.is_finished and (source_age is None or source_age > STALE_AFTER_S):
+                    car.strategy_stale = True
+                    suppress_strategy(car)
+                if source and car.fuel_pct is not None:
+                    tank_age = timestamp_age(source["telemetry_updated_at"])
+                    if tank_age is None or tank_age > STALE_AFTER_S:
+                        car.fuel_pct = None
+                        car.fuel_due = None
+            trusted = [c for c in cars if not getattr(c, "strategy_stale", False)]
+            self._update_tracking(trusted, now)
+            trend_map = {c.car_number: self.trend_for(c.car_number, c.net_position)
+                         for c in trusted}
+            conn.commit()  # release the consistent read snapshot before publishing
             # write computed net analysis back so Electron (or any reader) can see it
             try:
+                conn.execute("BEGIN IMMEDIATE")
                 self._ensure_net_analysis_table(conn)
                 self._write_net_analysis(conn, oid, cars)
                 self._ensure_rail_battles_table(conn)
                 self._write_rail_battles(conn, oid, cars, ctx.current_lap)
                 self._ensure_rc_classification(conn, oid)
                 self._write_session_computed(conn, oid, ctx)
-            except sqlite3.Error:
-                pass  # non-fatal — Electron will just show dashes
+                predictor.log_live(conn, oid, ctx, cars, now, age)
+                conn.commit()
+            except sqlite3.Error as exc:
+                conn.rollback()
+                logging.getLogger(__name__).warning("Analysis publish failed for %s: %s", oid, exc)
             return ctx, cars, rc, age, trend_map
-        except sqlite3.Error:
+        except (sqlite3.Error, ValueError, TypeError) as exc:
+            logging.getLogger(__name__).warning("Poll failed: %s", exc)
             # stale/empty DB handle → drop it so the next tick reconnects cleanly
             try:
                 if self.conn is not None:
@@ -423,12 +470,31 @@ class Poller:
 
     def _data_age(self, conn, oid) -> Optional[float]:
         row = conn.execute(
-            "SELECT MAX(updated_at) FROM standings_current WHERE session_oid=?",
+            """SELECT MIN(timing_updated_at), COUNT(*), COUNT(timing_updated_at)
+               FROM standings_current WHERE session_oid=? AND is_running=1""",
             (oid,)).fetchone()
-        if not row or not row[0]:
+        if not row or not row[1] or row[1] != row[2]:
             return None
-        try:
-            ts = datetime.fromisoformat(row[0].replace("Z", "+00:00"))
-            return (datetime.now(timezone.utc) - ts).total_seconds()
-        except Exception:
-            return None
+        return timestamp_age(row[0])
+
+
+def timestamp_age(stamp):
+    if not stamp:
+        return None
+    try:
+        ts = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - ts).total_seconds()
+        return age if age >= -2 else None
+    except (ValueError, TypeError):
+        return None
+
+
+def suppress_strategy(car):
+    car.net_position = car.net_gap_ms = car.net_gap_band_ms = None
+    car.projected_finish = car.fuel_due = car.catching = car.catch_in_laps = None
+    car.fuel_laps_left = car.must_pit_lap = car.next_stop_ms = car.next_stop_std_ms = None
+    car.pit_now_position = None
+    car.strategy_note = ""
+    car.pit_window_open = False

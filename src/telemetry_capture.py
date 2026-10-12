@@ -55,22 +55,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config" / "telemetry_feed.json"
 EXAMPLE_PATH = ROOT / "config" / "telemetry_feed.example.json"
 DATA_DIR = ROOT / "data"
-LOG_DIR = ROOT / "logs"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_DIR = pathlib.Path(__file__).resolve().parent.parent / "logs"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-7s  %(message)s",
-    datefmt="%H:%M:%S",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(
-            LOG_DIR / f"telemetry_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
-            encoding="utf-8",
-        ),
-    ],
-)
 log = logging.getLogger("telemetry")
 
 COUNTER_EVERY_S = 5          # how often to print the live frame counter
@@ -301,6 +287,9 @@ async def capture(cfg: dict, seconds: int | None) -> int:
 
 
 def main() -> int:
+    from runtime import configure_logging
+    configure_logging("telemetry")
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     import argparse
     ap = argparse.ArgumentParser(description="Record the IMSA AppSync Events telemetry feed.")
     ap.add_argument("--selftest", action="store_true",

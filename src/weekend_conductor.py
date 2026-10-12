@@ -18,7 +18,8 @@ Design choices (see BACKLOG.md at the project root for the "why"):
   - Every failure is caught and logged per-session; one session going wrong
     never takes down the rest of the weekend.
 
-Edit SCHEDULE below before each event weekend.
+Copy config/weekend_schedule.example.json to config/weekend_schedule.json
+and set timezone, start times, and capture durations before each event.
 
 Run (leave this in its own Terminal tab, ideally under caffeinate):
   caffeinate -s venv/bin/python src/weekend_conductor.py
@@ -30,6 +31,8 @@ before trusting it with the real schedule):
 """
 
 import argparse
+import logging
+from logging.handlers import RotatingFileHandler
 import os
 import signal
 import subprocess
@@ -42,7 +45,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 LOG_DIR = ROOT / "logs"
-LOG_DIR.mkdir(exist_ok=True)
 DATA_DIR = ROOT / "data"
 PYTHON = str(ROOT / "venv" / "bin" / "python")
 
@@ -52,6 +54,7 @@ import session_healthcheck  # noqa: E402
 
 CONDUCTOR_LOG = LOG_DIR / "weekend_conductor.log"
 _log_lock = threading.Lock()
+_file_logger = logging.getLogger("conductor")
 
 # every scraper/predictor subprocess currently running, across all session
 # threads — so a signal handler can kill them all regardless of which
@@ -90,61 +93,18 @@ WINDOW_MIN = {
 
 SCRAPER = {
     "imsa": "alkameldp.py",
-    "wec":  "wec_live.py",   # Epic 8 — wec_live.py not yet built; add entry now
+    "wec":  "wec_live.py",
 }
 
-# ── schedule — edit before each event weekend ────────────────────────────────
-# Example WEC São Paulo (times approximate; verify from the official schedule):
-#
-#   ("wec", "FP1",  "practice", _dt(7, 10, 10, 0)),
-#   ("wec", "FP2",  "practice", _dt(7, 11,  8, 0)),
-#   ("wec", "Race", "race",     _dt(7, 12,  9, 0)),
-#
-def _dt(month, day, hour, minute):
-    return datetime(2026, month, day, hour, minute)
-
-
-# Rolex 6 Hours of São Paulo (2026-07-12) — all times below are local (EDT),
-# matching this machine's clock, per owner confirmation 2026-07-08.
-#
-# The 4 quali/hyperpole entries (LMGT3 Q, LMGT3 Hyperpole, HYPERCAR Q,
-# HYPERCAR Hyperpole) are TV-schedule phases of ONE continuous WEC timing
-# session, not 4 separate Griiip sessionIds (gaps between them are 20-35 min
-# — too tight for a real session teardown/re-discovery cycle, and WEC
-# publishes one combined "Qualifying" results doc for the whole block). They
-# are collapsed into a single "quali" entry spanning 1:30 PM -> ~3:15 PM so
-# the conductor never launches concurrent wec_live.py instances against the
-# same session (that would corrupt the single-writer lock file in
-# _write_lock/_remove_lock — a later thread's launch overwrites the lock,
-# then an earlier thread's `finally` block deletes the wrong, still-active
-# lock on cleanup).
-#
-# Scope (owner call, 2026-07-08): only the race matters for accuracy scoring.
-# Practice/quali sessions run the scraper + post-window health check ONLY, to
-# confirm timing/scoring/telemetry are wired — no --record archive and no
-# headless predictor for those (both already gated to kind in
-# ("race", "sprint_race") elsewhere in this file).
-#
-# Race window is overridden to 480 min (8h) — the default "race" WINDOW_MIN
-# (210 min) is tuned for ~2.5h IMSA sprint races and would kill capture ~2h
-# before a 6h WEC race even finishes green, let alone covers red-flag/delay
-# slack.
-SCHEDULE: list = [
-    # (series, label, kind, start_datetime, window_min_override)
-    ("wec", "FP1",   "practice", _dt(7, 10, 10, 0),  None),
-    ("wec", "FP2",   "practice", _dt(7, 10, 14, 50), None),
-    ("wec", "FP3",   "practice", _dt(7, 11,  9, 10), None),
-    ("wec", "Quali+Hyperpole", "quali", _dt(7, 11, 13, 30), 105),
-    ("wec", "Race",  "race",     _dt(7, 12, 10, 30), 480),
-]
+# Event windows are loaded from --schedule; the example is a historical
+# São Paulo window to illustrate the format, not an active capture schedule.
 
 
 def _log(msg: str):
     line = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
     with _log_lock:
         print(line, flush=True)
-        with open(CONDUCTOR_LOG, "a") as f:
-            f.write(line + "\n")
+        _file_logger.info(line)
 
 
 def _lock_path(series: str) -> Path:
@@ -179,7 +139,7 @@ def _stop_proc(proc: "subprocess.Popen | None", name: str):
 def run_session(series: str, label: str, kind: str, start: datetime,
                  window_min_override: "int | None" = None):
     slug = f"{series}_{label}".lower().replace(" ", "_")
-    now = datetime.now()
+    now = datetime.now(start.tzinfo)
     launch_at = start - timedelta(minutes=START_BUFFER_MIN)
     window_min = window_min_override if window_min_override is not None else WINDOW_MIN[kind]
     stop_at = start + timedelta(minutes=window_min)
@@ -206,9 +166,9 @@ def run_session(series: str, label: str, kind: str, start: datetime,
     try:
         scraper_args = [PYTHON, "-u", str(SRC / SCRAPER[series])]
         if series == "wec":
-            record_path = DATA_DIR / f"wec_saopaulo_{slug}_{start:%Y%m%d}.jsonl.gz"
+            record_path = DATA_DIR / f"wec_{slug}_{start:%Y%m%d_%H%M}.jsonl.gz"
             scraper_args += ["--record", str(record_path)]
-        with open(scraper_log_path, "w") as slog:
+        with open(scraper_log_path, "a") as slog:
             scraper_proc = subprocess.Popen(
                 scraper_args,
                 cwd=str(ROOT), stdout=slog, stderr=subprocess.STDOUT,
@@ -219,7 +179,7 @@ def run_session(series: str, label: str, kind: str, start: datetime,
 
         if kind in ("race", "sprint_race"):
             pred_log_path = LOG_DIR / f"conductor_{slug}_predictor_{start:%Y%m%d}.log"
-            with open(pred_log_path, "w") as plog:
+            with open(pred_log_path, "a") as plog:
                 predictor_proc = subprocess.Popen(
                     [PYTHON, "-u", str(SRC / "headless_predictor.py"), "--series", series],
                     cwd=str(ROOT), stdout=plog, stderr=subprocess.STDOUT,
@@ -227,9 +187,44 @@ def run_session(series: str, label: str, kind: str, start: datetime,
             _track(predictor_proc)
             _log(f"  headless predictor pid={predictor_proc.pid} -> {pred_log_path}")
 
-        remaining = (stop_at - datetime.now()).total_seconds()
-        _log(f"  running until {stop_at:%H:%M} ({remaining/60:.0f} min)")
-        time.sleep(max(0.0, remaining))
+        restarts = {"scraper": 0, "predictor": 0}
+        last_warning = 0.0
+        while datetime.now(start.tzinfo) < stop_at:
+            for name, proc, log_path in (("scraper", scraper_proc, scraper_log_path),
+                                         ("predictor", predictor_proc, pred_log_path if predictor_proc else None)):
+                if proc is None:
+                    continue
+                if proc.poll() is not None:
+                    if restarts[name] >= 3:
+                        raise RuntimeError(f"{name} failed after 3 restarts (exit {proc.returncode})")
+                    restarts[name] += 1
+                    _untrack(proc)
+                    _log(f"  restarting {name}, attempt {restarts[name]}/3")
+                    with open(log_path, "a") as output:
+                        replacement = subprocess.Popen(proc.args, cwd=str(ROOT), stdout=output, stderr=subprocess.STDOUT)
+                    _track(replacement)
+                    if name == "scraper":
+                        scraper_proc = replacement
+                        _write_lock(series, replacement.pid)
+                    else:
+                        predictor_proc = replacement
+            if datetime.now(start.tzinfo) >= start and time.monotonic() - last_warning > 60:
+                last_warning = time.monotonic()
+                try:
+                    import sqlite3
+                    from poller import timestamp_age
+                    with sqlite3.connect(str(DATA_DIR / "race.db")) as conn:
+                        oid = calculator.latest_session(conn, series=series)
+                        stamp = conn.execute("SELECT MAX(timing_updated_at) FROM standings_current WHERE session_oid=?", (oid,)).fetchone()[0]
+                        status = conn.execute("SELECT is_finished FROM session_status WHERE session_oid=?", (oid,)).fetchone()
+                    age = timestamp_age(stamp)
+                    if (not status or not status[0]) and (age is None or age > 120):
+                        _log(f"  acquisition warning: timing age {age}")
+                        if (datetime.now(start.tzinfo) - start).total_seconds() > 300 and (age is None or age > 300):
+                            _stop_proc(scraper_proc, "stalled scraper")
+                except sqlite3.Error as exc:
+                    _log(f"  acquisition health unavailable: {exc}")
+            time.sleep(min(2, max(0, (stop_at - datetime.now(start.tzinfo)).total_seconds())))
 
     except Exception as e:
         _log(f"  ⚠ ERROR during {series} {label}: {e}")
@@ -273,9 +268,18 @@ def run_session(series: str, label: str, kind: str, start: datetime,
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--test-now", action="store_true",
-                    help="ignore SCHEDULE; run one short fake IMSA session "
+                    help="ignore the schedule; run one short fake IMSA session "
                          "starting ~1 min from now to smoke-test the whole cycle")
+    ap.add_argument("--schedule", type=Path, default=ROOT / "config" / "weekend_schedule.json")
     args = ap.parse_args()
+    LOG_DIR.mkdir(exist_ok=True)
+    DATA_DIR.mkdir(exist_ok=True)
+    from runtime import prune_logs
+    prune_logs("conductor")
+    _file_logger.setLevel(logging.INFO)
+    _file_logger.propagate = False
+    _file_logger.addHandler(RotatingFileHandler(CONDUCTOR_LOG, maxBytes=5 * 1024 * 1024,
+                                               backupCount=3, encoding="utf-8"))
 
     def _shutdown(signum, _frame):
         # Runs in the main thread regardless of which session-thread is mid
@@ -314,14 +318,18 @@ def main():
         signal.signal(sig, _shutdown)
 
     if args.test_now:
-        start = datetime.now() + timedelta(minutes=1)
+        start = datetime.now().astimezone() + timedelta(minutes=1)
         schedule = [("imsa", "DryRun", "practice", start, None)]
         WINDOW_MIN["practice"] = 2   # shrink the window for a fast test
         global START_BUFFER_MIN
         START_BUFFER_MIN = 1
         _log("TEST MODE: one short IMSA dry-run session, ~1 min from now")
     else:
-        schedule = SCHEDULE
+        from event_schedule import load_schedule
+        try:
+            schedule = load_schedule(args.schedule)
+        except (OSError, ValueError, KeyError) as exc:
+            ap.error(f"invalid schedule: {exc}; copy config/weekend_schedule.example.json and set the event windows")
 
     _log(f"conductor starting, {len(schedule)} session(s) scheduled")
     threads = []

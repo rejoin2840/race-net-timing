@@ -14,7 +14,7 @@ const noNet = {
   catchInLaps: null, strategyNote: null,
   fuelLapsLeft: null, mustPitLap: null,
   nextStopMs: null, nextStopStdMs: null, classLeaderStopsLeft: null,
-  netUpdatedAt: null,
+  netUpdatedAt: pollerIso(),
   pitEvents: [],
 };
 
@@ -26,7 +26,7 @@ const noLapData = { lastLapMs: null, bestLapMs: null, fuelPct: null, stintLaps: 
 // A function, not a constant: timestamps must be minted per tick or the whole
 // mock board ages past the 12s stale guard and every NET cell greys out.
 export const buildMockPayload = (): RowsPayload => ({
-  session: { flag: 'GF', lap: 23, isRunning: true, ageS: 1.2,
+  session: { oid: 'mock', mode: 'mock', sessionType: 'RACE', flag: 'GF', lap: 23, isRunning: true, ageS: 1.2,
              finalType: 'BY_TIME', remainingS: 9252, finalLaps: null, isFinished: false },
   rcMessages: [
     { ts: Date.now() - 90000,  message: '#60 - Drive Through Penalty - Pit Lane Speeding', tier: 2, kind: 'penalty', detectedAt: pollerIso(90000) },
@@ -71,7 +71,7 @@ export const buildMockPayload = (): RowsPayload => ({
           projectedFinish: 4, fuelDue: 'due', catching: null, catchInLaps: null, strategyNote: null,
           fuelLapsLeft: 2, mustPitLap: 48,
           nextStopMs: 48800, nextStopStdMs: 1100, classLeaderStopsLeft: 0,
-          netUpdatedAt: pollerIso(60_000),  // stale on purpose — demos the grey-NET guard
+          netUpdatedAt: pollerIso(),
           pitEvents: [{ stop: 1, lap: 10, flag: 'GF', durationMs: 48700 }, { stop: 2, lap: 25, flag: 'GF', durationMs: 48900 }] },
         { car: '93', pos: 5, driver: 'HEISTAND, Ryan',    team: 'Racers Edge Motorsports', gapMs: 78234,  laps: 46, trackStatus: 'OUT_LAP', stops: 2, isRunning: true,
           lastLapMs: null, bestLapMs: 77890, fuelPct: 49, stintLaps: 13,

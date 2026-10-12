@@ -53,7 +53,7 @@ SHORT_STINT_LAPS = 20   # a stop after ≤ this many laps is a splash / penalty 
 
 def eval_stop_time(conn, oid):
     stops = conn.execute(
-        """SELECT car_number, pit_lap, stop_duration_ms, flag FROM pit_events
+        """SELECT car_number, pit_lap, stop_duration_ms, flag, pit_entry_hour_ms FROM pit_events
              WHERE session_oid=? AND stop_duration_ms IS NOT NULL AND pit_lap IS NOT NULL
              ORDER BY car_number, stop_number""", (oid,)).fetchall()
     buckets = {k: ([], []) for k in
@@ -63,14 +63,15 @@ def eval_stop_time(conn, oid):
         buckets[key][0].append(err); buckets[key][1].append(bias)
 
     prev_pit_lap = {}
-    for car, pit_lap, actual, flag in stops:
+    for car, pit_lap, actual, flag, entry_ts in stops:
         stint = pit_lap - prev_pit_lap.get(car, 0)
         prev_pit_lap[car] = pit_lap
         pred = conn.execute(
             """SELECT next_stop_ms FROM predictions
-                 WHERE session_oid=? AND car_number=? AND session_lap < ?
+                 WHERE session_oid=? AND car_number=? AND
+                       ((? IS NOT NULL AND ts < ?) OR (? IS NULL AND laps < ?))
                        AND next_stop_ms IS NOT NULL
-                 ORDER BY ts DESC LIMIT 1""", (oid, car, pit_lap)).fetchone()
+                 ORDER BY ts DESC LIMIT 1""", (oid, car, entry_ts, entry_ts, entry_ts, pit_lap)).fetchone()
         if pred and pred[0]:
             err = abs(pred[0] - actual)
             bias = pred[0] - actual
@@ -104,6 +105,15 @@ def eval_stop_time(conn, oid):
 
 # ── metric 2: net-position predictive power ─────────────────────────────────
 def eval_net_position(conn, oid):
+    # Classification is scoring truth only; never exposed to analyse().
+    try:
+        finals = dict(conn.execute("SELECT car_number, pos_in_class FROM final_classification WHERE session_oid=?", (oid,)))
+    except sqlite3.Error:
+        finals = {}
+    if not finals:
+        status = conn.execute("SELECT is_finished FROM session_status WHERE session_oid=?", (oid,)).fetchone()
+        if status and status[0]:
+            finals = dict(conn.execute("SELECT car_number, pos_in_class FROM standings_current WHERE session_oid=? AND pos_in_class > 0", (oid,)))
     rows = conn.execute(
         """SELECT ts, car_number, net_position, pos_in_class, projected_finish
              FROM predictions
@@ -115,14 +125,16 @@ def eval_net_position(conn, oid):
 
     # ── HEADLINE: does projected_finish — the forecast the dashboard actually
     # shows — predict the FINAL classification better than current track
-    # position? Scored over every prediction vs each car's last observed
-    # pos_in_class. Raw net_position is kept alongside as the ingredient
+    # position? Scored against the verified terminal classification.
+    # The last prediction sample is never used as finishing truth. Raw net_position is kept alongside as the ingredient
     # diagnostic: it is the pit-cycle-adjusted running order, and scoring it
     # as a finish forecast (the pre-2026-07 headline) penalised a number the
     # product never ships as its prediction.
     fnet, ftrack, fproj, fn, pn = 0.0, 0.0, 0.0, 0, 0
     for car, seq in by_car.items():
-        final = seq[-1][2]                     # last pos_in_class = finishing spot
+        final = finals.get(car)
+        if final is None:
+            continue
         for _ts, net, pic, proj in seq:
             fnet   += abs(net - final)
             ftrack += abs(pic - final)
@@ -339,10 +351,10 @@ def report(ctx, stop, net, catch) -> str:
         L.append("  STOP TIME    (no completed stops with a prior prediction yet)")
     if net:
         if net.get("proj_mae") is not None:
-            pv = "FORECAST WINS" if net["proj_improvement_pct"] > 0 else "track wins"
+            pv = "FORECAST WINS" if (net["proj_improvement_pct"] or 0) > 0 else "track wins"
             L.append(f"  FINISH       n={net['proj_n']:<3}  proj MAE {net['proj_mae']:.2f}  "
                      f"track {net['track_mae']:.2f}  "
-                     f"→ {net['proj_improvement_pct']:+.0f}%  [{pv}]")
+                     f"→ {(net['proj_improvement_pct'] or 0):+.0f}%  [{pv}]")
         L.append(f"    net (diag) n={net['n']:<3}  net MAE {net['net_mae']:.2f}  "
                  f"track {net['track_mae']:.2f}  → {net['improvement_pct']:+.0f}%"
                  f"  (pit-cycle running order, not the shipped forecast)")

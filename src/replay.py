@@ -27,8 +27,8 @@ Field mapping notes
     elapsed WITHIN a class, so leader-relative seconds reconstruct same-lap gaps.
     Lapped cars get a lap-scaled elapsed so class order stays right.
   • Pit stops come from the message log (authoritative durations).
-  • Clock: start_time_s is set to (wall_now − frame elapsed) each cycle so the
-    calculator's wall-clock remaining math lands on the replay's remaining time.
+  • Clock: recorded frame time drives the calculator explicitly. The session
+    start time is reconstructed from recorded time minus elapsed time.
 """
 
 import argparse
@@ -118,10 +118,10 @@ def _laptime_ms(v) -> Optional[int]:
 # ── DB setup (shared between batch and stream) ──────────────────────────────
 
 def _init_db(replay: timing71.Replay, db_path: str, oid: str):
-    """Create/open the DB, write session + entries + pit_events.
+    """Create/open the DB and seed only initially observed entries.
 
     Returns (db, col, lap_at, flag_at, pit_in) ready for frame iteration.
-    pit_in: dict[car] → sorted [(in_ts_ms, pit_lap)]
+    pit_in: chronological pit-entry and pit-exit cursor
     """
     db = RaceDB(db_path)
     # Wipe any stale rows for this session BEFORE ingesting — a prior stream that
@@ -130,6 +130,7 @@ def _init_db(replay: timing71.Replay, db_path: str, oid: str):
     # detection and laps-down. Start every stream from a clean session.
     for tbl in ("standings_current", "session_status", "session_entry",
                 "pit_events", "predictions", "race_control", "driver_changes",
+                "net_analysis", "rail_battles", "session_computed", "final_classification", "session_clock",
                 "lap_history", "caution_periods"):
         try:
             db.conn.execute(f"DELETE FROM {tbl} WHERE session_oid=?", (oid,))
@@ -151,27 +152,13 @@ def _init_db(replay: timing71.Replay, db_path: str, oid: str):
     # IMSA archives always have a Class column, so this stays None for now.
     default_class = None
 
-    # ── entries ──────────────────────────────────────────────────────────────
-    finals    = replay.final_cars()
-    stops_by  = replay.pit_stops()
-    lineup: dict[str, set] = {}
-    for car, stops in stops_by.items():
-        for s in stops:
-            for nm in (s.driver_from, s.driver_to):
-                if nm:
-                    lineup.setdefault(car, set()).add(nm)
-    for _ts, fr in (replay.full_frames[:1] + replay.full_frames[-1:]):
-        for row in fr.get("cars", []):
-            num = row[col["Num"]]; drv = timing71._cell(row[col["Driver"]])
-            if drv:
-                lineup.setdefault(num, set()).add(drv)
-    for car, fin in finals.items():
-        raw_cls = fin.get("class") or default_class
-        norm_cls = raw_cls.upper() if isinstance(raw_cls, str) else raw_cls
-        db.upsert_entry(car, {
-            "class": norm_cls, "team": None, "vehicle": None,
-            "name": None, "drivers": sorted(lineup.get(car, set())),
-        })
+    # Seed only entries actually visible in the first frame. The archive's
+    # final field and future driver lineup must never reach the calculator.
+    for row in (replay.full_frames[0][1].get("cars", []) if replay.full_frames else []):
+        car = str(row[col["Num"]])
+        raw_cls = row[col["Class"]] if "Class" in col else default_class
+        db.upsert_entry(car, {"class": str(raw_cls or "ALL").upper(),
+                              "drivers": None})
     db.commit()
 
     # ── per-car lap timeline ──────────────────────────────────────────────────
@@ -188,7 +175,7 @@ def _init_db(replay: timing71.Replay, db_path: str, oid: str):
         if not seq:
             return None
         i = bisect.bisect_right([t for t, _ in seq], ts_ms) - 1
-        return seq[max(0, i)][1]
+        return seq[i][1] if i >= 0 else None
 
     # ── flag timeline ─────────────────────────────────────────────────────────
     flags    = replay.flag_timeline()
@@ -198,36 +185,55 @@ def _init_db(replay: timing71.Replay, db_path: str, oid: str):
         if not flags:
             return "GF"
         i   = bisect.bisect_right(flag_ts_, ts_ms) - 1
-        raw = flags[max(0, i)][1]
+        raw = flags[i][1] if i >= 0 else "none"
         # IMSA's flagState uses "fcy"/"yellow"; some archives use "caution".
-        return "FCY" if "fcy" in raw or "yellow" in raw or "caution" in raw else "GF"
+        return {"green": "GF", "chequered": "CH", "checkered": "CH",
+                "red": "RF", "safetycar": "SC", "vsc": "VSC"}.get(
+                    raw.lower(), "FCY" if any(x in raw.lower() for x in ("fcy", "yellow", "caution")) else "?")
 
-    # ── pit events ─────────────────────────────────────────────────────────────
-    stop_no: dict[str, int] = {}
-    pit_in:  dict[str, list] = {}
-    for car, stops in stops_by.items():
-        for s in sorted(stops, key=lambda x: x.in_ts or x.out_ts or 0):
-            in_ts = s.in_ts or s.out_ts
-            if in_ts is None:
-                continue
-            n = stop_no.get(car, 0) + 1
-            stop_no[car] = n
-            pit_lap = lap_at(car, in_ts)
-            pit_in.setdefault(car, []).append((in_ts, pit_lap))
-            dur_ms = int(s.duration_s * 1000) if s.duration_s else None
-            db.conn.execute(
-                """INSERT OR IGNORE INTO pit_events
-                     (session_oid, car_number, stop_number, pit_lap, session_lap,
-                      flag, pit_entry_hour_ms, stop_duration_ms, total_pit_ms, detected_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (oid, car, n, pit_lap, pit_lap, flag_at(in_ts),
-                 in_ts, dur_ms, None, _now()),
-            )
-            if s.is_driver_change and s.driver_to:
-                db.record_driver(car, s.driver_to, pit_lap)
-    db.commit()
+    return db, col, lap_at, flag_at, _ReplayEvents(replay, lap_at, flag_at)
 
-    return db, col, lap_at, flag_at, pit_in
+
+class _ReplayEvents:
+    """Expose stop state at entry and duration only at the observed exit."""
+    def __init__(self, archive, lap_at, flag_at):
+        self.lap_at, self.flag_at = lap_at, flag_at
+        self.events = []
+        self.completed = {}
+        self.cursor = 0
+        for car, stops in archive.pit_stops().items():
+            for n, stop in enumerate(sorted(stops, key=lambda x: x.in_ts or x.out_ts or 0), 1):
+                if stop.in_ts is not None:
+                    self.events.append((stop.in_ts, 0, str(car), n, stop))
+                if stop.out_ts is not None:
+                    self.events.append((stop.out_ts, 1, str(car), n, stop))
+        self.events.sort(key=lambda e: e[:4])
+
+    def get(self, car, default=None):
+        return self.completed.get(str(car), default)
+
+    def advance(self, db, ts_ms):
+        while self.cursor < len(self.events) and self.events[self.cursor][0] <= ts_ms:
+            ts, exiting, car, n, stop = self.events[self.cursor]
+            self.cursor += 1
+            entry = stop.in_ts if stop.in_ts is not None else ts
+            lap = self.lap_at(car, entry)
+            if not exiting:
+                db.conn.execute("""INSERT OR IGNORE INTO pit_events
+                    (session_oid, car_number, stop_number, pit_lap, session_lap,
+                     flag, pit_entry_hour_ms, detected_at)
+                    VALUES (?,?,?,?,?,?,?,?)""",
+                    (db.session_oid, car, n, lap, lap, self.flag_at(entry), entry, _now()))
+            else:
+                duration = int(stop.duration_s * 1000) if stop.duration_s is not None else None
+                db.conn.execute("""INSERT INTO pit_events
+                    (session_oid, car_number, stop_number, pit_lap, session_lap,
+                     flag, pit_entry_hour_ms, stop_duration_ms, detected_at)
+                    VALUES (?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(session_oid, car_number, stop_number) DO UPDATE SET
+                      stop_duration_ms=excluded.stop_duration_ms""",
+                    (db.session_oid, car, n, lap, lap, self.flag_at(entry), entry, duration, _now()))
+                self.completed.setdefault(car, []).append((ts, lap))
 
 
 def _rc_feed(replay: timing71.Replay):
@@ -259,6 +265,8 @@ def _rc_feed(replay: timing71.Replay):
 def _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at):
     """Write one replay frame into the DB. Returns elapsed_s or None."""
     ts_ms   = ts * 1000
+    if hasattr(pit_in, "advance"):
+        pit_in.advance(db, ts_ms)
     sess    = fr.get("session") or {}
     elapsed_s = sess.get("timeElapsed")
     remain_s  = sess.get("timeRemain")
@@ -273,8 +281,8 @@ def _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at):
         status = {
             "currentFlag": flag_at(ts_ms),
             "currentLap": current_lap,
-            "isSessionRunning": True, "isFinished": False,
-            "startTime": time.time() - elapsed_s, "stoppedSeconds": 0,
+            "isSessionRunning": flag_at(ts_ms) != "CH", "isFinished": flag_at(ts_ms) == "CH",
+            "startTime": ts - elapsed_s, "stoppedSeconds": 0,
         }
         if remain_s is not None:
             status["finalType"] = "BY_TIME"
@@ -317,7 +325,7 @@ def _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at):
     default_class = "ALL" if cls_i is None else None
 
     for r in rows:
-        car  = r[col["Num"]]
+        car  = str(r[col["Num"]])
         laps = int(timing71._num(r[col["Laps"]]) or 0)
         cls_raw = r[cls_i] if cls_i is not None else default_class
         cls  = cls_raw.upper() if isinstance(cls_raw, str) else cls_raw
@@ -377,18 +385,38 @@ def _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at):
             "tireCompound": tire_compound,
             "tireAge": tire_age,
         }
-        db.ingest_car(car, d, standing, laps, flag_at(ts_ms), raw_data=None)
+        db.upsert_entry(car, {"class": cls, "name": timing71._cell(r[col["Driver"]]),
+                              "drivers": None})
+        db.ingest_car(car, d, standing, laps, flag_at(ts_ms), raw_data=None,
+                      telemetry_observed=fuel_pct is not None)
 
         # keep the entry's current driver fresh per frame (matches the live feed:
         # calculator reads session_entry.name as the in-car driver). The frame's
         # Driver cell is "LAST, First" and changes at driver swaps.
         drv = timing71._cell(r[col["Driver"]])
         if drv:
+            db.record_driver(car, drv, current_lap)
             db.conn.execute(
                 "UPDATE session_entry SET name=? WHERE session_oid=? AND car_number=?",
                 (drv, oid, car))
 
+    db.conn.execute("""CREATE TABLE IF NOT EXISTS session_clock
+        (session_oid TEXT PRIMARY KEY, now_s REAL, mode TEXT)""")
+    db.conn.execute("INSERT OR REPLACE INTO session_clock VALUES (?,?,?)", (oid, ts, "replay"))
     return elapsed_s
+
+
+def _finish(db, archive, oid):
+    if not archive.complete:
+        return
+    db.conn.execute("""CREATE TABLE IF NOT EXISTS final_classification
+        (session_oid TEXT, car_number TEXT, pos_in_class INTEGER,
+         PRIMARY KEY(session_oid, car_number))""")
+    for car, fin in archive.final_cars().items():
+        if fin.get("pic") is not None:
+            db.conn.execute("INSERT OR REPLACE INTO final_classification VALUES (?,?,?)",
+                            (oid, str(car), int(fin["pic"])))
+    db.commit()
 
 
 # ── batch mode ───────────────────────────────────────────────────────────────
@@ -406,11 +434,12 @@ def build(replay: timing71.Replay, db_path: str, oid: str = "replay",
         elapsed_s = _ingest_frame(db, oid, ts, fr, col, pit_in, flag_at)
         db.conn.commit()
         if elapsed_s is not None and elapsed_s - last_log >= cadence_s:
-            ctx, cars = calculator.analyse(db.conn, oid)
+            ctx, cars = calculator.analyse(db.conn, oid, now_s=ts)
             n_logged += predictor.log_cycle(db.conn, oid, ctx, cars, int(ts * 1000))
             db.conn.commit()
             last_log = elapsed_s
 
+    _finish(db, replay, oid)
     db.close()
     stops_by = replay.pit_stops()
     print(f"replay built → {db_path}")
@@ -428,6 +457,8 @@ def stream(replay: timing71.Replay, db_path: str, oid: str = "stream",
     Ctrl-C at any time; predictions already logged are preserved.
     Evaluator runs automatically at the end and the report is saved to logs/.
     """
+    from runtime import IngestionLock
+    lease = IngestionLock(db_path, _detect_series(replay))
     db, col, _lap_at, flag_at, pit_in = _init_db(replay, db_path, oid)
     predictor.ensure(db.conn)
     rc_feed = _rc_feed(replay)
@@ -467,7 +498,7 @@ def stream(replay: timing71.Replay, db_path: str, oid: str = "stream",
             db.conn.commit()
 
             if elapsed_s is not None and elapsed_s - last_log >= cadence_s:
-                ctx, cars = calculator.analyse(db.conn, oid)
+                ctx, cars = calculator.analyse(db.conn, oid, now_s=ts)
                 n_logged += predictor.log_cycle(
                     db.conn, oid, ctx, cars, int(ts * 1000))
                 db.conn.commit()
@@ -489,7 +520,10 @@ def stream(replay: timing71.Replay, db_path: str, oid: str = "stream",
         interrupted = True
         print("\n\n  [interrupted — flushing DB]")
 
+    if not interrupted:
+        _finish(db, replay, oid)
     db.close()
+    lease.close()
     print(f"\n\n{'─'*60}")
     print(f"  Stream {'interrupted' if interrupted else 'complete'}.")
     print(f"  frames written: {n_frames}  predictions logged: {n_logged}")
@@ -552,23 +586,6 @@ def main():
     if args.stream:
         db_path = args.db or os.path.join(ROOT, "data", "race.db")
         oid     = args.oid or "stream"
-        # clear the previous stream session from the DB so the dashboard shows
-        # fresh data, but leave other sessions (live race history) intact.
-        if os.path.exists(db_path):
-            try:
-                conn = sqlite3.connect(db_path)
-                conn.execute("PRAGMA busy_timeout=10000")
-                conn.execute("DELETE FROM standings_current WHERE session_oid=?", (oid,))
-                conn.execute("DELETE FROM session_status   WHERE session_oid=?", (oid,))
-                conn.execute("DELETE FROM sessions         WHERE session_oid=?",  (oid,))
-                conn.execute("DELETE FROM pit_events       WHERE session_oid=?", (oid,))
-                conn.execute("DELETE FROM predictions      WHERE session_oid=?", (oid,))
-                conn.execute("DELETE FROM entries          WHERE session_oid=?", (oid,))
-                conn.commit()
-            except Exception:
-                pass
-            finally:
-                conn.close()
         r = timing71.load(args.zip)
         stream(r, db_path, oid=oid, cadence_s=args.cadence, speed=args.speed)
     else:

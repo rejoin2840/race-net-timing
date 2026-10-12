@@ -37,3 +37,8 @@ project_bundle.txt
 ui/node_modules/
 ui/dist/
 ui/.vite/
+
+# Local connection details; only the example is public
+config/telemetry_feed.json
+config/weekend_schedule.json
+*.ingestion.lock

@@ -68,6 +68,14 @@ class Replay:
                                 # WeatherTech SportsCar Championship"), distinct from
                                 # `name` which is manifest.description (the event title)
 
+    @property
+    def complete(self) -> bool:
+        """Explicit terminal flag, not elapsed span or a zero clock alone."""
+        if not self.full_frames:
+            return False
+        flag = (self.full_frames[-1][1].get("session") or {}).get("flagState", "")
+        return str(flag).lower() in ("chequered", "checkered", "finished")
+
     # ── flag timeline ────────────────────────────────────────────────────────
     def flag_timeline(self) -> list:
         """[(ts_ms, flagState)] at each change."""

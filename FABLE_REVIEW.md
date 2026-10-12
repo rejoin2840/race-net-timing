@@ -1,5 +1,7 @@
 # Fable code & architecture review — 2026-07-04
 
+> Snapshot as of 2026-07-04 — current status: [BACKLOG.md](BACKLOG.md).
+
 Two-tier review run by Claude Fable 5 ahead of São Paulo race week (07-12),
 per owner's call: deep race-day-path review first, whole-repo architecture pass
 second. Fix policy: race-day bugs fixed immediately (check.sh-gated), all other

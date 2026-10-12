@@ -11,6 +11,27 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-10-12 — Integrated readiness review; roadmap preserved.** Implementation
+  on `feature/race-readiness` adds Epic 11 and corrective follow-ups below. Reproductions:
+  Timing71 preloaded future stop durations/driver changes; finish scoring inferred truth
+  from predictions; missing archives did not fail validation; identical repeated penalties
+  collapsed and rescinds were ignored; computation timestamps hid stale timing; session
+  buffers persisted; calm-board launch did not reliably log predictions. Web WYWA used
+  NET leadership, contrary to the approved retrospective direction.
+  Causal replay now exposes entries, driver changes and pit events chronologically,
+  uses recorded time, and scores against terminal classification in a scorer-only table.
+  Terminal feed classification is verified by the capture's finish state; independent
+  steward-amended official results are not available in these inputs. Do not claim that
+  limitation is resolved. Gzip integrity alone is not evidence of race completion.
+  **Historical numerical evidence:** prior replay-based accuracy, calibration and DUE
+  studies require revalidation where affected. Preserve their decisions and original
+  results; no rejected modeling idea is reopened without new corrected evidence.
+  No model constants were tuned. The corrected 16-input baseline is linked below.
+  Completed milestones remain complete. Live confidence, VET/DUE, WYWA usefulness,
+  recovery and web/PyQt parity acceptance remain pending at a real event. PyQt stays
+  primary; Electron remains the approved display direction. No engine-service rewrite,
+  stack reconsideration, multi-user expansion, practice feature work or video integration.
+
 - **2026-07-21 — "DUE TO PIT" fires too early (pain point #2): ROOT-CAUSED; FIXED
   for WEC, NO CLEAN LEVER for IMSA.** DUE is display-only (the stint-path
   `fuel_due`; `calculator._derive_class`) — net/projected_finish never read it,
@@ -372,6 +393,9 @@ tune). top pain points, which shape acceptance criteria everywhere:
 ## Epics
 
 ### Epic 0 — Docs & hygiene ✅ 2026-07-02
+
+**2026-10-12 corrective follow-up (implemented on feature branch):** Codex global/project instructions; Python 3.12 setup/CI alignment; web behavior/type/build gates; living-reference and dated-snapshot pointers. Original completion preserved.
+
 README, this file, stale docstrings fixed, `requirements.txt` pinned (signalrcore),
 `ARCHIVE_DIR` config key replacing the hardcoded `~/Downloads`, `check.sh` gate,
 `test_catchup.py` main runner added.
@@ -386,6 +410,9 @@ Energy Tank % — the WEC analog of IMSA fuel telemetry; to confirm from a live 
 Next WEC race: Rolex 6H São Paulo 2026-07-12.
 
 ### Epic 8 — WEC live pipeline ✅ 2026-07-12 (race captured end-to-end)
+
+**2026-10-12 bounded follow-up (implemented on feature branch, depends on Epic 11):** Validate external local schedules, timezones, duration and buffered overlaps; supervise failed children with bounded retries; prevent competing same-series ingestion writers; separate import from logging setup and retain bounded diagnostic logs. Complete-capture validation requires a terminal race state and zero processing errors. Live supervisor/recovery confirmation remains pending.
+
 
 **Outcome:** the 6H São Paulo race was captured complete (155k frames, zero dispatch
 errors) and the capture drove the post-race calibration cycle (PRs #10–#13: replayer,
@@ -512,6 +539,9 @@ Class colors resolve from `ctx.profile` at build time (`timing_table.py:72`); th
 module-level IMSA dicts remain only as a fallback for callers without a live context.
 
 ### Epic 1 — Confidence UX + IMSA live validation
+
+**Readiness dependency — Epic 11:** Shipped confidence UX stays shipped. Extend 1b to source/computation/renderer freshness, reconnect recovery, class-leader gaps and NET continuity through a full live pit cycle. Automated causal/freshness tests do not close live acceptance.
+
 - **1a ✅ 2026-07-03 (commit 7dda651):** `predict_stop` returns scope (car/class/field/
   default); calm board paints ±Ns after NET overlay, header shows "LOW PIT DATA" when
   model is thin; dense table tooltip explains non-car scope. Zero regression (net 3.00 /
@@ -523,6 +553,9 @@ module-level IMSA dicts remain only as a fallback for callers without a live con
   match broadcast.
 
 ### Epic 2 — IMSA + WEC fuel telemetry (biggest accuracy lever; do it right the first time)
+
+**Readiness dependency — Epic 11:** IMSA capture → sanity-check → adapter sequence remains unchanged. Preserve shipped WEC VET and revised DUE timing; confirm both live. Re-run affected replay-based fuel/DUE calibration studies with chronological inputs before using their metrics for further tuning. Source timing and tank telemetry now have distinct freshness stamps; absent/stale tank data cannot keep a fresh DUE signal.
+
 
 **IMSA side** — capture blocked on next IMSA practice/qualifying session:
 - Capture with `src/telemetry_capture.py` at next IMSA practice. **First verify owner's
@@ -587,6 +620,9 @@ consume + display these new streams — see the 2026-07-04 decisions-log entry
 ("race-day-only tool"). Not a vehicle for testing catch-up/battles/podium/etc.
 
 ### Epic 3 — Penalty parsing hardening ✅ 2026-07-03
+
+**2026-10-12 corrective follow-up (implemented on feature branch, depends on Epic 11):** Timestamp/message event identity distinguishes repeated equal penalties from duplicate delivery. Chronological amendments replace terms and rescinds remove uniquely matched events; ambiguous reversals retain carry with a visible unconfirmed note. Number padding cannot split carry. Reproductions cover repetition, duplicates, amendments, rescinds and ambiguity; original parser milestone stays complete.
+
 - Fixture library from real race-control text: the 66 captured Sahlen's 6H rows + message
   logs inside the 6 IMSA Timing71 archives.
 - Expand `tests/test_penalties.py` with race-sourced cases; UI shows parsed penalties
@@ -610,6 +646,9 @@ consume + display these new streams — see the 2026-07-04 decisions-log entry
   break net.
 
 ### Epic 7 — WYWA & calm-board polish *(in progress 2026-07-03)*
+
+**Readiness dependency — Epic 11 / Epic 10:** Web summaries now use actual on-track P1 and reset on session changes. Retain real-race judgment of ranking, usefulness and time to re-orient; automated narrative tests are support, not acceptance. NET projections remain excluded from WYWA.
+
 
 **Done (2026-07-03):**
 - ✅ `projected_finish` visible home: PROJECTED PODIUM rail section (commit ce13669),
@@ -827,6 +866,9 @@ Until then: cosmetic UI work frozen (see 07-04 decision).
 
 ### Epic 10 — Web board content migration *(built + merged 2026-07-15, PR #24; AC 1–5 shipped, AC 6 exit test calendar-blocked)*
 
+**2026-10-12 parity correction (implemented on feature branch, depends on Epic 11):** Pin all SQLite reads to one session in a consistent transaction; carry source provenance; independently age transport and computation in the renderer; visibly suppress stale strategy; reset selection/WYWA on session changes; narrate track leadership. AC 1–5 milestones preserved. AC 6 live side-by-side exit test and deferred usefulness/ranking decisions remain pending.
+
+
 **Status:** AC 1–5 implemented (Sonnet build + Fable review; 4 confirmed review
 findings fixed pre-merge — see PR #24 comment for the table). Remaining before
 close: **AC 6 exit test** (web board alongside PyQt6 at the next live event) and
@@ -944,6 +986,36 @@ Epic 9 identity metric: **seconds to re-orient after stepping away**.
 Non-goals: broadcast-video work (still tiebreaker-parked), multi-user anything,
 dense-timing-table port (stays a PyQt6 escape hatch until proven needed).
 
+### Epic 11 — Validation integrity and race-state reliability
+
+**Owner:** `feature/race-readiness` (implementation complete; live acceptance pending).
+Cross-epic dependency; this is part of the existing roadmap, not a second roadmap.
+
+- **11a — Trustworthy replay/evaluation (implemented on feature branch):** Chronological pit entry,
+  observed exit duration and driver changes; scorer-only final classification; explicit
+  replay clock; input SHA256, configuration and source/commit identities in results.
+  Required archives, processing errors, incomplete terminal state, invalid/missing
+  metrics, changed input/config identity and baseline breaches now fail the gate.
+  Corrected baseline rebuilt across all 16 inputs; see regression section.
+- **11b — Race-state reliability (implemented on feature branch):** Separate timing/telemetry/
+  computation freshness; suppress unavailable strategy and stale fuel; renderer ages
+  independently when updates stop. Session changes clear delay buffers, history and
+  latches. Shared poller transaction publishes coherent derived data and records fresh
+  race predictions during normal calm-board launch, without a second logger process.
+  Invalid configuration edits retain the last good values and show an error. Lap-limited
+  stops use remaining scheduled distance. Epic 3 owns corrective penalty work.
+- **11c — Acceptance and remaining work:** Fast/full and WEC regression gates, web behavior/type/build checks, offscreen Qt
+  rendering and a complete accelerated Detroit stream passed locally. The stream
+  displayed 83 distinct lap states; browser drilldown rendered without console errors.
+  Automated tests cover bounded child restarts and causal/stale/session contracts. Real feed stalls/recovery, full live pit-cycle gap continuity,
+  WEC VET/DUE and live web/PyQt parity remain pending under Epics 1, 2, 7 and 10.
+  Local installed venv is Python 3.9; setup/CI now require 3.12. Local checks do not
+  establish CI-runtime parity until executed under 3.12. Capture completeness uses
+  terminal protocol state, not independent steward-amended final results.
+- **Order after these dependencies:** Existing Epic 1/2/7/10 live acceptance, then remaining
+  bounded operations/hygiene follow-ups. Seat-time obligations and speculative tuning
+  remain unscheduled; shipped driver/lap-latch work keeps its live caveats.
+
 ## Research items (unscheduled)
 
 - ✅ **WEC driver-change detection from the Griiip feed (shipped 2026-07-13, PR #16).**
@@ -994,24 +1066,52 @@ dense-timing-table port (stays a PyQt6 escape hatch until proven needed).
 
 ## Held-out / regression sets
 
-- **IMSA (7 complete archives, the default gate):** Daytona 24h, Petit Le Mans 10h,
-  Indy 6h, Monterey, Long Beach, Detroit, Chevy Grand Prix 2026 (added 07-13, PR #15;
-  no GTP that weekend — LMP2/GTD PRO/GTD only, and the set's best single-race result:
-  proj 1.36) — paths in `validate_races.py` under `ARCHIVE_DIR`.
-- **WEC (8 complete archives, `--wec` flag):** SP 2024, SP 2025, COTA 2025, Fuji 2025,
-  Bahrain 2025, Imola 2026, Qatar 2025, SP 2026 (T71 archive, added 07-13, PR #15) —
-  paths in `validate_races.py` WEC_RACES under `wec-archives/`. Le Mans 24h permanently
-  excluded. The SP 2026 Griiip live capture is ALSO in the set (WEC_CAPTURES, replayed
-  via `--replay-predict`); it scores worse than the T71 archive of the same race
-  (proj 3.16 vs 2.93) — feed-quality gap noted, unexplored.
-  **WEC baseline (re-run 2026-07-06 post Tier-3 fixes — supersedes the 07-05 numbers,
-  which predate the determinism + penalty-expiry fixes):** NET MAE 2.96–4.60,
-  TRK 2.01–4.20, CATCH% 84–100% (COTA is the one net-beats-track race, +11%).
-- Only complete run-to-chequered archives count; verify span + final flag before adding.
+- **IMSA:** 7 complete Timing71 archives (default gate), including Chevrolet GP 2026.
+- **WEC:** 8 complete Timing71 archives plus the São Paulo 2026 Griiip capture
+  (`--wec`); Le Mans remains excluded. Paths live in `validate_races.py`.
+- **Corrected baseline, 2026-10-12:** [data/validation_baseline.json](data/validation_baseline.json).
+  All 16 inputs verified terminal-complete; captured input/config/code identities and
+  scoring method retained. Finish MAE is class positions; lower is better. Per-race
+  rows below supersede prior numbers for current regression checks. Historical
+  decision-log figures and studies remain preserved, marked for revalidation above.
+
+| Input | Projected MAE | Track MAE | NET MAE |
+|---|---:|---:|---:|
+| 24 at Daytona | 3.06 | 3.05 | 3.26 |
+| Petit Le Mans | 2.09 | 2.05 | 2.50 |
+| Battle On The Bricks | 2.54 | 2.52 | 2.66 |
+| Monterey SportsCar Champio | 2.43 | 2.40 | 2.56 |
+| Long Beach | 2.72 | 2.72 | 3.31 |
+| Detroit Sports Car Classic | 1.97 | 1.96 | 2.34 |
+| Grand Prix | 1.37 | 1.36 | 2.02 |
+| São Paulo 2024 | 2.45 | 2.47 | 2.64 |
+| São Paulo 2025 | 2.03 | 2.01 | 2.27 |
+| Lone Star Le Mans | 4.06 | 4.04 | 4.28 |
+| 6 Hours of Fuji | 4.17 | 4.21 | 4.18 |
+| 8 Hours of Bahrain | 2.49 | 2.52 | 2.82 |
+| 6 Hours of Imola | 3.10 | 3.17 | 3.11 |
+| Qatar 1812km | 2.02 | 2.12 | 2.22 |
+| São Paulo 2026 Timing71 | 3.10 | 3.00 | 3.60 |
+| São Paulo 2026 live capture | 3.17 | 3.08 | 3.66 |
+
+NET does not beat track order on any input in this corrected run. The projected
+blend is close to track order and improves some WEC inputs modestly; this does not
+justify stronger blend weights or a new model. São Paulo 2026 capture vs Timing71
+projected MAE is 3.17 vs 3.10, so the historical 3.16 vs 2.93 comparison is superseded.
+DUE lead-time and other targeted studies need their own corrected re-runs; aggregate
+finish metrics cannot validate them.
+
+Baseline tolerances (bounded regression allowances, not accuracy targets): projected
+and NET MAE +0.10 positions, stop MAE +1000ms, catch hit rate −0.05; catch coverage must
+stay at least half of baseline. Input/config changes require an explicit baseline
+review. Missing required input or processing failure always fails. Refresh with
+`--all --write-baseline <new-file>`, review provenance/results, then deliberately replace
+the tracked baseline. Never refresh merely to make a failing change pass.
 
 ## Standing gates
 
 - Any calculator/replay/evaluator change → `./check.sh --full` (tests + IMSA suite).
 - WEC-specific changes → also run `python src/validate_races.py --wec`.
-- UI changes → offscreen render + `replay.py --stream` feel-test.
+- UI changes → `npm --prefix ui test`, typecheck and production build, offscreen render
+  + `replay.py --stream` feel-test; live AC 6 remains separate.
 - Finish-predictor changes → validated across ALL races, never a single archive.

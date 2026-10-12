@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Battle, CarRow, RcMessage, RowsPayload } from './types';
 import { buildMockPayload } from './mock';
+import { agePayload } from './health';
 import Board from './components/Board';
 import DetailPanel from './components/DetailPanel';
 import RightRail from './components/RightRail';
@@ -62,7 +63,13 @@ function fmtRcAge(ts: number | null, detectedAt: string | null): string {
 }
 
 export default function App() {
-  const [payload, setPayload]      = useState<RowsPayload | null>(null);
+  const [receivedPayload, setPayload] = useState<RowsPayload | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const payload = receivedPayload ? agePayload(receivedPayload, now) : null;
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   const [selectedCar, setSelected] = useState<{ car: CarRow; classCode: string } | null>(null);
   const [wywaSummary, setWywa]     = useState<WywaSummary | null>(null);
   // Type toggle (feel-test aid, deleted once a winner is picked): 'racing' =
@@ -124,7 +131,7 @@ export default function App() {
     // explainer video. ?wywa=1 also pops the "While you were away" card.
     const params = new URLSearchParams(location.search);
     const scene = params.get('scene');
-    if (scene) {
+    if (scene && import.meta.env.DEV) {
       const file = scene === 'fcy' ? 'fcy' : 'green';
       fetch(`/demo/${file}.json`).then((r) => r.json()).then((p) => {
         // Recorded frames carry the replay's wall-clock net_updated_at (minutes
@@ -133,6 +140,8 @@ export default function App() {
         const now = new Date().toISOString();
         for (const c of p.classes) for (const row of c.rows) row.netUpdatedAt = now;
         p.session.ageS = 1;
+        p.session.mode = 'mock';
+        p.updatedAt = Date.now();
         // Recorded RC rows carry the replay's ingest wall-clock (hours old by the
         // time we screenshot), which renders nonsense ages like "545m ago". Re-
         // stamp so the ticker/rail read live: newest ~now, older ones staggered.
@@ -171,7 +180,14 @@ export default function App() {
       const fresh = cls.rows.find((r) => r.car === selectedCar.car.car);
       if (fresh) { setSelected({ car: fresh, classCode: cls.code }); return; }
     }
-  }, [payload]);
+  }, [receivedPayload, now]);
+
+  useEffect(() => {
+    setSelected(null);
+    setWywa(null);
+    awayFrom.current = null;
+    snapshot.current = null;
+  }, [receivedPayload?.session.oid]);
 
   const { session } = payload ?? {
     session: { flag: null, lap: null, isRunning: false, ageS: null,
@@ -183,7 +199,9 @@ export default function App() {
 
   const flagColor = session.flag ? (FLAG_COLOR[session.flag] ?? '#374151') : '#374151';
   const flagLabel = session.flag ? (FLAG_LABEL[session.flag] ?? session.flag) : '—';
-  const ageLabel  = fmtAge(session.ageS);
+  const ageLabel = payload?.session.health === 'finished' ? 'FINISHED'
+    : payload?.session.health === 'stale' ? `DATA STALE · ${fmtAge(session.ageS) || 'unknown age'}`
+    : fmtAge(session.ageS);
 
   function handleSelect(car: CarRow, classCode: string) {
     setSelected((prev) => (prev?.car.car === car.car ? null : { car, classCode }));
@@ -254,6 +272,7 @@ export default function App() {
         {typeMode === 'clean' && (
           <span className="text-[9px] text-muted-fg/50 font-body tracking-wider shrink-0">TYPE B</span>
         )}
+        {payload?.session.configError && <span className="text-amber-400 text-[10px]">CONFIG ERROR</span>}
         {!payload && (
           <span className="text-[10px] text-muted-fg shrink-0">waiting for data…</span>
         )}

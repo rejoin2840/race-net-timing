@@ -392,6 +392,11 @@ class RaceDB:
         if "fuel_flag" not in cols:
             self.conn.execute(
                 "ALTER TABLE standings_current ADD COLUMN fuel_flag TEXT")
+        for col in ("timing_updated_at", "telemetry_updated_at"):
+            if col not in cols:
+                self.conn.execute(f"ALTER TABLE standings_current ADD COLUMN {col} TEXT")
+                if col == "timing_updated_at":
+                    self.conn.execute("UPDATE standings_current SET timing_updated_at=updated_at")
         # tyre + energy telemetry columns (series-specific, NULL when not available)
         if "tire_compound" not in cols:
             self.conn.execute(
@@ -500,7 +505,8 @@ class RaceDB:
     # ── standings + derived history ──────────────────────────────────────────
     def ingest_car(self, car: str, d: dict, standing: dict,
                    session_lap: Optional[int], flag: Optional[str] = None,
-                   raw_data: Optional[str] = None) -> None:
+                   raw_data: Optional[str] = None, timing_observed: bool = True,
+                   telemetry_observed: bool = False) -> None:
         """
         d        = parsed semicolon 'data' dict (overall_position, laps, ...)
         standing = full merged standings entry (lastLapTime, bestLapTime, flags, sectors)
@@ -541,8 +547,8 @@ class RaceDB:
                   laps, laps_behind, gap_ms, elapsed_ms, last_lap_ms, best_lap_ms,
                   best_lap_num, track_status, pits, last_pit_lap, last_pit_hour_ms,
                   fuel_pct, fuel_flag, tire_compound, tire_age, override_state,
-                  raw_data, is_running, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  raw_data, is_running, updated_at, timing_updated_at, telemetry_updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(session_oid, car_number) DO UPDATE SET
                  overall_position=excluded.overall_position,
                  pos_in_class=excluded.pos_in_class, car_class=excluded.car_class,
@@ -556,7 +562,9 @@ class RaceDB:
                  tire_compound=excluded.tire_compound, tire_age=excluded.tire_age,
                  override_state=excluded.override_state,
                  raw_data=excluded.raw_data,
-                 is_running=excluded.is_running, updated_at=excluded.updated_at""",
+                 is_running=excluded.is_running, updated_at=excluded.updated_at,
+                 timing_updated_at=COALESCE(excluded.timing_updated_at, standings_current.timing_updated_at),
+                 telemetry_updated_at=COALESCE(excluded.telemetry_updated_at, standings_current.telemetry_updated_at)""",
             (self.session_oid, car, d.get("overall_position"), d.get("pos_in_class"),
              standing.get("class"), laps, d.get("laps_behind"), d.get("gap_ms"),
              _scalar(standing.get("elapsedTime")),
@@ -566,7 +574,8 @@ class RaceDB:
              standing.get("fuelPct"), standing.get("fuelFlag"),
              standing.get("tireCompound"), standing.get("tireAge"),
              standing.get("overrideState"), raw_data,
-             1 if standing.get("isRunning") else 0, _now()),
+             1 if standing.get("isRunning") else 0, _now(),
+             _now() if timing_observed else None, _now() if telemetry_observed else None),
         )
 
     def _record_pit(self, car: str, stop_number: int, pit_lap: Optional[int],
