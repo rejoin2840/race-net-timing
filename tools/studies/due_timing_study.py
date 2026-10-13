@@ -41,10 +41,10 @@ def flag_bucket(flag):
 
 def legacy_due(car, series):
     stint = car.pit_window_open and car.fuel_laps_left is not None and car.fuel_laps_left <= 1
-    vet = (series == "wec" and car.fuel_pct is not None
-           and car.fuel_pct <= config.CONFIG.as_dict(series)["VET_DUE_PCT"]
-           and (car.est_stops_left or 0) > 0)
-    return bool(stint or vet)
+    if series == "wec" and car.fuel_pct is not None:
+        return bool(car.fuel_pct <= config.CONFIG.as_dict(series)["VET_DUE_PCT"]
+                    and (car.est_stops_left or 0) > 0)
+    return bool(stint)
 
 
 class Observer:
@@ -57,6 +57,7 @@ class Observer:
         self.sample_times = []
         self.decision_end_ms = None
         self.config_sha256 = config_stamp()
+        self.policies = None
 
     def sample(self, conn, oid, ts, ctx, cars):
         if config.CONFIG.error or config_stamp() != self.config_sha256:
@@ -134,7 +135,7 @@ def episodes(samples, index):
 
 def score(observer):
     stops_out, episodes_out = [], []
-    policies = [("current", 2)] + ([("legacy_stint_same_vet", 3)] if observer.series == "wec" else [])
+    policies = observer.policies or [("current", 2)] + ([("legacy_stint_same_vet", 3)] if observer.series == "wec" else [])
     for car in sorted(set(observer.samples) | set(observer.pits)):
         samples = observer.samples[car]
         times = [s[0] for s in samples]
@@ -202,10 +203,10 @@ def summarize(stops, eps):
     return result
 
 
-def run_one(path):
+def run_one(path, observer_factory=None):
     if not path.is_file():
         raise ValueError(f"missing required input: {path.name}")
-    obs = Observer()
+    obs = (observer_factory or Observer)()
     input_sha = vr.file_hash(path)
     with tempfile.TemporaryDirectory(prefix="due-audit-") as tmp:
         db_path = str(Path(tmp) / "race.db")
@@ -239,12 +240,13 @@ def run_one(path):
                 "sample_cycles": len(obs.sample_times), "maximum_sample_gap_s": max(gaps) / 1000 if gaps else None,
                 "first_sample_ms": obs.sample_times[0], "last_sample_ms": obs.sample_times[-1],
                 "calculator_finish_ms": obs.decision_end_ms,
-                "stops": stops, "episodes": eps, "summary": summarize(stops, eps)}
+                "stops": stops, "episodes": eps, "summary": summarize(stops, eps),
+                **(obs.diagnostics() if hasattr(obs, "diagnostics") else {})}
 
 
 def markdown(result):
-    text = ["# DUE timing audit", "", "> Dated evidence; current status: [BACKLOG.md](../BACKLOG.md).", "",
-            f"Method: {METHOD}. Target cadence: {CADENCE_S}s; actual gaps are recorded per input.",
+    text = ["# " + result.get("title", "DUE timing audit"), "", "> Dated evidence; current status: [BACKLOG.md](../BACKLOG.md).", "",
+            f"Method: {result.get('method', METHOD)}. Target cadence: {CADENCE_S}s; actual gaps are recorded per input.",
             "Pit visits are not fuel-necessity labels. Withdrawn episodes are separate from episodes with no later observed entry.",
             "This audits calculator decisions; renderer freshness and live acceptance remain separate.", "",
             "Visits after the calculator finishes are retained as evidence but excluded from timing scores.", "",
@@ -259,7 +261,7 @@ def markdown(result):
     return "\n".join(text) + "\n"
 
 
-def main(argv=None):
+def main(argv=None, observer_factory=None, study_path=__file__, title="DUE timing audit", method=METHOD):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inputs", nargs="*")
     parser.add_argument("--all", action="store_true")
@@ -269,7 +271,7 @@ def main(argv=None):
     if args.output.exists() or args.output.with_suffix(".md").exists():
         parser.error("choose a new output; historical evidence is never overwritten")
     identity = vr.provenance()
-    identity.update({"study_sha256": vr.file_hash(__file__), "python": platform.python_version(),
+    identity.update({"audit_matching_sha256": vr.file_hash(__file__), "study_sha256": vr.file_hash(study_path), "python": platform.python_version(),
                      "implementation": platform.python_implementation(),
                      "dependencies": {n: importlib.metadata.version(n) for n in ("msgpack", "signalrcore", "websockets")}})
     paths = args.inputs or (vr.RACES + vr.WEC_RACES + vr.WEC_CAPTURES if args.all else
@@ -281,17 +283,17 @@ def main(argv=None):
         for path in paths:
             print(f"Auditing {Path(path).name}", file=sys.stderr, flush=True)
             try:
-                races.append(run_one(Path(path)))
+                races.append(run_one(Path(path), observer_factory) if observer_factory else run_one(Path(path)))
             except Exception as exc:
                 errors.append(f"{Path(path).name}: {exc}")
                 print(errors[-1], file=sys.stderr, flush=True)
     if vr.provenance()["config_sha256"] != identity["config_sha256"]:
         errors.append("configuration changed during audit")
-    if vr.provenance()["source_sha256"] != identity["source_sha256"] or vr.file_hash(__file__) != identity["study_sha256"]:
+    if vr.provenance()["source_sha256"] != identity["source_sha256"] or vr.file_hash(study_path) != identity["study_sha256"] or vr.file_hash(__file__) != identity["audit_matching_sha256"]:
         errors.append("source files changed during audit")
     all_stops = [s for r in races for s in r["stops"]]
     all_eps = [e for r in races for e in r["episodes"]]
-    result = {"format": 1, "method": METHOD, "cadence_s": CADENCE_S, "provenance": identity,
+    result = {"format": 1, "title": title, "method": method, "cadence_s": CADENCE_S, "provenance": identity,
               "races": races, "summary": summarize(all_stops, all_eps), "errors": errors}
     vr.validate_numbers(result)
     args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -506,7 +506,8 @@ class RaceDB:
     def ingest_car(self, car: str, d: dict, standing: dict,
                    session_lap: Optional[int], flag: Optional[str] = None,
                    raw_data: Optional[str] = None, timing_observed: bool = True,
-                   telemetry_observed: bool = False) -> None:
+                   telemetry_observed: bool = False,
+                   telemetry_observed_at: Optional[str] = None) -> None:
         """
         d        = parsed semicolon 'data' dict (overall_position, laps, ...)
         standing = full merged standings entry (lastLapTime, bestLapTime, flags, sectors)
@@ -575,7 +576,7 @@ class RaceDB:
              standing.get("tireCompound"), standing.get("tireAge"),
              standing.get("overrideState"), raw_data,
              1 if standing.get("isRunning") else 0, _now(),
-             _now() if timing_observed else None, _now() if telemetry_observed else None),
+             _now() if timing_observed else None, (telemetry_observed_at or _now()) if telemetry_observed else None),
         )
 
     def _record_pit(self, car: str, stop_number: int, pit_lap: Optional[int],

@@ -37,7 +37,7 @@ import sys
 import time
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -940,7 +940,9 @@ class WecLiveClient:
 
         self.db.ingest_car(car, d, standing, self.state.current_lap,
                            self.state.current_flag, timing_observed=timing_observed,
-                           telemetry_observed=telemetry_observed)
+                           telemetry_observed=telemetry_observed,
+                           telemetry_observed_at=(datetime.fromtimestamp(self._frame_ts_ms / 1000, timezone.utc).isoformat()
+                                                  if self._frame_ts_ms is not None else None))
         self.db.commit()
 
     # ── bootstrap hydration ──────────────────────────────────────────────

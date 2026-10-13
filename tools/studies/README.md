@@ -39,3 +39,22 @@ warned visits. Live acceptance remains in the backlog.
 
 Compare current and legacy rows within WEC: pooled current summaries also include
 IMSA, for which this study does not evaluate a legacy policy.
+
+## Fresh WEC energy authority comparison
+
+```sh
+./venv312/bin/python tools/studies/wec_vet_due_study.py --all --output data/wec_vet_due_NEW.json
+```
+
+Three policies share one chronological replay: current fresh-energy authority,
+the shipped additive rule (unaged raw VET), and additive VET with freshness only.
+The calculator retains the unmodified stint decision for passive comparison;
+NET/finish/stop inputs are unchanged. Fresh WEC energy uses the existing 5% gate;
+above it, energy overrides the stint DUE call. Missing/stale energy retains the
+stint fallback. Recorded energy timestamps establish replay freshness against
+recorded analysis time. The standard legacy-stint comparator now shares the same
+fresh-energy authority as the current policy; older dated evidence is preserved.
+
+Per-stop records support paired gain/loss comparisons. Distinguish independent
+events from alternate feeds for the same event; no-VET inputs verify fallback,
+not cross-event generalisation of energy authority. Current findings: BACKLOG.md.

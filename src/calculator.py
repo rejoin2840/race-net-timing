@@ -28,6 +28,7 @@ import math
 import sqlite3
 import sys
 import time
+from datetime import datetime, timezone
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -216,6 +217,7 @@ class CarAnalysis:
     pit_window_open:  bool = False                # within the strategic pit window now
     # real fuel telemetry (virtual fuel tank). fuel_pct None = no data (e.g. LMP2).
     fuel_pct:         Optional[float] = None      # virtual fuel tank %, real telemetry
+    stint_fuel_due:  bool = False                # unmodified stint-path decision, before WEC telemetry
     fuel_flag:        Optional[str] = None        # IMSA low-fuel warning: 'yellow' / 'red'
     fuel_due:         Optional[str] = None        # 'due' from stint estimate (pit window open + ~1 lap fuel left); drives rail roster only
     # tire degradation
@@ -263,6 +265,43 @@ def _is_caution(flag: Optional[str]) -> bool:
     return (flag or "").upper() in CAUTION_FLAGS
 
 
+# Live and replay use the same source-age boundary. Replay timestamps must be
+# recorded timestamps, not the wall time at which the archive is processed.
+TELEMETRY_STALE_S = 12
+
+
+def _analysis_now(conn, oid, now_s=None):
+    if now_s is not None:
+        return now_s
+    try:
+        row = conn.execute("SELECT now_s FROM session_clock WHERE session_oid=?", (oid,)).fetchone()
+        if row and row[0] is not None:
+            return row[0]
+    except sqlite3.Error:
+        pass
+    return time.time()
+
+
+def _fresh_energy(value, stamp, now_s):
+    if not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 100 or not stamp:
+        return None
+    try:
+        observed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=timezone.utc)
+        age = now_s - observed.timestamp()
+        return value if 0 <= age <= TELEMETRY_STALE_S else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _fuel_due(car, series):
+    """Fresh WEC energy governs DUE; missing/stale energy keeps the stint fallback."""
+    if series == "wec" and car.fuel_pct is not None:
+        return "due" if car.fuel_pct <= VET_DUE_PCT and car.est_stops_left > 0 else None
+    return "due" if car.stint_fuel_due else None
+
+
 # ── loaders ─────────────────────────────────────────────────────────────────
 def _load_context(conn: sqlite3.Connection, oid: str, now_s: Optional[float] = None) -> RaceContext:
     sess = conn.execute(
@@ -278,13 +317,7 @@ def _load_context(conn: sqlite3.Connection, oid: str, now_s: Optional[float] = N
     current_lap = (st["current_lap"] if st and st["current_lap"] else 0)
     final_type = (st["final_type"] if st else "") or ""
 
-    if now_s is None:
-        try:
-            clock = conn.execute("SELECT now_s FROM session_clock WHERE session_oid=?", (oid,)).fetchone()
-            if clock:
-                now_s = clock[0]
-        except sqlite3.Error:
-            pass
+    now_s = _analysis_now(conn, oid, now_s)
 
     # clock: elapsed/remaining for a BY_TIME race
     elapsed_s = remaining_s = 0.0
@@ -881,6 +914,7 @@ def analyse(conn: sqlite3.Connection, oid: str, now_s: Optional[float] = None) -
     config.CONFIG.reload_if_changed()   # pick up live config.json edits (~2s latency)
     series = session_series(conn, oid)
     _apply_config(series)               # base knobs + this series' SERIES_OVERRIDES
+    now_s = _analysis_now(conn, oid, now_s)
     ctx = _load_context(conn, oid, now_s=now_s)
     ctx.profile = series_profiles.get_profile(series)
     observed_stints = _class_stint_laps(conn, oid)
@@ -893,7 +927,7 @@ def analyse(conn: sqlite3.Connection, oid: str, now_s: Optional[float] = None) -
         """SELECT s.car_number, s.overall_position, s.pos_in_class, s.car_class,
                   s.laps, s.gap_ms, s.elapsed_ms, s.laps_behind, s.last_lap_ms, s.best_lap_ms, s.pits,
                   s.last_pit_lap, s.track_status, s.is_running,
-                  s.fuel_pct, s.fuel_flag,
+                  s.fuel_pct, s.fuel_flag, s.telemetry_updated_at,
                   s.tire_compound, s.tire_age, s.override_state,
                   e.name AS driver, e.team AS team
              FROM standings_current s
@@ -914,7 +948,8 @@ def analyse(conn: sqlite3.Connection, oid: str, now_s: Optional[float] = None) -
             elapsed_ms=r["elapsed_ms"],
             feed_laps_behind=r["laps_behind"],
         )
-        ca.fuel_pct  = r["fuel_pct"]
+        ca.fuel_pct = (_fresh_energy(r["fuel_pct"], r["telemetry_updated_at"], now_s)
+                       if series == "wec" else r["fuel_pct"])
         ca.fuel_flag = r["fuel_flag"]
         ca.tire_compound  = r["tire_compound"]
         ca.tire_age       = r["tire_age"]
@@ -1152,37 +1187,22 @@ def _derive_class(ctx: RaceContext, cls: str, group: list[CarAnalysis],
             # fuel_due is display-only — net/projected_finish never read it, so any
             # change here leaves the accuracy suite bit-identical.
             if ctx.profile.key == "wec":
-                # WEC: reference the demonstrated fuel RANGE, not the class mean.
-                # avg_stint is dragged below the tank by strategic/short stops, so
-                # gating DUE on it lit the roster ~4 laps early even on genuine fuel
-                # stops (07-21 study). WEC stints are energy-regulated and near
-                # uniform, so the car's own longest clean green stint (capped, else
-                # class mean + slack) calibrates cleanly: mean DUE lead 4.0→1.9,
-                # >2-laps-early 66%→14%. IMSA stint length is strategy-variable with
-                # no reliable fuel telemetry — no reference calibrates its tail
-                # without gutting recall (07-21 dead-end) — so IMSA keeps the mean
-                # gate below, bit-identical to before.
+                # WEC fallback: demonstrated range rather than the class mean.
+                # Historical grading is preserved in BACKLOG.md; the causal audit
+                # supersedes its magnitude and retains live-confirmation caveats.
                 fuel_ref = avg_stint + DUE_REF_SLACK_LAPS
                 cm = car_max_stint.get(ca.car_number) if car_max_stint else None
                 if cm is not None:
                     fuel_ref = max(fuel_ref, min(cm, avg_stint + DUE_REF_CAP_LAPS))
                 if ca.pit_window_open and (fuel_ref - ca.stint_laps) <= DUE_MARGIN_LAPS:
-                    ca.fuel_due = "due"
+                    ca.stint_fuel_due = True
             elif ca.pit_window_open and ca.fuel_laps_left <= 1:
-                ca.fuel_due = "due"
+                ca.stint_fuel_due = True
 
-        # WEC VET override: the real tank % (cars-energy-tanks) beats the stint
-        # estimate when it reads low. WEC-ONLY: IMSA's fuel_pct is the replay-only
-        # VFT that reads near-empty for laps after refuelling (see NOTE above) —
-        # the profile gate keeps that documented failure from coming back. WEC VET
-        # decays cleanly ~99→0 over a stint and jumps straight to ~90 at refuel
-        # (SP 2026 capture), so a low reading is trustworthy on its own — no floor:
-        # a car at 1% is the MOST due, never less.
-        if (ctx.profile.key == "wec"
-                and ca.fuel_pct is not None
-                and ca.fuel_pct <= VET_DUE_PCT
-                and (ca.est_stops_left or 0) > 0):
-            ca.fuel_due = "due"
+        # Fresh WEC VET also contradicts short-stint estimates when above the
+        # existing low-energy threshold. No new tank or stint constants. See
+        # BACKLOG.md Epic 2 for evidence and the live-confirmation limitation.
+        ca.fuel_due = _fuel_due(ca, ctx.profile.key)
 
     # sector deltas vs the class-best sector (who's losing time where)
     for s in (1, 2, 3):

@@ -11,6 +11,31 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-10-13 — WEC fresh-energy DUE correction (Epic 2 / Epic 11): adopted
+  provisionally with an explicit visit-recall tradeoff.** Fresh valid VET now
+  governs DUE using the existing **≤5%** trigger; readings above it suppress the
+  stint-only warning. Stale/missing/invalid energy keeps the unchanged stint
+  fallback. Freshness is checked in the calculator (existing **12s** boundary),
+  with recorded telemetry timestamps in both replay paths. The display poller
+  no longer erases a valid WEC stint fallback when energy expires. No new
+  thresholds, priors, blends, IMSA rule changes or baseline refresh.
+  Reproducible [comparison](data/wec_vet_due_2026-10-13.md) and
+  [per-stop evidence](data/wec_vet_due_2026-10-13.json) cover all 16 inputs and
+  compare authority, shipped additive VET, and freshness-only additive VET.
+  The shipped comparator reproduces every historical current-policy stop record.
+  **Pooled WEC:** timely 0–2-lap coverage **22.8%→25.4%**, early warnings
+  **394→287** (>2 laps), sampled misses **1,222→1,273**. Fourteen no-VET inputs
+  are unchanged. Both energy-bearing inputs are alternate feeds of **São Paulo
+  2026**, not independent-event confirmation. Paired timely visits gained/lost:
+  Timing71 **42/12**, capture **36/10**. Capture timely coverage **42.6%→56.4%**;
+  early warnings **50→0**; misses **58→82**; all 106 retained warnings are within
+  0–2 laps. Do not interpret visits without warnings as proven fuel misses, or
+  call the recall loss resolved. The half-tank contradiction is removed when
+  fresh energy is available. Live and another-event confirmation remain pending.
+  Python 3.12 fast/full IMSA and WEC gates pass against the unchanged baseline;
+  tests cover recorded/live clocks, expiry, invalid/future readings, the 5% edge,
+  unchanged non-DUE analytics, and poller fallback. Historic audit results remain intact.
+
 - **2026-10-12 — DUE timing revalidation (Epic 2 / Epic 11): directional WEC
   improvement survives, historical magnitude is not reproduced.** New reproducible
   `tools/studies/due_timing_study.py` audits all 16 inputs using recorded time,
@@ -602,8 +627,10 @@ module-level IMSA dicts remain only as a fallback for callers without a live con
 **2026-10-12 audit follow-up:** Causal revalidation completed across all 16 inputs;
 see the dated decision above and [results](data/due_timing_audit_2026-10-12.md).
 Current WEC timing improves some measures but loses warning coverage and is uneven
-across inputs. **Next bounded corrective candidate:** fresh VET versus stint-only
-DUE contradictions, backed by the recorded half-tank reproduction. IMSA still follows
+across inputs. **Corrective follow-up implemented 2026-10-13:** fresh VET governs DUE; stale or
+absent energy keeps the stint fallback. The dated decision records improved timely
+coverage, reduced early calls, and increased sampled misses. Another-event/live
+confirmation remains required. IMSA still follows
 capture → sanity-check → adapter; no new IMSA constants or calibration in this slice.
 Live confirmation remains required for the shipped WEC VET and DUE rules.
 
@@ -1066,7 +1093,7 @@ Cross-epic dependency; this is part of the existing roadmap, not a second roadma
 - **11d — Targeted DUE evidence (2026-10-12, implemented on audit branch):**
   Reproducible study, chronological observed pit truth, first/subsequent and flag/class
   groups, unmatched/withdrawn episode accounting, Python 3.12 verification and no
-  prediction side effects. Findings and bounded corrective candidate belong to Epic 2.
+  prediction side effects. Findings and the 2026-10-13 energy correction belong to Epic 2.
 - **Order after these dependencies:** Existing Epic 1/2/7/10 live acceptance, then remaining
   bounded operations/hygiene follow-ups. Seat-time obligations and speculative tuning
   remain unscheduled; shipped driver/lap-latch work keeps its live caveats.
