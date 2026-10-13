@@ -510,7 +510,7 @@ Next WEC race: Rolex 6H São Paulo 2026-07-12.
 
 ### Epic 8 — WEC live pipeline ✅ 2026-07-12 (race captured end-to-end)
 
-**2026-10-12 bounded follow-up (merged PR #45, depends on Epic 11):** Validate external local schedules, timezones, duration and buffered overlaps; supervise failed children with bounded retries; prevent competing same-series ingestion writers; separate import from logging setup and retain bounded diagnostic logs. Complete-capture validation requires a terminal race state and zero processing errors. Live supervisor/recovery confirmation remains pending. **2026-10-13 corrective follow-up (current branch):** post-processing
+**2026-10-12 bounded follow-up (merged PR #45, depends on Epic 11):** Validate external local schedules, timezones, duration and buffered overlaps; supervise failed children with bounded retries; prevent competing same-series ingestion writers; separate import from logging setup and retain bounded diagnostic logs. Complete-capture validation requires a terminal race state and zero processing errors. Live supervisor/recovery confirmation remains pending. **2026-10-13 corrective follow-up (merged PR #46):** post-processing
 is bound to the acquired window/session; failed captures and evaluators cannot
 report success. Raw WEC validation and per-window verdicts are described in the
 dated decision above. Child processes inherit the selected interpreter. Live
@@ -1100,9 +1100,9 @@ dense-timing-table port (stays a PyQt6 escape hatch until proven needed).
 
 ### Epic 11 — Validation integrity and race-state reliability
 
-**Readiness implementation:** merged PR #45. **Current implementation branch:**
-`feature/due-timing-audit` contains the audit, fresh-energy correction and unattended
-window checks; pushed for review, not merged. Live acceptance remains pending.
+**Readiness implementation:** merged PR #45. **DUE audit, fresh-energy correction
+and unattended window checks:** merged PR #46. The next priority is live acceptance
+under Epics 1, 2, 7 and 10; those criteria remain pending.
 Cross-epic dependency; this is part of the existing roadmap, not a second roadmap.
 
 - **11a — Trustworthy replay/evaluation (merged PR #45):** Chronological pit entry,
@@ -1127,11 +1127,11 @@ Cross-epic dependency; this is part of the existing roadmap, not a second roadma
   fast/full IMSA and WEC gates against the unchanged baseline; original Python 3.9
   `venv` is preserved. CI fast/web gates also passed for PR #45. Capture completeness uses
   terminal protocol state, not independent steward-amended final results.
-- **11d — Targeted DUE evidence (2026-10-12, implemented on audit branch):**
+- **11d — Targeted DUE evidence (2026-10-12, merged PR #46):**
   Reproducible study, chronological observed pit truth, first/subsequent and flag/class
   groups, unmatched/withdrawn episode accounting, Python 3.12 verification and no
   prediction side effects. Findings and the 2026-10-13 energy correction belong to Epic 2.
-- **11e — Unattended window evidence (2026-10-13, implemented on current branch):**
+- **11e — Unattended window evidence (2026-10-13, merged PR #46):**
   Window-scoped activity/session selection, terminal race and prediction requirements,
   strict raw WEC check, inherited child runtime, saved verdicts and nonzero failure
   status. Epic 8 owns operational acceptance; offline rehearsal is support only.
