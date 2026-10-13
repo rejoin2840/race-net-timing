@@ -93,8 +93,28 @@ class ConductorTests(DatabaseFixture, unittest.TestCase):
         import weekend_conductor as c
         now=datetime.now(timezone.utc)
         schedule=[('imsa','Test','practice',now,1)]
-        with patch.object(c,'LOG_DIR',Path(self.tmp.name)), patch.object(c,'DATA_DIR',Path(self.tmp.name)), patch.object(sys,'argv',['conductor']), patch('event_schedule.load_schedule',return_value=schedule), patch.object(c,'run_session',return_value=False), patch.object(c.signal,'signal'), patch.object(c,'_log'), patch.object(c,'_file_logger'), patch('runtime.prune_logs'):
-            self.assertEqual(c.main(),1)
+        log_dir=Path(self.tmp.name)/'logs'
+        log_file=log_dir/'weekend_conductor.log'
+        self.assertFalse(log_dir.exists())
+        with (
+            patch.object(c,'LOG_DIR',log_dir),
+            patch.object(c,'CONDUCTOR_LOG',log_file),
+            patch.object(c,'DATA_DIR',Path(self.tmp.name)),
+            patch.object(sys,'argv',['conductor']),
+            patch('event_schedule.load_schedule',return_value=schedule),
+            patch.object(c,'run_session',return_value=False),
+            patch.object(c.signal,'signal'),
+            patch.object(c,'_log'),
+            patch.object(c,'_file_logger') as logger,
+            patch('runtime.prune_logs'),
+        ):
+            try:
+                self.assertEqual(c.main(),1)
+                self.assertTrue(log_file.is_file())
+            finally:
+                # The mocked logger does not own/close this real file handler.
+                if logger.addHandler.called:
+                    logger.addHandler.call_args.args[0].close()
 
     def test_health_cli_fails_without_creating_missing_database(self):
         import subprocess
