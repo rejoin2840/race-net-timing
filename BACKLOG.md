@@ -35,8 +35,13 @@ tune). top pain points, which shape acceptance criteria everywhere:
   and saved PASS; strict check of the São Paulo race capture (155,613 frames,
   terminal observed, missing trailer WARN). New tests cover old/wrong/ambiguous
   windows, missing predictions, no terminal state, raw corruption, old captures,
-  evaluator failure, pinned practice failure and aggregate exit. These do not
-  close live reconnect, race-week supervision or web/PyQt acceptance.
+  evaluator failure, pinned practice failure and aggregate exit. Final WEC gate
+  passes unchanged baseline (NET/catch exactly unchanged; stop differences ≤6e-11ms
+  from runtime rounding). Web behavior/type/build checks pass. Complete accelerated
+  WEC dashboard stream rendered, observed 173 lap states, checked 5,949 high-energy
+  car observations without contradictory DUE, and displayed 166 DUE observations.
+  This is a scripted visual rehearsal, not real-race usefulness or parity judgment.
+  Live reconnect, race-week supervision and web/PyQt acceptance remain pending.
 
 - **2026-10-13 — WEC fresh-energy DUE correction (Epic 2 / Epic 11): adopted
   provisionally with an explicit visit-recall tradeoff.** Fresh valid VET now
