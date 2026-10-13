@@ -11,6 +11,33 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-10-13 — Unattended capture evidence (Epic 8 / Epic 11): window-bound,
+  fail-closed post-processing.** Reproductions: conductor selected the latest
+  stored session even when the current acquisition produced no data; evaluator
+  failures were ignored and health-check CLI returned success on FAIL. Child
+  processes were pinned to `venv` even when the conductor ran under the verified
+  isolated Python 3.12 environment. The conductor now inherits its interpreter,
+  requires one matching session with new laps and positioned timing in its own
+  window, and pins post-processing to that session. Race windows require usable
+  in-window predictions plus observed terminal state; an expired clock is not
+  enough. Missing/ambiguous acquisition, child-restart exhaustion and failed
+  post-processing yield saved FAIL evidence and nonzero aggregate exit.
+  WEC raw validation dispatches every frame into a scratch DB, checks recorded
+  chronology and session identity, and requires timing frames from the window.
+  Malformed/nonfinite frames, parser failures and absent terminal race evidence
+  fail. Missing gzip trailer is an explicit WARN only when protocol evidence
+  suffices; practice/quali remain activity-only checks. No production DB replay
+  or model tuning. Terminal/window evidence does not prove uninterrupted coverage
+  since green or independent steward-amended results. Health-check reads are
+  read-only and can pin the acquired OID.
+  **Verification:** Python 3.12 fast gate; offline real-child conductor rehearsal
+  (practice fixture, 23 positioned cars / 115 lap rows), including stop/cleanup
+  and saved PASS; strict check of the São Paulo race capture (155,613 frames,
+  terminal observed, missing trailer WARN). New tests cover old/wrong/ambiguous
+  windows, missing predictions, no terminal state, raw corruption, old captures,
+  evaluator failure, pinned practice failure and aggregate exit. These do not
+  close live reconnect, race-week supervision or web/PyQt acceptance.
+
 - **2026-10-13 — WEC fresh-energy DUE correction (Epic 2 / Epic 11): adopted
   provisionally with an explicit visit-recall tradeoff.** Fresh valid VET now
   governs DUE using the existing **≤5%** trigger; readings above it suppress the
@@ -478,7 +505,11 @@ Next WEC race: Rolex 6H São Paulo 2026-07-12.
 
 ### Epic 8 — WEC live pipeline ✅ 2026-07-12 (race captured end-to-end)
 
-**2026-10-12 bounded follow-up (implemented on feature branch, depends on Epic 11):** Validate external local schedules, timezones, duration and buffered overlaps; supervise failed children with bounded retries; prevent competing same-series ingestion writers; separate import from logging setup and retain bounded diagnostic logs. Complete-capture validation requires a terminal race state and zero processing errors. Live supervisor/recovery confirmation remains pending.
+**2026-10-12 bounded follow-up (merged PR #45, depends on Epic 11):** Validate external local schedules, timezones, duration and buffered overlaps; supervise failed children with bounded retries; prevent competing same-series ingestion writers; separate import from logging setup and retain bounded diagnostic logs. Complete-capture validation requires a terminal race state and zero processing errors. Live supervisor/recovery confirmation remains pending. **2026-10-13 corrective follow-up (current branch):** post-processing
+is bound to the acquired window/session; failed captures and evaluators cannot
+report success. Raw WEC validation and per-window verdicts are described in the
+dated decision above. Child processes inherit the selected interpreter. Live
+race-week supervision/recovery remains pending.
 
 
 **Outcome:** the 6H São Paulo race was captured complete (155k frames, zero dispatch
@@ -1064,17 +1095,18 @@ dense-timing-table port (stays a PyQt6 escape hatch until proven needed).
 
 ### Epic 11 — Validation integrity and race-state reliability
 
-**Readiness implementation:** merged PR #45. **Current corrective study:**
-`feature/due-timing-audit`; live acceptance remains pending.
+**Readiness implementation:** merged PR #45. **Current implementation branch:**
+`feature/due-timing-audit` contains the audit, fresh-energy correction and unattended
+window checks; pushed for review, not merged. Live acceptance remains pending.
 Cross-epic dependency; this is part of the existing roadmap, not a second roadmap.
 
-- **11a — Trustworthy replay/evaluation (implemented on feature branch):** Chronological pit entry,
+- **11a — Trustworthy replay/evaluation (merged PR #45):** Chronological pit entry,
   observed exit duration and driver changes; scorer-only final classification; explicit
   replay clock; input SHA256, configuration and source/commit identities in results.
   Required archives, processing errors, incomplete terminal state, invalid/missing
   metrics, changed input/config identity and baseline breaches now fail the gate.
   Corrected baseline rebuilt across all 16 inputs; see regression section.
-- **11b — Race-state reliability (implemented on feature branch):** Separate timing/telemetry/
+- **11b — Race-state reliability (merged PR #45):** Separate timing/telemetry/
   computation freshness; suppress unavailable strategy and stale fuel; renderer ages
   independently when updates stop. Session changes clear delay buffers, history and
   latches. Shared poller transaction publishes coherent derived data and records fresh
@@ -1094,6 +1126,10 @@ Cross-epic dependency; this is part of the existing roadmap, not a second roadma
   Reproducible study, chronological observed pit truth, first/subsequent and flag/class
   groups, unmatched/withdrawn episode accounting, Python 3.12 verification and no
   prediction side effects. Findings and the 2026-10-13 energy correction belong to Epic 2.
+- **11e — Unattended window evidence (2026-10-13, implemented on current branch):**
+  Window-scoped activity/session selection, terminal race and prediction requirements,
+  strict raw WEC check, inherited child runtime, saved verdicts and nonzero failure
+  status. Epic 8 owns operational acceptance; offline rehearsal is support only.
 - **Order after these dependencies:** Existing Epic 1/2/7/10 live acceptance, then remaining
   bounded operations/hygiene follow-ups. Seat-time obligations and speculative tuning
   remain unscheduled; shipped driver/lap-latch work keeps its live caveats.
@@ -1180,8 +1216,8 @@ NET does not beat track order on any input in this corrected run. The projected
 blend is close to track order and improves some WEC inputs modestly; this does not
 justify stronger blend weights or a new model. São Paulo 2026 capture vs Timing71
 projected MAE is 3.17 vs 3.10, so the historical 3.16 vs 2.93 comparison is superseded.
-DUE lead-time and other targeted studies need their own corrected re-runs; aggregate
-finish metrics cannot validate them.
+DUE timing has dated causal audits above; other targeted historical studies still
+need corrected re-runs. Aggregate finish metrics cannot validate warning timing.
 
 Baseline tolerances (bounded regression allowances, not accuracy targets): projected
 and NET MAE +0.10 positions, stop MAE +1000ms, catch hit rate −0.05; catch coverage must
