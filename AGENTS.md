@@ -11,7 +11,7 @@
 
 ## Git and verification
 - Check status/branch first. Never edit on main. Preserve changes made by others; use an isolated checkout if needed.
-- Commit, push, PR, and merge only when the user's request authorizes those steps. This overrides CLAUDE.md's automatic-push wording for Codex.
+- Handle branches, commits, pushes, and PR creation as needed for authorized work. Keep the PR title/body aligned with its complete scope. The user performs merges; never merge automatically. This overrides CLAUDE.md's merge workflow for Codex.
 - Before any commit run ./check.sh. Calculator/replay/evaluator changes require ./check.sh --full; WEC changes also require the WEC suite; finish changes require all races.
 - UI changes require typecheck, behavior tests, production build, an offscreen render, and a streaming replay feel-test. Live acceptance stays pending until a real event.
 - A baseline refresh is an explicit action, never an automatic response to a failing regression. Do not tune off a single race or practice.

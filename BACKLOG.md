@@ -11,6 +11,105 @@ tune). top pain points, which shape acceptance criteria everywhere:
 
 ## Decisions log (do not relitigate without new information)
 
+- **2026-10-13 — Unattended capture evidence (Epic 8 / Epic 11): window-bound,
+  fail-closed post-processing.** Reproductions: conductor selected the latest
+  stored session even when the current acquisition produced no data; evaluator
+  failures were ignored and health-check CLI returned success on FAIL. Child
+  processes were pinned to `venv` even when the conductor ran under the verified
+  isolated Python 3.12 environment. The conductor now inherits its interpreter,
+  requires one matching session with new laps and positioned timing in its own
+  window, and pins post-processing to that session. Race windows require usable
+  in-window predictions plus observed terminal state; an expired clock is not
+  enough. Missing/ambiguous acquisition, child-restart exhaustion and failed
+  post-processing yield saved FAIL evidence and nonzero aggregate exit.
+  WEC raw validation dispatches every frame into a scratch DB, checks recorded
+  chronology and session identity, and requires timing frames from the window.
+  Malformed/nonfinite frames, parser failures and absent terminal race evidence
+  fail. Missing gzip trailer is an explicit WARN only when protocol evidence
+  suffices; practice/quali remain activity-only checks. No production DB replay
+  or model tuning. Terminal/window evidence does not prove uninterrupted coverage
+  since green or independent steward-amended results. Health-check reads are
+  read-only and can pin the acquired OID.
+  **Verification:** Python 3.12 fast gate; offline real-child conductor rehearsal
+  (practice fixture, 23 positioned cars / 115 lap rows), including stop/cleanup
+  and saved PASS; strict check of the São Paulo race capture (155,613 frames,
+  terminal observed, missing trailer WARN). New tests cover old/wrong/ambiguous
+  windows, missing predictions, no terminal state, raw corruption, old captures,
+  evaluator failure, pinned practice failure and aggregate exit. Final WEC gate
+  passes unchanged baseline (NET/catch exactly unchanged; stop differences ≤6e-11ms
+  from runtime rounding). Web behavior/type/build checks pass. Complete accelerated
+  WEC dashboard stream rendered, observed 173 lap states, checked 5,949 high-energy
+  car observations without contradictory DUE, and displayed 166 DUE observations.
+  This is a scripted visual rehearsal, not real-race usefulness or parity judgment.
+  Live reconnect, race-week supervision and web/PyQt acceptance remain pending.
+
+- **2026-10-13 — WEC fresh-energy DUE correction (Epic 2 / Epic 11): adopted
+  provisionally with an explicit visit-recall tradeoff.** Fresh valid VET now
+  governs DUE using the existing **≤5%** trigger; readings above it suppress the
+  stint-only warning. Stale/missing/invalid energy keeps the unchanged stint
+  fallback. Freshness is checked in the calculator (existing **12s** boundary),
+  with recorded telemetry timestamps in both replay paths. The display poller
+  no longer erases a valid WEC stint fallback when energy expires. No new
+  thresholds, priors, blends, IMSA rule changes or baseline refresh.
+  Reproducible [comparison](data/wec_vet_due_2026-10-13.md) and
+  [per-stop evidence](data/wec_vet_due_2026-10-13.json) cover all 16 inputs and
+  compare authority, shipped additive VET, and freshness-only additive VET.
+  The shipped comparator reproduces every historical current-policy stop record.
+  **Pooled WEC:** timely 0–2-lap coverage **22.8%→25.4%**, early warnings
+  **394→287** (>2 laps), sampled misses **1,222→1,273**. Fourteen no-VET inputs
+  are unchanged. Both energy-bearing inputs are alternate feeds of **São Paulo
+  2026**, not independent-event confirmation. Paired timely visits gained/lost:
+  Timing71 **42/12**, capture **36/10**. Capture timely coverage **42.6%→56.4%**;
+  early warnings **50→0**; misses **58→82**; all 106 retained warnings are within
+  0–2 laps. Do not interpret visits without warnings as proven fuel misses, or
+  call the recall loss resolved. The half-tank contradiction is removed when
+  fresh energy is available. Live and another-event confirmation remain pending.
+  Python 3.12 fast/full IMSA and WEC gates pass against the unchanged baseline;
+  tests cover recorded/live clocks, expiry, invalid/future readings, the 5% edge,
+  unchanged non-DUE analytics, and poller fallback. Historic audit results remain intact.
+
+- **2026-10-12 — DUE timing revalidation (Epic 2 / Epic 11): directional WEC
+  improvement survives, historical magnitude is not reproduced.** New reproducible
+  `tools/studies/due_timing_study.py` audits all 16 inputs using recorded time,
+  chronological inputs, passive observers and a five-second target cadence.
+  Full [machine evidence](data/due_timing_audit_2026-10-12.json) and
+  [grouped results](data/due_timing_audit_2026-10-12.md) retain per-stop/episode evidence,
+  input/config/code/runtime identity, exclusions and actual sample gaps.
+  **WEC current vs legacy stint gate, identical VET:** 2,092 eligible visits each;
+  median lead among warned visits **2 vs 4 laps**, mean **3.83 vs 4.72**;
+  >2-laps-early **45.3% vs 61.9% of warnings**. Timely warnings within 0–2 laps
+  cover **22.8% vs 20.8% of all eligible visits**, including misses in the denominator.
+  Current warns on 870 visits, legacy on 1,141; **1,222 vs 951 sampled misses**.
+  Mean lead is conditional on different warned subsets, not a paired accuracy gain.
+  Timely coverage improves in 5/9 WEC inputs but worsens at COTA, Bahrain, Imola
+  and Qatar. The São Paulo capture improves **42.6% vs 21.3%**, median **2 vs 5**.
+  **IMSA current only:** 2,750 eligible visits, 1,240 warned, median **3 laps**,
+  mean **5.07**; 50.5% of warnings >2 laps early, timely coverage **22.3%**.
+  The 07-21 **4.0→1.9 / 66%→14%** figures remain historical; this audit uses all
+  observed visits and a specified leading-episode rule. The original study script
+  was absent from the merged repo, so its fuel-subset methodology is not fully
+  reproducible. Do not declare the old modeling conclusion false from this audit.
+  **Concrete contradiction:** at recorded epoch 1783872354957 in the São Paulo
+  capture, #15/#51/#17/#007 show DUE at 49–52% VET (5.112s since energy update).
+  Two representative short green stints (#19: 19 laps; #50: 21) yield class mean
+  20; these cars have no individual clean range yet. Warnings lead their next
+  visits by 20–22 laps. High VET does not veto the stint-path DUE call today.
+  **Recommendation:** retain shipped behavior for this audit-only slice; prioritize
+  a bounded follow-up to evaluate fresh WEC VET as a negative constraint on
+  stint-only DUE when energy contradicts the estimate. Keep the existing 5% VET
+  threshold and stale/absent-data fallback; validate missed and timely visits
+  before changing production behavior. Do not retune class priors or blend weights.
+  **Limits:** visits are not proof of fuel necessity; scores audit calculator
+  decisions, not renderer freshness. The five-second target cannot invent source
+  frames: per-input maximum recorded gaps range from 13–301s (capture: 19.858s). Withdrawn episodes and episodes
+  with no later observed entry are separate. Post-calculator-finish visits are
+  retained but excluded. The capture has a truncated gzip trailer after terminal
+  race evidence; this is protocol-complete, not a claim of byte-perfect capture.
+  Python 3.12.14 fast/full IMSA and WEC gates pass against the unchanged baseline;
+  observer tests show prediction rows unchanged on both replay paths and future
+  stop changes cannot affect earlier samples. `venv312` is isolated; original
+  Python 3.9 `venv` is preserved. Live VET/DUE, gaps, WYWA and parity stay pending.
+
 - **2026-10-12 — Integrated readiness review; roadmap preserved.** Implementation
   on `feature/race-readiness` adds Epic 11 and corrective follow-ups below. Reproductions:
   Timing71 preloaded future stop durations/driver changes; finish scoring inferred truth
@@ -411,7 +510,11 @@ Next WEC race: Rolex 6H São Paulo 2026-07-12.
 
 ### Epic 8 — WEC live pipeline ✅ 2026-07-12 (race captured end-to-end)
 
-**2026-10-12 bounded follow-up (implemented on feature branch, depends on Epic 11):** Validate external local schedules, timezones, duration and buffered overlaps; supervise failed children with bounded retries; prevent competing same-series ingestion writers; separate import from logging setup and retain bounded diagnostic logs. Complete-capture validation requires a terminal race state and zero processing errors. Live supervisor/recovery confirmation remains pending.
+**2026-10-12 bounded follow-up (merged PR #45, depends on Epic 11):** Validate external local schedules, timezones, duration and buffered overlaps; supervise failed children with bounded retries; prevent competing same-series ingestion writers; separate import from logging setup and retain bounded diagnostic logs. Complete-capture validation requires a terminal race state and zero processing errors. Live supervisor/recovery confirmation remains pending. **2026-10-13 corrective follow-up (current branch):** post-processing
+is bound to the acquired window/session; failed captures and evaluators cannot
+report success. Raw WEC validation and per-window verdicts are described in the
+dated decision above. Child processes inherit the selected interpreter. Live
+race-week supervision/recovery remains pending.
 
 
 **Outcome:** the 6H São Paulo race was captured complete (155k frames, zero dispatch
@@ -557,6 +660,16 @@ module-level IMSA dicts remain only as a fallback for callers without a live con
 **Readiness dependency — Epic 11:** IMSA capture → sanity-check → adapter sequence remains unchanged. Preserve shipped WEC VET and revised DUE timing; confirm both live. Re-run affected replay-based fuel/DUE calibration studies with chronological inputs before using their metrics for further tuning. Source timing and tank telemetry now have distinct freshness stamps; absent/stale tank data cannot keep a fresh DUE signal.
 
 
+**2026-10-12 audit follow-up:** Causal revalidation completed across all 16 inputs;
+see the dated decision above and [results](data/due_timing_audit_2026-10-12.md).
+Current WEC timing improves some measures but loses warning coverage and is uneven
+across inputs. **Corrective follow-up implemented 2026-10-13:** fresh VET governs DUE; stale or
+absent energy keeps the stint fallback. The dated decision records improved timely
+coverage, reduced early calls, and increased sampled misses. Another-event/live
+confirmation remains required. IMSA still follows
+capture → sanity-check → adapter; no new IMSA constants or calibration in this slice.
+Live confirmation remains required for the shipped WEC VET and DUE rules.
+
 **IMSA side** — capture blocked on next IMSA practice/qualifying session:
 - Capture with `src/telemetry_capture.py` at next IMSA practice. **First verify owner's
   report that GTD + GTD Pro now have live telemetry** (feed was GTP-only when captured;
@@ -583,8 +696,7 @@ module-level IMSA dicts remain only as a fallback for callers without a live con
   tracking (`calculator.py`), so validate it adds real signal before wiring it in —
   don't build it speculatively.
 
-**WEC side** — ✅ VET CONFIRMED (2026-07-15, from the SP race capture) and better
-than hypothesized — **unblocked, ready to build**:
+**WEC side — VET shipped; live confirmation pending.** Historical discovery/build notes follow:
 - `cars-energy-tanks` channel = Virtual Energy Tank %, and it covers the **entire
   field, both classes** (17 HYPERCAR + 18 LMGT3, all 35 cars) — the old
   "Hypercar-only" caveat is dead. 3,677 frames in the race capture; per-car items
@@ -988,16 +1100,18 @@ dense-timing-table port (stays a PyQt6 escape hatch until proven needed).
 
 ### Epic 11 — Validation integrity and race-state reliability
 
-**Owner:** `feature/race-readiness` (implementation complete; live acceptance pending).
+**Readiness implementation:** merged PR #45. **Current implementation branch:**
+`feature/due-timing-audit` contains the audit, fresh-energy correction and unattended
+window checks; pushed for review, not merged. Live acceptance remains pending.
 Cross-epic dependency; this is part of the existing roadmap, not a second roadmap.
 
-- **11a — Trustworthy replay/evaluation (implemented on feature branch):** Chronological pit entry,
+- **11a — Trustworthy replay/evaluation (merged PR #45):** Chronological pit entry,
   observed exit duration and driver changes; scorer-only final classification; explicit
   replay clock; input SHA256, configuration and source/commit identities in results.
   Required archives, processing errors, incomplete terminal state, invalid/missing
   metrics, changed input/config identity and baseline breaches now fail the gate.
   Corrected baseline rebuilt across all 16 inputs; see regression section.
-- **11b — Race-state reliability (implemented on feature branch):** Separate timing/telemetry/
+- **11b — Race-state reliability (merged PR #45):** Separate timing/telemetry/
   computation freshness; suppress unavailable strategy and stale fuel; renderer ages
   independently when updates stop. Session changes clear delay buffers, history and
   latches. Shared poller transaction publishes coherent derived data and records fresh
@@ -1009,9 +1123,18 @@ Cross-epic dependency; this is part of the existing roadmap, not a second roadma
   displayed 83 distinct lap states; browser drilldown rendered without console errors.
   Automated tests cover bounded child restarts and causal/stale/session contracts. Real feed stalls/recovery, full live pit-cycle gap continuity,
   WEC VET/DUE and live web/PyQt parity remain pending under Epics 1, 2, 7 and 10.
-  Local installed venv is Python 3.9; setup/CI now require 3.12. Local checks do not
-  establish CI-runtime parity until executed under 3.12. Capture completeness uses
+  **2026-10-12 runtime verification:** isolated `venv312` (Python 3.12.14) passes
+  fast/full IMSA and WEC gates against the unchanged baseline; original Python 3.9
+  `venv` is preserved. CI fast/web gates also passed for PR #45. Capture completeness uses
   terminal protocol state, not independent steward-amended final results.
+- **11d — Targeted DUE evidence (2026-10-12, implemented on audit branch):**
+  Reproducible study, chronological observed pit truth, first/subsequent and flag/class
+  groups, unmatched/withdrawn episode accounting, Python 3.12 verification and no
+  prediction side effects. Findings and the 2026-10-13 energy correction belong to Epic 2.
+- **11e — Unattended window evidence (2026-10-13, implemented on current branch):**
+  Window-scoped activity/session selection, terminal race and prediction requirements,
+  strict raw WEC check, inherited child runtime, saved verdicts and nonzero failure
+  status. Epic 8 owns operational acceptance; offline rehearsal is support only.
 - **Order after these dependencies:** Existing Epic 1/2/7/10 live acceptance, then remaining
   bounded operations/hygiene follow-ups. Seat-time obligations and speculative tuning
   remain unscheduled; shipped driver/lap-latch work keeps its live caveats.
@@ -1098,8 +1221,8 @@ NET does not beat track order on any input in this corrected run. The projected
 blend is close to track order and improves some WEC inputs modestly; this does not
 justify stronger blend weights or a new model. São Paulo 2026 capture vs Timing71
 projected MAE is 3.17 vs 3.10, so the historical 3.16 vs 2.93 comparison is superseded.
-DUE lead-time and other targeted studies need their own corrected re-runs; aggregate
-finish metrics cannot validate them.
+DUE timing has dated causal audits above; other targeted historical studies still
+need corrected re-runs. Aggregate finish metrics cannot validate warning timing.
 
 Baseline tolerances (bounded regression allowances, not accuracy targets): projected
 and NET MAE +0.10 positions, stop MAE +1000ms, catch hit rate −0.05; catch coverage must

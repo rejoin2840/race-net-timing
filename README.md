@@ -109,6 +109,27 @@ caffeinate -s venv/bin/python src/weekend_conductor.py --schedule config/weekend
 ./check.sh
 ```
 
+The conductor uses the Python interpreter that launched it for every child. To
+use an isolated verified environment, launch it with `venv312/bin/python`.
+Each window saves `logs/capture_<session>_<timestamp>.json` with PASS/WARN/FAIL,
+its acquired session, runtime, and WEC capture identity. A failed window makes
+the conductor exit nonzero. Old sessions cannot satisfy a new window; races need
+recorded predictions and an observed terminal state. WEC raw capture validation
+uses a scratch DB and requires timing frames in that acquisition window.
+
+Check a raw WEC race capture independently (practice/quali: add `--activity-only`):
+
+```sh
+./venv312/bin/python src/capture_readiness.py --capture data/CAPTURE.jsonl.gz --session SESSION_OID
+```
+
+A terminal capture with a missing gzip trailer reports WARN; intact gzip without
+terminal race evidence fails. Malformed frames, dispatch failures and mismatched
+sessions fail. These checks establish captured-window activity and terminal state;
+they do not prove uninterrupted coverage since green or steward-amended final results.
+Live recovery and display acceptance remain in [BACKLOG.md](BACKLOG.md).
+
+
 Replay archives are Timing71 zips. IMSA archives live in `ARCHIVE_DIR` (config.json,
 default `IMSA Archives/` in the repo root). **Only complete run-to-chequered archives belong in regression
 sets** — truncated ones skew the numbers.

@@ -31,7 +31,10 @@ before trusting it with the real schedule):
 """
 
 import argparse
+import contextlib
 import logging
+import json
+import sqlite3
 from logging.handlers import RotatingFileHandler
 import os
 import signal
@@ -46,7 +49,8 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 LOG_DIR = ROOT / "logs"
 DATA_DIR = ROOT / "data"
-PYTHON = str(ROOT / "venv" / "bin" / "python")
+# Children must inherit the verified environment used to launch the conductor.
+PYTHON = sys.executable
 
 sys.path.insert(0, str(SRC))
 import calculator          # noqa: E402
@@ -147,7 +151,7 @@ def run_session(series: str, label: str, kind: str, start: datetime,
     if stop_at <= now:
         _log(f"SKIP {series} {label}: window already passed "
              f"(would have stopped {stop_at:%H:%M})")
-        return
+        return True
 
     if launch_at > now:
         wait_s = (launch_at - now).total_seconds()
@@ -163,6 +167,9 @@ def run_session(series: str, label: str, kind: str, start: datetime,
     _write_lock(series, pid=0)  # placeholder until we have the real pid
     scraper_proc = None
     predictor_proc = None
+    record_path = None
+    acquisition_error = None
+    acquisition_start_s = time.time()
     try:
         scraper_args = [PYTHON, "-u", str(SRC / SCRAPER[series])]
         if series == "wec":
@@ -227,6 +234,7 @@ def run_session(series: str, label: str, kind: str, start: datetime,
             time.sleep(min(2, max(0, (stop_at - datetime.now(start.tzinfo)).total_seconds())))
 
     except Exception as e:
+        acquisition_error = str(e)
         _log(f"  ⚠ ERROR during {series} {label}: {e}")
     finally:
         _log(f"STOP {series} {label}")
@@ -236,33 +244,61 @@ def run_session(series: str, label: str, kind: str, start: datetime,
         _untrack(predictor_proc)
         _remove_lock(series)
 
-    # post-processing (best-effort; never let this crash the thread)
+    acquisition_end_s = time.time()
+    evidence = {"series": series, "label": label, "kind": kind,
+                "window_start_s": acquisition_start_s, "window_end_s": acquisition_end_s,
+                "python": sys.version.split()[0], "acquisition_error": acquisition_error}
     try:
-        db_path = str(DATA_DIR / "race.db")
-        if kind in ("race", "sprint_race"):
-            import sqlite3
-            conn = sqlite3.connect(db_path)
-            oid = calculator.latest_session(conn, series=series)
-            conn.close()
-            if not oid:
-                _log(f"  ⚠ no session found for {series} — evaluator skipped")
-            else:
-                _log(f"  running evaluator for {oid}")
-                result = subprocess.run(
-                    [PYTHON, str(SRC / "evaluator.py"), "--db", db_path,
-                     "--session", oid, "--force"],
-                    cwd=str(ROOT), capture_output=True, text=True, timeout=120,
-                )
-                for line in (result.stdout + result.stderr).splitlines():
-                    _log(f"    eval: {line}")
-        else:
-            report = session_healthcheck.check(db_path, series, str(scraper_log_path))
-            for line in report.splitlines():
-                _log(f"    {line}")
+        if acquisition_error:
+            raise ValueError("acquisition failed; post-processing cannot mark this window successful")
+        evidence.update(postprocess_window(series, kind, DATA_DIR / "race.db",
+                                          scraper_log_path, record_path,
+                                          acquisition_start_s, acquisition_end_s))
+        evidence.setdefault("verdict", "PASS")
     except Exception as e:
-        _log(f"  ⚠ post-processing error for {series} {label}: {e}")
+        evidence["verdict"] = "FAIL"
+        evidence["error"] = str(e)
+        _log(f"  ⚠ post-processing FAIL for {series} {label}: {e}")
+    evidence_path = LOG_DIR / f"capture_{slug}_{start:%Y%m%d_%H%M%S}.json"
+    evidence_path.write_text(json.dumps(evidence, indent=2) + "\n")
+    _log(f"{evidence['verdict']} {series} {label} — evidence: {evidence_path}")
+    return evidence["verdict"] != "FAIL"
 
-    _log(f"DONE {series} {label}")
+
+def postprocess_window(series, kind, db_path, scraper_log, record_path, start_s, end_s):
+    """Validate this acquisition, never whichever old session happens to be latest."""
+    from capture_readiness import window_session, check_wec_capture
+    with contextlib.closing(sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+        oid = window_session(conn, series, kind, start_s, end_s)
+    evidence = {"session_oid": oid}
+    race = kind in ("race", "sprint_race")
+    if series == "wec":
+        if record_path is None:
+            raise ValueError("required raw WEC capture absent")
+        evidence["capture"] = check_wec_capture(record_path, oid, require_terminal=race,
+                                               window_start_s=start_s, window_end_s=end_s)
+        if not evidence["capture"]["gzip_trailer_complete"]:
+            evidence["verdict"] = "WARN"
+            _log("  capture has terminal protocol evidence but an incomplete gzip trailer")
+    if race:
+        _log(f"  running evaluator for acquired session {oid}")
+        result = subprocess.run([PYTHON, str(SRC / "evaluator.py"), "--db", str(db_path),
+                                 "--session", oid, "--force"],
+                                cwd=str(ROOT), capture_output=True, text=True, timeout=120)
+        for line in (result.stdout + result.stderr).splitlines():
+            _log(f"    eval: {line}")
+        if result.returncode:
+            raise ValueError(f"evaluator failed (exit {result.returncode})")
+    else:
+        report = session_healthcheck.check(str(db_path), series, str(scraper_log), session_oid=oid)
+        for line in report.splitlines():
+            _log(f"    {line}")
+        if "[FAIL]" in report or "FAIL:" in report:
+            raise ValueError("acquired session failed its activity health check")
+        if "[WARN]" in report:
+            evidence["verdict"] = "WARN"
+        evidence["health_report"] = report
+    return evidence
 
 
 def main():
@@ -333,17 +369,26 @@ def main():
 
     _log(f"conductor starting, {len(schedule)} session(s) scheduled")
     threads = []
-    for series, label, kind, start, window_override in schedule:
-        t = threading.Thread(target=run_session,
-                              args=(series, label, kind, start, window_override),
+    results = {}
+    def execute(index, *session):
+        try:
+            results[index] = run_session(*session)
+        except Exception as exc:
+            results[index] = False
+            _log(f"  session supervision failed: {exc}")
+    for index, (series, label, kind, start, window_override) in enumerate(schedule):
+        t = threading.Thread(target=execute,
+                              args=(index, series, label, kind, start, window_override),
                               name=f"{series}-{label}", daemon=False)
         t.start()
         threads.append(t)
 
     for t in threads:
         t.join()
-    _log("conductor: all sessions handled, exiting")
+    failed = sum(not results.get(index, False) for index in range(len(schedule)))
+    _log(f"conductor: all sessions handled, {failed} failed window(s)")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

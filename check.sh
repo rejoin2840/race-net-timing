@@ -9,7 +9,7 @@
 #
 # Archives for --full live in ARCHIVE_DIR (config.json, default IMSA Archives).
 cd "$(dirname "$0")" || exit 1
-PY=./venv/bin/python
+PY="${OVERCUT_PYTHON:-./venv/bin/python}"
 fail=0
 
 echo "== unit tests =="

@@ -372,7 +372,9 @@ class Poller:
                 if not ctx.is_finished and (source_age is None or source_age > STALE_AFTER_S):
                     car.strategy_stale = True
                     suppress_strategy(car)
-                if source and car.fuel_pct is not None:
+                # WEC energy is already aged against the calculator clock.
+                # Do not erase its stint fallback after analysis.
+                if ctx.profile.key != "wec" and source and car.fuel_pct is not None:
                     tank_age = timestamp_age(source["telemetry_updated_at"])
                     if tank_age is None or tank_age > STALE_AFTER_S:
                         car.fuel_pct = None

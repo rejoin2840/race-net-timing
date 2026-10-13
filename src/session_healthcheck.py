@@ -73,22 +73,23 @@ def _parse_db_ts(ts: "str | None") -> "datetime | None":
         return None
 
 
-def check(db_path: str, series: str, scraper_log: "str | None",
-          expect_activity: bool = True) -> str:
+def _check(conn, series, scraper_log, expect_activity, session_oid):
     lines = []
-    conn = sqlite3.connect(db_path)
-    oid = calculator.latest_session(conn, series=series)
+    oid = session_oid or calculator.latest_session(conn, series=series)
+    if oid and not conn.execute("SELECT 1 FROM sessions WHERE session_oid=? AND series=?", (oid, series)).fetchone():
+        oid = None
     if not oid:
-        conn.close()
-        return f"  ⚠ FAIL: no {series} session found in {db_path}"
+        return f"  ⚠ FAIL: no matching {series} session found"
 
     lines.append(f"  session: {oid}")
 
     entries = conn.execute(
         "SELECT COUNT(*) FROM session_entry WHERE session_oid=?", (oid,)
     ).fetchone()[0]
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(standings_current)")}
+    source_stamp = "timing_updated_at" if "timing_updated_at" in columns else "updated_at"
     standings, positioned, newest_upd = conn.execute(
-        "SELECT COUNT(*), COUNT(overall_position), MAX(updated_at) "
+        f"SELECT COUNT(*), COUNT(overall_position), MAX({source_stamp}) "
         "FROM standings_current WHERE session_oid=?", (oid,)
     ).fetchone()
     laps_rows = conn.execute(
@@ -170,23 +171,38 @@ def check(db_path: str, series: str, scraper_log: "str | None",
 
     verdict = "FAIL" if not ok else ("WARN" if warned else "PASS")
     lines.insert(0, f"  [{verdict}] {series} health check — {oid}")
-    conn.close()
     return "\n".join(lines)
+
+
+def check(db_path: str, series: str, scraper_log: "str | None",
+          expect_activity: bool = True, session_oid=None) -> str:
+    conn = None
+    try:
+        conn = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
+        return _check(conn, series, scraper_log, expect_activity, session_oid)
+    except sqlite3.Error as exc:
+        return f"  [FAIL] {series} health check — database unavailable: {exc}"
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(DEFAULT_DB_PATH))
     ap.add_argument("--series", required=True, choices=["imsa", "wec"])
+    ap.add_argument("--session", default=None, help="pin the acquired session instead of choosing latest")
     ap.add_argument("--scraper-log", default=None,
                     help="path to the redirected stdout/log of the scraper process")
     ap.add_argument("--idle-ok", action="store_true",
                     help="don't require captured lap/standings data — for ad-hoc "
                          "runs outside a scheduled session window")
     args = ap.parse_args()
-    print(check(args.db, args.series, args.scraper_log,
-                expect_activity=not args.idle_ok))
+    report = check(args.db, args.series, args.scraper_log,
+                   expect_activity=not args.idle_ok, session_oid=args.session)
+    print(report)
+    return 1 if "[FAIL]" in report or "FAIL:" in report else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
